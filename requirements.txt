@@ -1,0 +1,54 @@
+# ── Web framework ──────────────────────────────────────────────────────────
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.12
+
+# ── Database ───────────────────────────────────────────────────────────────
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+pgvector==0.3.6
+
+# ── Redis ──────────────────────────────────────────────────────────────────
+redis[asyncio]==5.2.1
+
+# ── Validation & settings ─────────────────────────────────────────────────
+pydantic==2.10.3
+pydantic-settings==2.6.1
+pydantic[email]==2.10.3
+
+# ── Security ──────────────────────────────────────────────────────────────
+cryptography==43.0.3
+passlib[bcrypt]==1.7.4
+PyJWT==2.10.1
+
+# ── HTTP client ───────────────────────────────────────────────────────────
+httpx==0.28.1
+
+# ── Google Cloud ──────────────────────────────────────────────────────────
+google-cloud-storage==2.19.0
+google-cloud-secret-manager==2.21.0
+google-cloud-aiplatform==1.74.0
+vertexai==1.74.0
+google-api-python-client==2.154.0
+google-auth==2.37.0
+google-auth-httplib2==0.2.0
+
+# ── AI providers ──────────────────────────────────────────────────────────
+openai==1.57.4
+anthropic==0.40.0
+
+# ── Document parsing ──────────────────────────────────────────────────────
+PyMuPDF==1.25.1
+python-docx==1.1.2
+openpyxl==3.1.5
+
+# ── OCR ───────────────────────────────────────────────────────────────────
+pytesseract==0.3.13
+Pillow==11.0.0
+
+# ── Logging & monitoring ──────────────────────────────────────────────────
+sentry-sdk[fastapi]==2.19.2
+
+# ── Firebase (Live Commerce) ──────────────────────────────────────────────
+firebase-admin==6.6.0
