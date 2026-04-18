@@ -685,3 +685,251 @@ class EtgPackage(Base, UUIDMixin, TimestampMixin):
     price_etb: Mapped[float] = mapped_column(Float, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+# ---------------------------------------------------------------------------
+# System 7 — Commerce
+# ---------------------------------------------------------------------------
+
+class PaymentIntegration(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "payment_integrations"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider: Mapped[PaymentProvider] = mapped_column(Enum(PaymentProvider), nullable=False)
+    encrypted_api_key: Mapped[str] = mapped_column(Text, nullable=False)
+    encrypted_secret_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    encrypted_webhook_secret: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    public_key: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    extra_config: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
+    business: Mapped["Business"] = relationship("Business", back_populates="payment_integrations")
+
+    __table_args__ = (
+        UniqueConstraint("business_id", "provider", name="uq_payment_integration_business_provider"),
+    )
+
+
+class Order(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "orders"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    order_number: Mapped[str] = mapped_column(String(16), unique=True, nullable=False, index=True)
+    customer_platform_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    customer_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    items: Mapped[list] = mapped_column(JSONB, nullable=False)
+    subtotal: Mapped[float] = mapped_column(Float, nullable=False)
+    platform_fee: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    total: Mapped[float] = mapped_column(Float, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), default="ETB", nullable=False)
+    payment_provider: Mapped[Optional[PaymentProvider]] = mapped_column(Enum(PaymentProvider), nullable=True)
+    payment_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    payment_status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus), default=PaymentStatus.pending, nullable=False)
+    order_status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.pending, nullable=False)
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    fulfilled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    delivery_address: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    conversation_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=True)
+
+    business: Mapped["Business"] = relationship("Business", back_populates="orders")
+
+
+# ---------------------------------------------------------------------------
+# System 8 — Presence
+# ---------------------------------------------------------------------------
+
+class MiniAppConfig(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "mini_app_configs"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, unique=True)
+    theme_primary: Mapped[str] = mapped_column(String(7), default="#1a73e8", nullable=False)
+    theme_secondary: Mapped[str] = mapped_column(String(7), default="#ffffff", nullable=False)
+    theme_accent: Mapped[str] = mapped_column(String(7), default="#fbbc04", nullable=False)
+    font_family: Mapped[str] = mapped_column(String(64), default="Inter", nullable=False)
+    hero_image_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    layout_config: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    ui_child_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    show_categories: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    show_search: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    show_cart: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    custom_sections: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    business: Mapped["Business"] = relationship("Business", back_populates="mini_app_config")
+
+
+class LandingPage(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "landing_pages"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, unique=True)
+    title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    meta_description: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    hero_headline: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    hero_subheadline: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    sections: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    seo_keywords: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    og_image_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_generated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    total_views: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    total_clicks: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+
+    business: Mapped["Business"] = relationship("Business", back_populates="landing_page")
+
+
+class CustomDomain(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "custom_domains"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    domain: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    domain_type: Mapped[str] = mapped_column(String(16), default="subdomain", nullable=False)
+    dns_verification_token: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ssl_issued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ssl_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    paid_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class McpListing(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "mcp_listings"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, unique=True)
+    structured_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    search_keywords: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    ai_search_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_indexed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    total_fetches: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+
+    business: Mapped["Business"] = relationship("Business", back_populates="mcp_listing")
+    fetch_logs: Mapped[list["McpFetchLog"]] = relationship("McpFetchLog", back_populates="listing")
+
+
+class McpFetchLog(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "mcp_fetch_logs"
+
+    listing_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("mcp_listings.id", ondelete="CASCADE"), nullable=False, index=True)
+    fetcher_name: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    fetcher_ip: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    endpoint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    listing: Mapped["McpListing"] = relationship("McpListing", back_populates="fetch_logs")
+
+
+# ---------------------------------------------------------------------------
+# System 9 — Live Commerce
+# ---------------------------------------------------------------------------
+
+class LiveSession(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "live_sessions"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    platform: Mapped[LivePlatform] = mapped_column(Enum(LivePlatform), nullable=False)
+    firebase_room_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    overlay_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    peak_viewers: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_orders: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_revenue: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+
+    live_products: Mapped[list["LiveProduct"]] = relationship("LiveProduct", back_populates="session")
+
+
+class LiveProduct(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "live_products"
+
+    session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("live_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    knowledge_item_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("knowledge_items.id"), nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    price: Mapped[float] = mapped_column(Float, nullable=False)
+    image_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    promo_code: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    promo_discount_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    activated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    deactivated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    views_while_active: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    orders_while_active: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    session: Mapped["LiveSession"] = relationship("LiveSession", back_populates="live_products")
+
+
+# ---------------------------------------------------------------------------
+# System 10 — Support & Admin
+# ---------------------------------------------------------------------------
+
+class SupportTicket(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "support_tickets"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    business_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id"), nullable=True)
+    related_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id"), nullable=True)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[TicketStatus] = mapped_column(Enum(TicketStatus), default=TicketStatus.open, nullable=False)
+    priority: Mapped[str] = mapped_column(String(16), default="normal", nullable=False)
+    assigned_to_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    ai_suggested_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    messages: Mapped[list["TicketMessage"]] = relationship("TicketMessage", back_populates="ticket", cascade="all, delete-orphan")
+
+
+class TicketMessage(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "ticket_messages"
+
+    ticket_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("support_tickets.id", ondelete="CASCADE"), nullable=False, index=True)
+    sender_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    attachments: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+
+    ticket: Mapped["SupportTicket"] = relationship("SupportTicket", back_populates="messages")
+
+
+class Notification(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "notifications"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    notification_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    sent_via: Mapped[list] = mapped_column(JSONB, default=[], nullable=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AdminAuditLog(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "admin_audit_log"
+
+    admin_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    old_value: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    new_value: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+
+
+class PlatformSetting(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "platform_settings"
+
+    key: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    value_type: Mapped[str] = mapped_column(String(16), default="string", nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    updated_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
