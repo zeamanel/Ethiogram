@@ -381,3 +381,307 @@ class ChatMessage(Base, UUIDMixin, TimestampMixin):
     latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     conversation: Mapped["Conversation"] = relationship("Conversation", back_populates="messages")
+
+
+# ---------------------------------------------------------------------------
+# System 4 — AI Models Registry
+# ---------------------------------------------------------------------------
+
+class AiModel(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "ai_models"
+
+    model_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    display_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider: Mapped[ModelProvider] = mapped_column(Enum(ModelProvider), nullable=False)
+    tier: Mapped[ModelTier] = mapped_column(Enum(ModelTier), default=ModelTier.standard, nullable=False)
+    etg_cost_per_1k_input: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    etg_cost_per_1k_output: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    context_window: Mapped[int] = mapped_column(Integer, default=128_000, nullable=False)
+    supports_vision: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    supports_function_calling: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_fallback: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_emergency: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class UsagePricing(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "usage_pricing"
+
+    action_type: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    etg_cost: Mapped[int] = mapped_column(Integer, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+# ---------------------------------------------------------------------------
+# System 5 — Agent Marketplace
+# ---------------------------------------------------------------------------
+
+class Agent(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
+    __tablename__ = "agents"
+
+    creator_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("creator_profiles.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    tagline: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    tags: Mapped[list] = mapped_column(JSONB, default=[], nullable=False)
+    capabilities: Mapped[list] = mapped_column(JSONB, default=[], nullable=False)
+    encrypted_system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    encryption_key_ref: Mapped[str] = mapped_column(String(128), default="shared-key-v1", nullable=False)
+    child_schema: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    setup_guide: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price_etg: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    preferred_model_id: Mapped[Optional[str]] = mapped_column(String(128), ForeignKey("ai_models.model_id"), nullable=True)
+    status: Mapped[AgentStatus] = mapped_column(Enum(AgentStatus), default=AgentStatus.draft, nullable=False)
+    is_featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_staff_pick: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    cover_image_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    demo_video_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    total_unlocks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_active_trials: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    average_rating: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    review_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    creator: Mapped["CreatorProfile"] = relationship("CreatorProfile", back_populates="agents")
+    child_agents: Mapped[list["ChildAgent"]] = relationship("ChildAgent", back_populates="agent")
+    trials: Mapped[list["AgentTrial"]] = relationship("AgentTrial", back_populates="agent")
+    unlocks: Mapped[list["AgentUnlock"]] = relationship("AgentUnlock", back_populates="agent")
+    reviews: Mapped[list["AgentReview"]] = relationship("AgentReview", back_populates="agent")
+    reports: Mapped[list["AgentReport"]] = relationship("AgentReport", back_populates="agent")
+
+
+class ChildAgent(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "child_agents"
+
+    agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    display_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    child_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    assigned_to_bot_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("bots.id"), nullable=True)
+
+    agent: Mapped["Agent"] = relationship("Agent", back_populates="child_agents")
+    business: Mapped["Business"] = relationship("Business", back_populates="child_agents")
+
+    __table_args__ = (
+        UniqueConstraint("agent_id", "business_id", name="uq_child_agent_business"),
+    )
+
+
+class AgentTrial(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "agent_trials"
+
+    agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    child_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("child_agents.id"), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_converted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    converted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    warning_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    critical_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    expired_notified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    agent: Mapped["Agent"] = relationship("Agent", back_populates="trials")
+
+    __table_args__ = (
+        UniqueConstraint("agent_id", "business_id", name="uq_trial_agent_business"),
+    )
+
+
+class AgentUnlock(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "agent_unlocks"
+
+    agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    child_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("child_agents.id"), nullable=True)
+    etg_paid: Mapped[int] = mapped_column(Integer, nullable=False)
+    escrow_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("token_escrow.id"), nullable=True)
+    payment_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    is_refunded: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    refunded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    refund_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    agent: Mapped["Agent"] = relationship("Agent", back_populates="unlocks")
+
+
+class AgentReview(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "agent_reviews"
+
+    agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True)
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    unlock_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_unlocks.id"), nullable=False)
+    rating: Mapped[int] = mapped_column(Integer, nullable=False)
+    review_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_visible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    agent: Mapped["Agent"] = relationship("Agent", back_populates="reviews")
+
+    __table_args__ = (
+        UniqueConstraint("agent_id", "business_id", name="uq_review_agent_business"),
+    )
+
+
+class AgentReport(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "agent_reports"
+
+    agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True)
+    reported_by_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_resolved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    resolved_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolution_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    agent: Mapped["Agent"] = relationship("Agent", back_populates="reports")
+
+
+# ---------------------------------------------------------------------------
+# System 6 — ETG Token Economy
+# ---------------------------------------------------------------------------
+
+class TokenWallet(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "token_wallets"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, unique=True)
+    balance: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    escrow_balance: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    lifetime_recharged: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    lifetime_spent: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    auto_recharge_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    auto_recharge_threshold: Mapped[int] = mapped_column(Integer, default=500, nullable=False)
+    auto_recharge_amount: Mapped[int] = mapped_column(Integer, default=5000, nullable=False)
+    auto_recharge_provider: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    monthly_spend_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    current_month_spend: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    spend_limit_reset_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    subscription_plan: Mapped[SubscriptionPlan] = mapped_column(Enum(SubscriptionPlan), default=SubscriptionPlan.free, nullable=False)
+
+    business: Mapped["Business"] = relationship("Business", back_populates="wallet")
+    transactions: Mapped[list["EtgTransaction"]] = relationship("EtgTransaction", back_populates="wallet")
+    alerts: Mapped[list["WalletAlert"]] = relationship("WalletAlert", back_populates="wallet")
+
+
+class EtgTransaction(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "etg_transactions"
+
+    wallet_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("token_wallets.id", ondelete="CASCADE"), nullable=False, index=True)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    balance_before: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    balance_after: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    transaction_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    description: Mapped[str] = mapped_column(String(255), nullable=False)
+    reference_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    reference_type: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    admin_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+    wallet: Mapped["TokenWallet"] = relationship("TokenWallet", back_populates="transactions")
+
+
+class RechargeOrder(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "recharge_orders"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    etg_package_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("etg_packages.id"), nullable=True)
+    etg_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    fiat_amount: Mapped[float] = mapped_column(Float, nullable=False)
+    fiat_currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    payment_provider: Mapped[PaymentProvider] = mapped_column(Enum(PaymentProvider), nullable=False)
+    payment_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus), default=PaymentStatus.pending, nullable=False)
+    webhook_payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    bonus_etg: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+
+class TokenEscrow(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "token_escrow"
+
+    wallet_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("token_wallets.id", ondelete="CASCADE"), nullable=False, index=True)
+    amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    release_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[EscrowStatus] = mapped_column(Enum(EscrowStatus), default=EscrowStatus.holding, nullable=False)
+    released_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    dispute_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    dispute_opened_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+
+class UsageEvent(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "usage_events"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    bot_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("bots.id"), nullable=True)
+    conversation_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=True)
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    model_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    model_tier: Mapped[Optional[ModelTier]] = mapped_column(Enum(ModelTier), nullable=True)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    etg_charged: Mapped[int] = mapped_column(Integer, nullable=False)
+    latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    __table_args__ = (
+        Index("idx_usage_events_business_created", "business_id", "created_at"),
+    )
+
+
+class UsageDailyAggregate(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "usage_daily_aggregates"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    total_events: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_etg: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_input_tokens: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    total_output_tokens: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("business_id", "date", "action_type", name="uq_daily_agg"),
+    )
+
+
+class WalletAlert(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "wallet_alerts"
+
+    wallet_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("token_wallets.id", ondelete="CASCADE"), nullable=False, index=True)
+    alert_type: Mapped[AlertType] = mapped_column(Enum(AlertType), nullable=False)
+    balance_at_alert: Mapped[int] = mapped_column(Integer, nullable=False)
+    sent_via: Mapped[list] = mapped_column(JSONB, default=[], nullable=False)
+    acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    wallet: Mapped["TokenWallet"] = relationship("TokenWallet", back_populates="alerts")
+
+
+class Subscription(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "subscriptions"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    plan: Mapped[SubscriptionPlan] = mapped_column(Enum(SubscriptionPlan), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    payment_provider: Mapped[Optional[PaymentProvider]] = mapped_column(Enum(PaymentProvider), nullable=True)
+    payment_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
+class EtgPackage(Base, UUIDMixin, TimestampMixin):
+    __tablename__ = "etg_packages"
+
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    etg_amount: Mapped[int] = mapped_column(Integer, nullable=False)
+    bonus_etg: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    price_usd: Mapped[float] = mapped_column(Float, nullable=False)
+    price_etb: Mapped[float] = mapped_column(Float, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    display_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
