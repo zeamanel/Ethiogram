@@ -52,3 +52,11 @@ sentry-sdk[fastapi]==2.19.2
 
 # ── Firebase (Live Commerce) ──────────────────────────────────────────────
 firebase-admin==6.6.0
+
+# ── Dev / test ────────────────────────────────────────────────────────────
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+aiosqlite==0.20.0
+ruff==0.8.4
+mypy==1.13.0
