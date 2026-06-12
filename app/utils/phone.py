@@ -3,10 +3,8 @@ import re
 
 _DIGITS_RE = re.compile(r"\D")
 
-# Ethiopian mobile prefixes (post-2021 liberalisation includes Safaricom ET)
-_ET_MOBILE_PREFIXES = {
-    "09", "07",   # Ethio Telecom & Safaricom
-}
+# Ethiopian mobile leading digits after country code (9 = Ethio Telecom, 7 = Safaricom ET)
+_ET_MOBILE_LEADING = {"9", "7"}
 
 
 def normalize_ethiopian_phone(raw: str) -> str | None:
@@ -36,12 +34,8 @@ def normalize_ethiopian_phone(raw: str) -> str | None:
     else:
         return None
 
-    # Validate mobile prefix
-    prefix = local[:2]
-    if prefix not in _ET_MOBILE_PREFIXES:
-        return None
-
-    if len(local) != 9:
+    # Validate: 9 digits, leading 9 (Ethio Telecom) or 7 (Safaricom ET)
+    if len(local) != 9 or local[0] not in _ET_MOBILE_LEADING:
         return None
 
     return f"+251{local}"

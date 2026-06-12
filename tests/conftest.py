@@ -10,10 +10,20 @@ from fastapi.testclient import TestClient
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.compiler import compiles
+
 from app.core.config import settings
 from app.db.base import Base
 from app.db.session import get_db, get_redis
 from app.main import app
+
+
+# SQLite has no JSONB — render it as JSON so Base.metadata.create_all works
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_sqlite(type_, compiler, **kw):
+    return "JSON"
+
 
 # ── In-memory SQLite engine for tests ────────────────────────────────────────
 TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
@@ -54,6 +64,8 @@ def mock_redis():
     redis.exists = AsyncMock(return_value=0)
     redis.incr = AsyncMock(return_value=1)
     redis.expire = AsyncMock(return_value=True)
+    redis.setex = AsyncMock(return_value=True)
+    redis.keys = AsyncMock(return_value=[])
     return redis
 
 
@@ -80,10 +92,10 @@ def sample_business_id():
 @pytest.fixture
 def valid_access_token(sample_user_id):
     from app.core.security import create_access_token
-    return create_access_token({"sub": str(sample_user_id), "role": "user"})
+    return create_access_token(sample_user_id, role="owner")
 
 
 @pytest.fixture
 def admin_access_token(sample_user_id):
     from app.core.security import create_access_token
-    return create_access_token({"sub": str(sample_user_id), "role": "admin"})
+    return create_access_token(sample_user_id, role="admin")

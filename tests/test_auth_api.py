@@ -84,13 +84,32 @@ class TestLogin:
 
 
 class TestMe:
-    async def test_get_me_authenticated(self, client: AsyncClient, valid_access_token):
+    async def test_get_me_after_register(self, client: AsyncClient, db):
+        register = await client.post(
+            "/api/v1/auth/register",
+            json={
+                "email": "me@example.com",
+                "password": "SecurePass123!",
+                "full_name": "Me User",
+            },
+        )
+        token = register.json()["access_token"]
+        response = await client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["email"] == "me@example.com"
+
+    async def test_token_for_nonexistent_user_rejected(
+        self, client: AsyncClient, valid_access_token
+    ):
+        # Valid signature but no user row — must 401, not leak existence
         response = await client.get(
             "/api/v1/auth/me",
             headers={"Authorization": f"Bearer {valid_access_token}"},
         )
-        # Will fail with 404 in test DB (no user row) but not 401/422
-        assert response.status_code in (200, 404)
+        assert response.status_code == 401
 
     async def test_get_me_unauthenticated(self, client: AsyncClient):
         response = await client.get("/api/v1/auth/me")

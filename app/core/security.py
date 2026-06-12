@@ -7,21 +7,25 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from uuid import UUID
 
+import bcrypt
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 import jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
 
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 def hash_password(password: str) -> str:
-    return _pwd_context.hash(password)
+    # bcrypt truncates at 72 bytes; pre-hash to support arbitrary length
+    digest = hashlib.sha256(password.encode()).digest()
+    return bcrypt.hashpw(base64.b64encode(digest), bcrypt.gensalt(rounds=12)).decode()
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return _pwd_context.verify(plain, hashed)
+    digest = hashlib.sha256(plain.encode()).digest()
+    try:
+        return bcrypt.checkpw(base64.b64encode(digest), hashed.encode())
+    except ValueError:
+        return False
 
 def _derive_fernet_key(raw_key: str) -> bytes:
     kdf = PBKDF2HMAC(
