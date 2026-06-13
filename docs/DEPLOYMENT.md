@@ -104,10 +104,12 @@ services from it:
 
 The script prints the API URL and curls `/health`.
 
-> Note: the workers and API attach the VPC connector for Redis. If deploy
-> fails on Redis connectivity, add `--vpc-connector=ethiogram-vpc
-> --vpc-egress=private-ranges-only` to the three deploy steps in
-> `cloudbuild.yaml`.
+> Note: all three services attach the `ethiogram-vpc` connector
+> (`--vpc-connector=ethiogram-vpc --vpc-egress=private-ranges-only`) so Cloud
+> Run can reach Memorystore Redis on its private IP. The connector must be in
+> `READY` state before deploy — check with
+> `gcloud compute networks vpc-access connectors describe ethiogram-vpc
+> --region=$REGION --format='value(state)'`.
 
 ## Step 6 — Scheduled jobs (trial monitor, escrow release)
 
