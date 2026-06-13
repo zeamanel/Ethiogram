@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +24,7 @@ from app.db.models import (
     ChatMessage,
 )
 from app.db.session import get_db, get_redis
+from app.utils.text import slugify
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -43,6 +44,22 @@ class BusinessSummary(BaseModel):
     etg_balance: int
     subscription_plan: str
     is_suspended: bool
+
+
+class BusinessCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    category: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def name_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Business name cannot be blank")
+        return v
 
 
 class BotStats(BaseModel):
@@ -229,6 +246,45 @@ async def get_dashboard_overview(
     )
 
 
+@router.post("/businesses", response_model=BusinessSummary, status_code=201)
+async def create_business(
+    body: BusinessCreateRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> BusinessSummary:
+    """Create a business for the current user. Required before onboarding a bot."""
+    slug = await _unique_slug(body.name, db)
+    business = Business(
+        owner_id=current_user.id,
+        name=body.name,
+        slug=slug,
+        description=body.description,
+        category=body.category,
+        phone=body.phone,
+        email=body.email,
+    )
+    db.add(business)
+    await db.flush()
+
+    logger.info(
+        "Business created",
+        business_id=str(business.id),
+        owner_id=str(current_user.id),
+        slug=slug,
+    )
+    return BusinessSummary(
+        id=str(business.id),
+        name=business.name,
+        slug=business.slug,
+        logo_url=business.logo_url,
+        active_bots=0,
+        total_bots=0,
+        etg_balance=0,
+        subscription_plan="free",
+        is_suspended=business.is_suspended,
+    )
+
+
 @router.get("/businesses", response_model=list[BusinessSummary])
 async def list_businesses(
     current_user: CurrentUser,
@@ -355,6 +411,17 @@ async def list_orders(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+async def _unique_slug(name: str, db: AsyncSession) -> str:
+    """Generate a URL-safe slug from name, appending -2, -3… on collision."""
+    base = slugify(name)
+    slug = base
+    suffix = 1
+    while await db.scalar(select(Business.id).where(Business.slug == slug)) is not None:
+        suffix += 1
+        slug = f"{base}-{suffix}"
+    return slug
+
 
 async def _get_owned_business(
     business_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession

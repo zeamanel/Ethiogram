@@ -38,9 +38,11 @@ pytest tests/ --cov=app --cov-report=term-missing
 
 **Covers:** register/login/refresh, duplicate-email rejection, weak-password
 422, `/me` end-to-end, 401 for ghost users (no existence leak), webhook
-silent-200 on unknown token hash, malformed JSON resilience.
+silent-200 on unknown token hash, malformed JSON resilience, business
+creation + unique-slug collision handling, bot onboarding with welcome-bonus
+crediting (Telegram mocked).
 
-**Status: ✅ passing (70 tests total).**
+**Status: ✅ passing (77 tests total).**
 
 **Known limitation:** pgvector similarity search cannot run on SQLite. RAG
 search paths are covered in Phase 3.
@@ -77,16 +79,19 @@ Manual checks to run once:
 Requires a real bot token from @BotFather and a public URL (Cloud Run staging
 service, or `ngrok http 8000` locally with `BASE_URL` set to the tunnel).
 
-1. **Onboard:** `POST /api/v1/bots` with the token → expect webhook registered,
-   wallet created with 100 ETG bonus, welcome message arrives in Telegram.
-2. **Chat:** message the bot → typing indicator, AI reply, conversation row
+1. **Create business:** `POST /api/v1/dashboard/businesses` with `{"name": ...}`
+   → returns a `business_id` (a business is required before onboarding a bot).
+2. **Onboard:** `POST /api/v1/bots` with the token + `business_id` → expect
+   webhook registered, wallet created with 100 ETG bonus, welcome message
+   arrives in Telegram.
+3. **Chat:** message the bot → typing indicator, AI reply, conversation row
    created, ETG charged (check `GET /api/v1/billing/transactions`).
-3. **Amharic:** send "ሰላም" → `detected_language` becomes `am`.
-4. **RAG:** upload a doc, wait for embedding worker, ask a question answered
+4. **Amharic:** send "ሰላም" → `detected_language` becomes `am`.
+5. **RAG:** upload a doc, wait for embedding worker, ask a question answered
    only by the doc → reply must use it.
-5. **Balance exhaustion:** drain wallet (admin can set balance) → bot enters
+6. **Balance exhaustion:** drain wallet (admin can set balance) → bot enters
    grace, low/critical alerts fire exactly once each (Redis dedup).
-6. **Offboard:** `DELETE /api/v1/bots/{id}` → webhook removed, status
+7. **Offboard:** `DELETE /api/v1/bots/{id}` → webhook removed, status
    `disconnected`.
 
 ---
