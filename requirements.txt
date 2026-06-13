@@ -29,7 +29,7 @@ httpx==0.28.1
 google-cloud-storage==2.19.0
 google-cloud-secret-manager==2.21.0
 google-cloud-aiplatform==1.74.0
-vertexai==1.74.0
+vertexai==1.71.1
 google-api-python-client==2.154.0
 google-auth==2.37.0
 google-auth-httplib2==0.2.0
