@@ -15,8 +15,27 @@ every 60 seconds, or by a Pub/Sub message from the upload endpoint.
 import asyncio
 import sys
 import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+    def log_message(self, *_):
+        pass
+
+
+def _start_health_server(port: int = 8080) -> None:
+    """Start a minimal HTTP health check server in a background daemon thread."""
+    server = HTTPServer(("", port), _HealthHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
 
 from datetime import datetime, timezone
 
@@ -118,6 +137,7 @@ async def _process_document(doc: KnowledgeDocument, db) -> None:
 
 
 async def run_once() -> None:
+    _start_health_server()
     await connect_db()
     await connect_redis()
     try:
@@ -130,6 +150,7 @@ async def run_once() -> None:
 
 async def run_continuous() -> None:
     """Run in a poll loop (for local dev or single-container deployments)."""
+    _start_health_server()
     await connect_db()
     await connect_redis()
     logger.info(f"Embedding worker started (poll interval: {_POLL_INTERVAL}s)")
