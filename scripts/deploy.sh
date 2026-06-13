@@ -17,7 +17,7 @@ gcloud config set project "$PROJECT_ID"
 echo "==> Submitting Cloud Build (region=$REGION, sql=$SQL_INSTANCE)"
 gcloud builds submit \
   --config cloudbuild.yaml \
-  --substitutions "_REGION=${REGION},_SQL_INSTANCE=${SQL_INSTANCE}"
+  --substitutions "_REGION=${REGION},_SQL_INSTANCE=${SQL_INSTANCE},_TAG=latest"
 
 API_URL=$(gcloud run services describe ethiogram-api \
   --region="$REGION" --format='value(status.url)')

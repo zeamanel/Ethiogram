@@ -6,6 +6,7 @@ substitutions:
   _REPO: ethiogram
   _SERVICE: ethiogram-api
   _SQL_INSTANCE: ""   # e.g. project:region:ethiogram-pg — set in trigger
+  _TAG: latest        # overridden by SHORT_SHA in CI; 'latest' for manual submits
 
 steps:
   # ── Build production image ─────────────────────────────────────────────
@@ -14,7 +15,7 @@ steps:
     args:
       - build
       - --target=production
-      - -t=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - -t=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_TAG}
       - -t=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
       - .
 
@@ -31,7 +32,7 @@ steps:
       - run
       - deploy
       - ${_SERVICE}
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_TAG}
       - --region=${_REGION}
       - --platform=managed
       - --allow-unauthenticated
@@ -53,7 +54,7 @@ steps:
       - run
       - deploy
       - ethiogram-embedding-worker
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_TAG}
       - --region=${_REGION}
       - --platform=managed
       - --no-allow-unauthenticated
@@ -76,7 +77,7 @@ steps:
       - run
       - deploy
       - ethiogram-notification-worker
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_TAG}
       - --region=${_REGION}
       - --platform=managed
       - --no-allow-unauthenticated
@@ -92,7 +93,7 @@ steps:
       - --set-secrets=SECRET_KEY=ethiogram-secret-key:latest,ENCRYPTION_KEY=ethiogram-encryption-key:latest,DATABASE_URL=ethiogram-database-url:latest,REDIS_URL=ethiogram-redis-url:latest,MASTER_BOT_TOKEN=ethiogram-master-bot-token:latest
 
 images:
-  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_TAG}
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
 
 options:
