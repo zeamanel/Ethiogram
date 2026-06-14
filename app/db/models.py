@@ -14,6 +14,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, UUIDMixin, TimestampMixin, SoftDeleteMixin
 
 
+# All ORM enum columns use native_enum=False so SQLAlchemy sends values as
+# plain strings (no ::userrole-style type casts). Postgres implicitly casts
+# text to the column's enum type, so this works against native PG enums while
+# avoiding the SQLAlchemy-default type name (e.g. "userrole") mismatching the
+# migration-created name (e.g. "user_role").
+def _E(cls):
+    return Enum(cls, native_enum=False)
+
+
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -138,7 +147,7 @@ class User(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     phone: Mapped[Optional[str]] = mapped_column(String(32), unique=True, nullable=True)
     full_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     hashed_password: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.owner, nullable=False)
+    role: Mapped[UserRole] = mapped_column(_E(UserRole), default=UserRole.owner, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     language_code: Mapped[str] = mapped_column(String(8), default="en", nullable=False)
@@ -249,8 +258,8 @@ class Bot(Base, UUIDMixin, TimestampMixin):
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     webhook_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     webhook_secret: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    platform: Mapped[Platform] = mapped_column(Enum(Platform), default=Platform.telegram, nullable=False)
-    status: Mapped[BotStatus] = mapped_column(Enum(BotStatus), default=BotStatus.active, nullable=False)
+    platform: Mapped[Platform] = mapped_column(_E(Platform), default=Platform.telegram, nullable=False)
+    status: Mapped[BotStatus] = mapped_column(_E(BotStatus), default=BotStatus.active, nullable=False)
     grace_period_started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     suspended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     suspension_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -293,7 +302,7 @@ class KnowledgeDocument(Base, UUIDMixin, TimestampMixin):
     file_type: Mapped[str] = mapped_column(String(16), nullable=False)
     file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
     gcs_path: Mapped[str] = mapped_column(String(512), nullable=False)
-    status: Mapped[DocumentStatus] = mapped_column(Enum(DocumentStatus), default=DocumentStatus.pending, nullable=False)
+    status: Mapped[DocumentStatus] = mapped_column(_E(DocumentStatus), default=DocumentStatus.pending, nullable=False)
     extracted_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -327,7 +336,7 @@ class KnowledgeItem(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "knowledge_items"
 
     business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    item_type: Mapped[KnowledgeItemType] = mapped_column(Enum(KnowledgeItemType), nullable=False)
+    item_type: Mapped[KnowledgeItemType] = mapped_column(_E(KnowledgeItemType), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
@@ -342,7 +351,7 @@ class Conversation(Base, UUIDMixin, TimestampMixin):
 
     business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
     bot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"), nullable=False, index=True)
-    platform: Mapped[Platform] = mapped_column(Enum(Platform), default=Platform.telegram, nullable=False)
+    platform: Mapped[Platform] = mapped_column(_E(Platform), default=Platform.telegram, nullable=False)
     customer_platform_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     customer_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     customer_username: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
@@ -368,7 +377,7 @@ class ChatMessage(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "chat_messages"
 
     conversation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
-    role: Mapped[MessageRole] = mapped_column(Enum(MessageRole), nullable=False)
+    role: Mapped[MessageRole] = mapped_column(_E(MessageRole), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     model_used: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -392,8 +401,8 @@ class AiModel(Base, UUIDMixin, TimestampMixin):
 
     model_id: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    provider: Mapped[ModelProvider] = mapped_column(Enum(ModelProvider), nullable=False)
-    tier: Mapped[ModelTier] = mapped_column(Enum(ModelTier), default=ModelTier.standard, nullable=False)
+    provider: Mapped[ModelProvider] = mapped_column(_E(ModelProvider), nullable=False)
+    tier: Mapped[ModelTier] = mapped_column(_E(ModelTier), default=ModelTier.standard, nullable=False)
     etg_cost_per_1k_input: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     etg_cost_per_1k_output: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
     context_window: Mapped[int] = mapped_column(Integer, default=128_000, nullable=False)
@@ -435,7 +444,7 @@ class Agent(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     setup_guide: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     price_etg: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     preferred_model_id: Mapped[Optional[str]] = mapped_column(String(128), ForeignKey("ai_models.model_id"), nullable=True)
-    status: Mapped[AgentStatus] = mapped_column(Enum(AgentStatus), default=AgentStatus.draft, nullable=False)
+    status: Mapped[AgentStatus] = mapped_column(_E(AgentStatus), default=AgentStatus.draft, nullable=False)
     is_featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_staff_pick: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     cover_image_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
@@ -561,7 +570,7 @@ class TokenWallet(Base, UUIDMixin, TimestampMixin):
     monthly_spend_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     current_month_spend: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     spend_limit_reset_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    subscription_plan: Mapped[SubscriptionPlan] = mapped_column(Enum(SubscriptionPlan), default=SubscriptionPlan.free, nullable=False)
+    subscription_plan: Mapped[SubscriptionPlan] = mapped_column(_E(SubscriptionPlan), default=SubscriptionPlan.free, nullable=False)
 
     business: Mapped["Business"] = relationship("Business", back_populates="wallet")
     transactions: Mapped[list["EtgTransaction"]] = relationship("EtgTransaction", back_populates="wallet")
@@ -592,9 +601,9 @@ class RechargeOrder(Base, UUIDMixin, TimestampMixin):
     etg_amount: Mapped[int] = mapped_column(Integer, nullable=False)
     fiat_amount: Mapped[float] = mapped_column(Float, nullable=False)
     fiat_currency: Mapped[str] = mapped_column(String(3), nullable=False)
-    payment_provider: Mapped[PaymentProvider] = mapped_column(Enum(PaymentProvider), nullable=False)
+    payment_provider: Mapped[PaymentProvider] = mapped_column(_E(PaymentProvider), nullable=False)
     payment_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
-    status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus), default=PaymentStatus.pending, nullable=False)
+    status: Mapped[PaymentStatus] = mapped_column(_E(PaymentStatus), default=PaymentStatus.pending, nullable=False)
     webhook_payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     bonus_etg: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -607,7 +616,7 @@ class TokenEscrow(Base, UUIDMixin, TimestampMixin):
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     reason: Mapped[str] = mapped_column(String(255), nullable=False)
     release_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    status: Mapped[EscrowStatus] = mapped_column(Enum(EscrowStatus), default=EscrowStatus.holding, nullable=False)
+    status: Mapped[EscrowStatus] = mapped_column(_E(EscrowStatus), default=EscrowStatus.holding, nullable=False)
     released_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     dispute_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     dispute_opened_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -622,7 +631,7 @@ class UsageEvent(Base, UUIDMixin, TimestampMixin):
     conversation_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=True)
     action_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     model_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    model_tier: Mapped[Optional[ModelTier]] = mapped_column(Enum(ModelTier), nullable=True)
+    model_tier: Mapped[Optional[ModelTier]] = mapped_column(_E(ModelTier), nullable=True)
     input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     etg_charged: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -653,7 +662,7 @@ class WalletAlert(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "wallet_alerts"
 
     wallet_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("token_wallets.id", ondelete="CASCADE"), nullable=False, index=True)
-    alert_type: Mapped[AlertType] = mapped_column(Enum(AlertType), nullable=False)
+    alert_type: Mapped[AlertType] = mapped_column(_E(AlertType), nullable=False)
     balance_at_alert: Mapped[int] = mapped_column(Integer, nullable=False)
     sent_via: Mapped[list] = mapped_column(JSONB, default=[], nullable=False)
     acknowledged_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -665,11 +674,11 @@ class Subscription(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "subscriptions"
 
     business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    plan: Mapped[SubscriptionPlan] = mapped_column(Enum(SubscriptionPlan), nullable=False)
+    plan: Mapped[SubscriptionPlan] = mapped_column(_E(SubscriptionPlan), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    payment_provider: Mapped[Optional[PaymentProvider]] = mapped_column(Enum(PaymentProvider), nullable=True)
+    payment_provider: Mapped[Optional[PaymentProvider]] = mapped_column(_E(PaymentProvider), nullable=True)
     payment_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     cancel_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -695,7 +704,7 @@ class PaymentIntegration(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "payment_integrations"
 
     business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    provider: Mapped[PaymentProvider] = mapped_column(Enum(PaymentProvider), nullable=False)
+    provider: Mapped[PaymentProvider] = mapped_column(_E(PaymentProvider), nullable=False)
     encrypted_api_key: Mapped[str] = mapped_column(Text, nullable=False)
     encrypted_secret_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     encrypted_webhook_secret: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -724,10 +733,10 @@ class Order(Base, UUIDMixin, TimestampMixin):
     platform_fee: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     total: Mapped[float] = mapped_column(Float, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="ETB", nullable=False)
-    payment_provider: Mapped[Optional[PaymentProvider]] = mapped_column(Enum(PaymentProvider), nullable=True)
+    payment_provider: Mapped[Optional[PaymentProvider]] = mapped_column(_E(PaymentProvider), nullable=True)
     payment_reference: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
-    payment_status: Mapped[PaymentStatus] = mapped_column(Enum(PaymentStatus), default=PaymentStatus.pending, nullable=False)
-    order_status: Mapped[OrderStatus] = mapped_column(Enum(OrderStatus), default=OrderStatus.pending, nullable=False)
+    payment_status: Mapped[PaymentStatus] = mapped_column(_E(PaymentStatus), default=PaymentStatus.pending, nullable=False)
+    order_status: Mapped[OrderStatus] = mapped_column(_E(OrderStatus), default=OrderStatus.pending, nullable=False)
     paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     fulfilled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -832,7 +841,7 @@ class LiveSession(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "live_sessions"
 
     business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
-    platform: Mapped[LivePlatform] = mapped_column(Enum(LivePlatform), nullable=False)
+    platform: Mapped[LivePlatform] = mapped_column(_E(LivePlatform), nullable=False)
     firebase_room_id: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     overlay_url: Mapped[str] = mapped_column(String(512), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -876,7 +885,7 @@ class SupportTicket(Base, UUIDMixin, TimestampMixin):
     related_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id"), nullable=True)
     category: Mapped[str] = mapped_column(String(64), nullable=False)
     subject: Mapped[str] = mapped_column(String(255), nullable=False)
-    status: Mapped[TicketStatus] = mapped_column(Enum(TicketStatus), default=TicketStatus.open, nullable=False)
+    status: Mapped[TicketStatus] = mapped_column(_E(TicketStatus), default=TicketStatus.open, nullable=False)
     priority: Mapped[str] = mapped_column(String(16), default="normal", nullable=False)
     assigned_to_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     ai_suggested_answer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
