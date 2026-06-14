@@ -20,4 +20,7 @@
 \echo '==> 005_mini_app_landing_mcp.sql'
 \i migrations/005_mini_app_landing_mcp.sql
 
+\echo '==> 006_schema_alignment.sql'
+\i migrations/006_schema_alignment.sql
+
 \echo '==> All migrations applied successfully.'
