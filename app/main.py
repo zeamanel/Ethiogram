@@ -61,15 +61,8 @@ async def jwt_expired_handler(request: Request, exc):
 
 @app.exception_handler(Exception)
 async def generic_error_handler(request: Request, exc: Exception):
-    import traceback
-    tb = traceback.format_exc()
-    logger.error(f"Unhandled: {type(exc).__name__}: {exc}\n{tb}")
-    # TEMP: expose error for debugging — revert before launch
-    return JSONResponse(status_code=500, content={
-        "error": "INTERNAL_ERROR",
-        "exc_type": type(exc).__name__,
-        "message": str(exc),
-    })
+    logger.error(f"Unhandled: {type(exc).__name__}: {exc}")
+    return JSONResponse(status_code=500, content={"error": "INTERNAL_ERROR", "message": "Unexpected error"})
 
 
 from app.api import auth, bots, webhooks, admin, billing, agents, dashboard
