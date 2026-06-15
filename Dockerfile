@@ -42,4 +42,5 @@ CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080} --wor
 # ── Development image ─────────────────────────────────────────────────────
 FROM deps AS development
 COPY . .
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Honor Cloud Run's PORT if present; default to 8000 for local dev.
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --reload"]

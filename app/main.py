@@ -79,3 +79,13 @@ app.include_router(dashboard.router, prefix=settings.api_prefix)
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "version": settings.app_version}
+
+
+if __name__ == "__main__":
+    import os
+
+    import uvicorn
+
+    # Cloud Run injects PORT (default 8080) and does not allow overriding it.
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port)
