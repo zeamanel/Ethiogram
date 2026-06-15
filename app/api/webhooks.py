@@ -58,14 +58,24 @@ async def telegram_webhook(
     """
     print(f"[WEBHOOK] update received for token_hash={token_hash[:8]}…", flush=True)
     body_bytes = await request.body()
+    print(f"[WEBHOOK] body read ({len(body_bytes)} bytes); looking up bot…", flush=True)
+    logger.info("Looking up bot by token_hash", token_hash=token_hash[:12])
 
     # 1. Look up bot by token_hash — silent 200 on miss (security: no info leak)
-    bot_result = await db.execute(
-        select(Bot)
-        .where(Bot.token_hash == token_hash)
-        .join(Bot.business)
-    )
-    bot = bot_result.scalar_one_or_none()
+    try:
+        bot_result = await db.execute(
+            select(Bot)
+            .where(Bot.token_hash == token_hash)
+            .join(Bot.business)
+        )
+        bot = bot_result.scalar_one_or_none()
+    except Exception as exc:
+        print(f"[WEBHOOK] bot lookup FAILED: {type(exc).__name__}: {exc}", flush=True)
+        logger.error("Bot lookup query failed", token_hash=token_hash[:12],
+                     error=f"{type(exc).__name__}: {exc}", exc_info=True)
+        return JSONResponse({"ok": True})
+
+    print(f"[WEBHOOK] bot lookup done: found={bot is not None}", flush=True)
     if bot is None:
         logger.warning("Bot not found for token_hash — dropping update",
                        token_hash=token_hash[:12])

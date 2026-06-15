@@ -15,7 +15,7 @@ configure_logging()
 logger = get_logger(__name__)
 
 
-_BUILD_MARKER = "build-b9610bb-trace"
+_BUILD_MARKER = "trace-v4-botlookup-print"
 
 
 @asynccontextmanager
