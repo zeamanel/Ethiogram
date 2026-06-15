@@ -67,22 +67,38 @@ async def telegram_webhook(
     )
     bot = bot_result.scalar_one_or_none()
     if bot is None:
+        logger.warning("Bot not found for token_hash — dropping update",
+                       token_hash=token_hash[:12])
         return JSONResponse({"ok": True})
+
+    logger.info(
+        "Bot fetched",
+        bot_id=str(bot.id),
+        business_id=str(bot.business_id),
+        bot_status=bot.status.value,
+        bot_username=bot.bot_username,
+    )
 
     # 2. Verify Telegram signature
     secret_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
     if bot.webhook_secret and not _verify_signature(body_bytes, bot.webhook_secret, secret_header):
-        logger.warning("Webhook signature mismatch", token_hash=token_hash)
+        logger.warning("Webhook signature mismatch — dropping update",
+                       bot_id=str(bot.id), token_hash=token_hash[:12],
+                       header_present=bool(secret_header))
         return JSONResponse({"ok": True})
 
     # 3. Parse update
     try:
         body = await request.json()
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to parse webhook JSON — dropping update",
+                       bot_id=str(bot.id), error=str(exc))
         return JSONResponse({"ok": True})
 
     envelope = telegram_service.parse_incoming_update(body, token_hash)
     if envelope is None:
+        logger.info("Update has no processable message (envelope=None) — dropping",
+                    bot_id=str(bot.id), update_keys=list(body.keys()) if isinstance(body, dict) else None)
         return JSONResponse({"ok": True})
 
     envelope.business_id = str(bot.business_id)
@@ -113,10 +129,11 @@ async def telegram_webhook(
 
     # 5. Paused bot — inform customer, do not process
     if bot.status in (BotStatus.paused, BotStatus.grace):
+        logger.info("Dropping update: bot paused/grace — sending paused message",
+                    bot_id=str(bot.id), status=bot.status.value)
         await _send_paused_message(raw_token, envelope)
         return JSONResponse({"ok": True})
 
-    # 5b. Paused/grace early-return is handled above; log if we reached here
     logger.info("Processing update", bot_id=str(bot.id), status=bot.status.value)
 
     # 6. Balance check (Redis-cached)
