@@ -60,9 +60,15 @@ def hash_bot_token(token: str) -> str:
 def generate_webhook_secret() -> str:
     return secrets.token_hex(32)
 
-def verify_telegram_webhook(request_body: bytes, secret_token: str, provided_hash: str) -> bool:
-    expected = hmac.new(secret_token.encode(), request_body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, provided_hash)
+def verify_telegram_webhook(secret_token: str, provided_token: str) -> bool:
+    """
+    Telegram sends the secret_token (set via setWebhook) verbatim in the
+    X-Telegram-Bot-Api-Secret-Token header — not an HMAC of the body.
+    Compare in constant time.
+    """
+    if not provided_token:
+        return False
+    return hmac.compare_digest(secret_token, provided_token)
 
 def generate_secure_token(length: int = 32) -> str:
     return secrets.token_urlsafe(length)

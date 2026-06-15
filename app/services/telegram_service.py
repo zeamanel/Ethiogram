@@ -1,5 +1,4 @@
 # app/services/telegram_service.py
-import hashlib
 import hmac
 import json
 from dataclasses import dataclass, field
@@ -223,15 +222,17 @@ class TelegramService:
     # ------------------------------------------------------------------
 
     def verify_webhook_signature(
-        self, request_body: bytes, secret_token: str, provided_hash: str
+        self, secret_token: str, provided_token: str
     ) -> bool:
-        """Verify the X-Telegram-Bot-Api-Secret-Token header."""
-        expected = hmac.new(
-            secret_token.encode("utf-8"),
-            request_body,
-            hashlib.sha256,
-        ).hexdigest()
-        return hmac.compare_digest(expected, provided_hash)
+        """
+        Verify the ``X-Telegram-Bot-Api-Secret-Token`` header.
+
+        Telegram returns the secret_token (set via setWebhook) verbatim in this
+        header — it is NOT an HMAC of the request body. Compare in constant time.
+        """
+        if not provided_token:
+            return False
+        return hmac.compare_digest(secret_token, provided_token)
 
     # ------------------------------------------------------------------
     # Update parsing → MessageEnvelope

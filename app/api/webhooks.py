@@ -1,5 +1,4 @@
 # app/api/webhooks.py
-import hashlib
 import hmac
 from datetime import datetime, timezone
 
@@ -91,7 +90,7 @@ async def telegram_webhook(
 
     # 2. Verify Telegram signature
     secret_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-    if bot.webhook_secret and not _verify_signature(body_bytes, bot.webhook_secret, secret_header):
+    if bot.webhook_secret and not _verify_signature(bot.webhook_secret, secret_header):
         logger.warning("Webhook signature mismatch — dropping update",
                        bot_id=str(bot.id), token_hash=token_hash[:12],
                        header_present=bool(secret_header))
@@ -218,11 +217,15 @@ async def telegram_webhook(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _verify_signature(body: bytes, secret: str, provided: str) -> bool:
+def _verify_signature(secret: str, provided: str) -> bool:
+    """
+    Telegram echoes the ``secret_token`` set via setWebhook *verbatim* in the
+    ``X-Telegram-Bot-Api-Secret-Token`` header — it is NOT an HMAC of the body.
+    Verify with a constant-time comparison of the header against the stored secret.
+    """
     if not provided:
         return False
-    expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, provided)
+    return hmac.compare_digest(secret, provided)
 
 
 async def _send_paused_message(token: str, envelope: MessageEnvelope) -> None:
