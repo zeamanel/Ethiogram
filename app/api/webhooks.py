@@ -56,6 +56,7 @@ async def telegram_webhook(
     Receives every Telegram update for every registered bot.
     ALWAYS returns 200 — Telegram retries on any non-200 response.
     """
+    print(f"[WEBHOOK] update received for token_hash={token_hash[:8]}…", flush=True)
     body_bytes = await request.body()
 
     # 1. Look up bot by token_hash — silent 200 on miss (security: no info leak)

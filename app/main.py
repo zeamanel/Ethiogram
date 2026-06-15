@@ -15,9 +15,15 @@ configure_logging()
 logger = get_logger(__name__)
 
 
+_BUILD_MARKER = "build-b9610bb-trace"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
+    # Plain stdout banner so it's trivial to confirm WHICH code revision is
+    # actually serving traffic in Cloud Run (independent of the log config).
+    print(f"[BOOT] Ethiogram starting — marker={_BUILD_MARKER} env={settings.environment}", flush=True)
+    logger.info(f"Starting {settings.app_name} v{settings.app_version}", build_marker=_BUILD_MARKER)
     await connect_db()
     await connect_redis()
     logger.info("All services connected — platform ready")
