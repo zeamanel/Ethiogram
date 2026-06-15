@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     # OPENAI
     openai_api_key: Optional[str] = None
     openai_org_id: Optional[str] = None
+    # Override the API base URL to use an OpenAI-compatible provider
+    # (e.g. OpenRouter: https://openrouter.ai/api/v1). Reads OPENAI_BASE_URL.
+    openai_base_url: Optional[str] = None
 
     # ANTHROPIC
     anthropic_api_key: Optional[str] = None

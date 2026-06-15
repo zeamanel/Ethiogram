@@ -24,9 +24,16 @@ class OpenAiService:
                 raise ExternalServiceError("OpenAI", "OPENAI_API_KEY not configured")
             try:
                 from openai import AsyncOpenAI
+                # base_url lets us point at any OpenAI-compatible endpoint
+                # (e.g. OpenRouter). When unset, the SDK defaults to OpenAI.
                 self._client = AsyncOpenAI(
                     api_key=settings.openai_api_key,
                     organization=settings.openai_org_id,
+                    base_url=settings.openai_base_url or None,
+                )
+                logger.info(
+                    "OpenAI client initialized",
+                    base_url=settings.openai_base_url or "https://api.openai.com (default)",
                 )
             except ImportError:
                 raise ExternalServiceError("OpenAI", "openai SDK not installed")
