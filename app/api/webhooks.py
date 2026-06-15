@@ -87,8 +87,18 @@ async def telegram_webhook(
     envelope.business_id = str(bot.business_id)
     envelope.bot_id = str(bot.id)
 
+    logger.info(
+        "Webhook update received",
+        bot_id=str(bot.id),
+        business_id=str(bot.business_id),
+        customer_id=envelope.customer_id,
+        bot_status=bot.status.value,
+        has_text=bool(envelope.text),
+    )
+
     # 4. Suspended bot — silent drop
     if bot.status == BotStatus.suspended:
+        logger.info("Dropping update: bot suspended", bot_id=str(bot.id))
         return JSONResponse({"ok": True})
 
     redis = await get_redis()
@@ -105,9 +115,14 @@ async def telegram_webhook(
         await _send_paused_message(raw_token, envelope)
         return JSONResponse({"ok": True})
 
+    # 5b. Paused/grace early-return is handled above; log if we reached here
+    logger.info("Processing update", bot_id=str(bot.id), status=bot.status.value)
+
     # 6. Balance check (Redis-cached)
     balance = await _get_balance(str(bot.business_id), redis, db)
+    logger.info("Balance checked", business_id=str(bot.business_id), balance=balance)
     if balance <= 0:
+        logger.info("Zero balance: not processing", business_id=str(bot.business_id), balance=balance)
         await _handle_zero_balance(bot, raw_token, envelope, db, redis)
         return JSONResponse({"ok": True})
 
@@ -127,12 +142,24 @@ async def telegram_webhook(
     response_text, tokens_used, model_id = await _process_message(
         envelope, conversation, brain_config, db
     )
+    logger.info(
+        "Reply generated",
+        bot_id=str(bot.id),
+        model_id=model_id,
+        response_chars=len(response_text or ""),
+    )
 
     # 11. Send reply
     try:
         await telegram_service.send_message(raw_token, envelope.customer_id, response_text)
+        logger.info(
+            "Reply sent to customer",
+            bot_id=str(bot.id),
+            customer_id=envelope.customer_id,
+            model_id=model_id,
+        )
     except Exception as exc:
-        logger.error("Failed to send reply", bot_id=str(bot.id), error=str(exc))
+        logger.error("Failed to send reply", bot_id=str(bot.id), error=str(exc), exc_info=True)
         return JSONResponse({"ok": True})
 
     # 12. Persist chat messages
@@ -270,6 +297,8 @@ async def _process_message(
 
     text = envelope.text or ""
     if not text.strip():
+        logger.info("Empty message text — returning fallback without model call",
+                    business_id=envelope.business_id)
         return fallback, {"input_tokens": 0, "output_tokens": 0}, "none"
 
     system_prompt = (
@@ -280,15 +309,19 @@ async def _process_message(
 
     messages = [{"role": "user", "content": text}]
 
+    logger.info("Calling model router", business_id=envelope.business_id, text_chars=len(text))
     try:
         response_text, tokens, model_id = await model_router.execute_with_fallback(
             messages=messages,
             system_prompt=system_prompt,
             business_id=envelope.business_id,
         )
+        logger.info("Model router returned reply", business_id=envelope.business_id,
+                    model_id=model_id, response_chars=len(response_text or ""))
         return response_text, tokens, model_id
     except Exception as exc:
-        logger.error("All models failed", error=str(exc), business_id=envelope.business_id)
+        logger.error("All models failed — returning fallback text",
+                     error=str(exc), business_id=envelope.business_id, exc_info=True)
         return fallback, {"input_tokens": 0, "output_tokens": 0}, "none"
 
 

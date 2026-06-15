@@ -89,25 +89,44 @@ class ModelRouter:
         chain = await self._build_failover_chain(
             business_id, agent_model_id, business_preferred_model_id, redis
         )
+        logger.info(
+            "Failover chain resolved",
+            chain=chain,
+            business_id=str(business_id) if business_id else None,
+        )
 
         last_error: Exception | None = None
         for model_id in chain:
             try:
+                logger.info("Attempting model", model_id=model_id)
                 text, tokens = await self._call_provider(
                     model_id, messages, system_prompt, max_tokens, temperature
                 )
                 await self._record_success(model_id, redis)
+                logger.info(
+                    "Model call succeeded",
+                    model_id=model_id,
+                    input_tokens=tokens.get("input_tokens", 0),
+                    output_tokens=tokens.get("output_tokens", 0),
+                    response_chars=len(text or ""),
+                )
                 return text, tokens, model_id
             except Exception as exc:
                 last_error = exc
                 logger.warning(
                     f"Model {model_id} failed, trying next in chain",
                     model_id=model_id,
-                    error=str(exc),
+                    error=f"{type(exc).__name__}: {exc}",
                     business_id=str(business_id) if business_id else None,
                 )
                 await self._record_failure(model_id, redis)
 
+        logger.error(
+            "All models in chain failed",
+            chain=chain,
+            last_error=f"{type(last_error).__name__}: {last_error}" if last_error else None,
+            business_id=str(business_id) if business_id else None,
+        )
         raise AllModelsFailedError() from last_error
 
     # ------------------------------------------------------------------
@@ -224,6 +243,13 @@ class ModelRouter:
         temperature: float,
     ) -> tuple[str, dict]:
         """Dispatch to the correct AI provider SDK based on model_id prefix."""
+        provider = (
+            "vertex" if model_id.startswith("gemini")
+            else "openai" if model_id.startswith(("gpt", "o1", "o3"))
+            else "anthropic" if model_id.startswith("claude")
+            else "openai-compatible"
+        )
+        logger.info("Dispatching to provider", model_id=model_id, provider=provider)
         if model_id.startswith("gemini"):
             from app.services.vertex_ai_service import vertex_ai_service
             return await vertex_ai_service.complete(

@@ -30,12 +30,19 @@ class VertexAiService:
         if not self._initialized:
             try:
                 import vertexai
+                logger.info(
+                    "Initializing Vertex AI",
+                    project=settings.vertex_project,
+                    location=settings.vertex_ai_location,
+                )
                 vertexai.init(
                     project=settings.vertex_project,
                     location=settings.vertex_ai_location,
                 )
                 self._initialized = True
             except Exception as exc:
+                logger.error("Vertex AI init failed", project=settings.vertex_project,
+                             location=settings.vertex_ai_location, error=str(exc))
                 raise ExternalServiceError("Vertex AI", f"Init failed: {exc}")
 
     async def complete(
