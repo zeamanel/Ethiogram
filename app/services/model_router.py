@@ -242,31 +242,38 @@ class ModelRouter:
         max_tokens: int,
         temperature: float,
     ) -> tuple[str, dict]:
-        """Dispatch to the correct AI provider SDK based on model_id prefix."""
-        provider = (
-            "vertex" if model_id.startswith("gemini")
-            else "openai" if model_id.startswith(("gpt", "o1", "o3"))
-            else "anthropic" if model_id.startswith("claude")
-            else "openai-compatible"
-        )
+        """Dispatch to the correct AI provider SDK based on model_id prefix.
+
+        Supports both native model IDs (e.g. 'gpt-4o-mini', 'gemini-2.0-flash-001')
+        and OpenRouter-style prefixed IDs (e.g. 'openai/gpt-4o-mini',
+        'anthropic/claude-3-haiku', 'meta-llama/llama-3.1-8b-instruct').
+        """
+        # Detect provider from prefix (handles both 'provider/model' and bare 'model')
+        mid = model_id.lower()
+        if mid.startswith("openai/") or mid.startswith("gpt") or mid.startswith("o1") or mid.startswith("o3"):
+            provider = "openai"
+        elif mid.startswith("anthropic/") or mid.startswith("claude"):
+            provider = "anthropic"
+        elif mid.startswith("google/") or mid.startswith("gemini"):
+            provider = "vertex"
+        else:
+            # Everything else (llama, mistral, etc.) goes through OpenAI-compatible endpoint
+            provider = "openai-compatible"
+
         logger.info("Dispatching to provider", model_id=model_id, provider=provider)
-        if model_id.startswith("gemini"):
+
+        if provider == "vertex":
             from app.services.vertex_ai_service import vertex_ai_service
             return await vertex_ai_service.complete(
                 model_id, messages, system_prompt, max_tokens, temperature
             )
-        elif model_id.startswith("gpt") or model_id.startswith("o1") or model_id.startswith("o3"):
-            from app.services.openai_service import openai_service
-            return await openai_service.complete(
-                model_id, messages, system_prompt, max_tokens, temperature
-            )
-        elif model_id.startswith("claude"):
+        elif provider == "anthropic":
             from app.services.anthropic_service import anthropic_service
             return await anthropic_service.complete(
                 model_id, messages, system_prompt, max_tokens, temperature
             )
         else:
-            # Fallback: try OpenAI-compatible endpoint (covers Mistral, Llama via Together/Groq)
+            # openai or openai-compatible (OpenRouter, Together, Groq, etc.)
             from app.services.openai_service import openai_service
             return await openai_service.complete(
                 model_id, messages, system_prompt, max_tokens, temperature
