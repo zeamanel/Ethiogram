@@ -248,6 +248,16 @@ class ModelRouter:
         and OpenRouter-style prefixed IDs (e.g. 'openai/gpt-4o-mini',
         'anthropic/claude-3-haiku', 'meta-llama/llama-3.1-8b-instruct').
         """
+        # Single-gateway mode: when an OpenAI-compatible base URL is configured
+        # (e.g. OpenRouter), route EVERY model through it regardless of prefix.
+        if settings.openai_base_url:
+            logger.info("Dispatching via OpenAI-compatible gateway",
+                        model_id=model_id, base_url=settings.openai_base_url)
+            from app.services.openai_service import openai_service
+            return await openai_service.complete(
+                model_id, messages, system_prompt, max_tokens, temperature
+            )
+
         # Detect provider from prefix (handles both 'provider/model' and bare 'model')
         mid = model_id.lower()
         if mid.startswith("openai/") or mid.startswith("gpt") or mid.startswith("o1") or mid.startswith("o3"):
