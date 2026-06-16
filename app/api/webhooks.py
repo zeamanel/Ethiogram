@@ -129,6 +129,17 @@ async def telegram_webhook(
 
     redis = await get_redis()
 
+    # Idempotency: Telegram resends the same update_id on every retry. Accept
+    # each update at most once, so a downstream error can never re-invoke the
+    # (paid) model call for the same message.
+    update_id = body.get("update_id")
+    if update_id is not None:
+        dedup_key = f"tg:update:{bot.id}:{update_id}"
+        if not await redis.set(dedup_key, "1", nx=True, ex=3600):
+            logger.info("Duplicate update_id — already processed, skipping",
+                        bot_id=str(bot.id), update_id=update_id)
+            return JSONResponse({"ok": True})
+
     # Decrypt token once for all sends in this request
     try:
         raw_token = decrypt(bot.encrypted_token)
@@ -189,26 +200,37 @@ async def telegram_webhook(
         logger.error("Failed to send reply", bot_id=str(bot.id), error=str(exc), exc_info=True)
         return JSONResponse({"ok": True})
 
-    # 12. Persist chat messages
-    await _save_messages(envelope, response_text, model_id, tokens_used, conversation, db)
+    # 12-14. Persist, update stats, meter ETG, and check alerts.
+    # These run AFTER the reply has been delivered, so a failure here must NOT
+    # propagate: a non-200 response makes Telegram retry the update and
+    # re-invoke the paid model call. Roll back to leave the session clean
+    # (get_db commits on return) and still return 200.
+    try:
+        await _save_messages(envelope, response_text, model_id, tokens_used, conversation, db)
 
-    # Update conversation stats
-    conversation.total_messages += 2
-    conversation.last_message_at = datetime.now(timezone.utc)
-    bot.total_messages_processed += 1
-    bot.last_message_at = datetime.now(timezone.utc)
+        # Update conversation stats
+        conversation.total_messages += 2
+        conversation.last_message_at = datetime.now(timezone.utc)
+        bot.total_messages_processed += 1
+        bot.last_message_at = datetime.now(timezone.utc)
 
-    # 13. Meter ETG usage
-    etg_charged = await _charge_etg(
-        str(bot.business_id), str(bot.id), str(conversation.id),
-        model_id, tokens_used, balance, redis, db
-    )
-    conversation.total_etg_spent += etg_charged
-    bot.total_etg_consumed += etg_charged
+        # 13. Meter ETG usage
+        etg_charged = await _charge_etg(
+            str(bot.business_id), str(bot.id), str(conversation.id),
+            model_id, tokens_used, balance, redis, db
+        )
+        conversation.total_etg_spent += etg_charged
+        bot.total_etg_consumed += etg_charged
 
-    # 14. Post-charge alert checks
-    new_balance = balance - etg_charged
-    await _check_wallet_alerts(str(bot.business_id), new_balance, bot, redis, db)
+        # 14. Post-charge alert checks
+        new_balance = balance - etg_charged
+        await _check_wallet_alerts(str(bot.business_id), new_balance, bot, redis, db)
+    except Exception as exc:
+        await db.rollback()
+        logger.error(
+            "Post-reply persistence/metering failed (reply already sent) — returning 200",
+            bot_id=str(bot.id), error=f"{type(exc).__name__}: {exc}", exc_info=True,
+        )
 
     return JSONResponse({"ok": True})
 
