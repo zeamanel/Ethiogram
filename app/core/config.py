@@ -30,6 +30,8 @@ class Settings(BaseSettings):
 
     # REDIS
     redis_url: str = "redis://localhost:6379/0"
+    # Dev-only: use an in-memory fakeredis instead of a real Redis server.
+    use_fake_redis: bool = False
     redis_cache_ttl: int = 300
 
     # SECURITY

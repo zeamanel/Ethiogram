@@ -59,10 +59,16 @@ async def get_db_context() -> AsyncGenerator[AsyncSession, None]:
 async def get_redis() -> aioredis.Redis:
     global _redis_client
     if _redis_client is None:
-        _redis_client = aioredis.from_url(
-            settings.redis_url, encoding="utf-8", decode_responses=True,
-            socket_connect_timeout=5, socket_timeout=5, retry_on_timeout=True,
-        )
+        if settings.use_fake_redis:
+            # In-memory Redis for local dev — no server required.
+            import fakeredis.aioredis as fakeredis_aioredis
+            _redis_client = fakeredis_aioredis.FakeRedis(decode_responses=True)
+            logger.warning("Using in-memory fakeredis (USE_FAKE_REDIS=1) — dev only")
+        else:
+            _redis_client = aioredis.from_url(
+                settings.redis_url, encoding="utf-8", decode_responses=True,
+                socket_connect_timeout=5, socket_timeout=5, retry_on_timeout=True,
+            )
     return _redis_client
 
 async def connect_db() -> None:
