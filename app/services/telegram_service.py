@@ -152,8 +152,11 @@ class TelegramService:
     async def send_typing_action(self, token: str, chat_id: int | str) -> None:
         try:
             await self._post(token, "sendChatAction", {"chat_id": chat_id, "action": "typing"})
-        except TelegramAPIError:
-            pass  # non-critical, never block message processing
+        except Exception as exc:
+            # Fire-and-forget: a network/timeout/API error on the typing
+            # indicator must never crash the webhook (which would 500 ->
+            # Telegram retry -> re-charge). Swallow everything.
+            logger.debug("send_typing_action failed (non-critical)", error=str(exc))
 
     async def send_photo(
         self,
