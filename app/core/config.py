@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     master_bot_username: str = "ethiogram_bot"
     master_bot_webhook_url: str = ""
 
+    # Telegram HTTP client timeouts (seconds). Raise connect for local dev
+    # over a slow VPN: TELEGRAM_CONNECT_TIMEOUT / TELEGRAM_READ_TIMEOUT.
+    telegram_connect_timeout: float = 5.0
+    telegram_read_timeout: float = 10.0
+
     # AI MODEL DEFAULTS
     default_model_id: str = "gemini-2.0-flash-001"
     fallback_model_id: str = "gpt-4o-mini"

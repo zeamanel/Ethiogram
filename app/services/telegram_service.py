@@ -14,7 +14,12 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 _TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}"
-_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+
+
+def _timeout() -> httpx.Timeout:
+    # Read from settings so it can be raised for local dev over a slow VPN
+    # (TELEGRAM_CONNECT_TIMEOUT / TELEGRAM_READ_TIMEOUT) without code changes.
+    return httpx.Timeout(settings.telegram_read_timeout, connect=settings.telegram_connect_timeout)
 
 
 @dataclass
@@ -48,7 +53,7 @@ class TelegramService:
 
     async def _post(self, token: str, method: str, payload: dict) -> dict:
         url = self._url(token, method)
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_timeout()) as client:
             response = await client.post(url, json=payload)
         data = response.json()
         if not data.get("ok"):
@@ -64,7 +69,7 @@ class TelegramService:
 
     async def _get(self, token: str, method: str) -> dict:
         url = self._url(token, method)
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_timeout()) as client:
             response = await client.get(url)
         data = response.json()
         if not data.get("ok"):
