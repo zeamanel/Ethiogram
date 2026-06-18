@@ -107,9 +107,17 @@ def is_super_admin_telegram_id(telegram_id: int) -> bool:
     return telegram_id in settings.admin_telegram_ids
 
 def verify_admin_secret_header(header_value: Optional[str]) -> bool:
-    if not header_value:
+    """Constant-time check of the admin shared secret.
+
+    Compares the provided header against ``settings.admin_secret_value`` (the
+    secret VALUE), not ``admin_secret_header`` (the header NAME). Fails closed
+    when no secret is configured, so admin endpoints stay locked until
+    ADMIN_SECRET_VALUE is set.
+    """
+    expected = settings.admin_secret_value
+    if not header_value or not expected:
         return False
-    return hmac.compare_digest(header_value, settings.admin_secret_header)
+    return hmac.compare_digest(header_value, expected)
 
 def encrypt_api_key(raw_key: str, provider: str) -> str:
     tagged = f"{provider}::{raw_key}"

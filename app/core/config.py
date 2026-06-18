@@ -134,7 +134,11 @@ class Settings(BaseSettings):
     # ADMIN
     admin_telegram_ids: list[int] = []
     admin_email: str = "admin@ethiogram.com"
+    # Name of the HTTP header that carries the admin shared secret.
     admin_secret_header: str = "X-Ethiogram-Admin"
+    # The actual shared-secret VALUE expected in that header. Unset by default
+    # so admin endpoints stay locked until ADMIN_SECRET_VALUE is configured.
+    admin_secret_value: Optional[str] = None
 
     # PLATFORM URLS
     base_url: str = "https://api.ethiogram.com"

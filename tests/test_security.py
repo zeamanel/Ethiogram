@@ -22,6 +22,7 @@ from app.core.security import (
     hash_bot_token,
     hash_password,
     mask_sensitive,
+    verify_admin_secret_header,
     verify_password,
 )
 
@@ -151,3 +152,30 @@ class TestGenerators:
         masked = mask_sensitive("1234567890:ABCDEF", visible_chars=4)
         assert masked.endswith("CDEF")
         assert "1234567890" not in masked
+
+
+class TestAdminSecretHeader:
+    """verify_admin_secret_header must compare against the secret VALUE
+    (admin_secret_value), not the header NAME (admin_secret_header), and
+    fail closed when no secret is configured."""
+
+    def test_unset_secret_fails_closed(self, monkeypatch):
+        monkeypatch.setattr(settings, "admin_secret_value", None)
+        # The header NAME used to pass under the old bug — it must not now.
+        assert verify_admin_secret_header(settings.admin_secret_header) is False
+        assert verify_admin_secret_header("anything") is False
+
+    def test_correct_value_passes(self, monkeypatch):
+        monkeypatch.setattr(settings, "admin_secret_value", "long-random-secret")
+        assert verify_admin_secret_header("long-random-secret") is True
+
+    def test_header_name_is_rejected(self, monkeypatch):
+        # Regression: sending the public header name must never authenticate.
+        monkeypatch.setattr(settings, "admin_secret_value", "long-random-secret")
+        assert verify_admin_secret_header(settings.admin_secret_header) is False
+
+    def test_wrong_and_empty_values_rejected(self, monkeypatch):
+        monkeypatch.setattr(settings, "admin_secret_value", "long-random-secret")
+        assert verify_admin_secret_header("wrong") is False
+        assert verify_admin_secret_header("") is False
+        assert verify_admin_secret_header(None) is False
