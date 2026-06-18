@@ -199,3 +199,7 @@ class BaseAgent:
             elif msg.role == MessageRole.assistant:
                 history.append({"role": "assistant", "content": msg.content})
         return history
+
+
+# Default general-purpose Q&A agent (used directly and as the router fallback).
+base_agent = BaseAgent()

@@ -4,6 +4,9 @@ from __future__ import annotations
 import re
 from typing import Optional
 
+from app.agents.accountant import accountant_agent
+from app.agents.base import BaseAgent, base_agent
+from app.agents.concierge import concierge_agent
 from app.core.logging import get_logger
 from app.services.telegram_service import MessageEnvelope
 
@@ -57,6 +60,38 @@ _HANDOFF_WORDS = {
 }
 
 
+# Registry: maps an agent's class name to its live singleton instance, so the
+# caller can go straight from a routing decision to an object with .process().
+_AGENT_REGISTRY: dict[str, BaseAgent] = {
+    "BaseAgent": base_agent,
+    "AccountantAgent": accountant_agent,
+    "ConciergeAgent": concierge_agent,
+}
+
+# Which specialist agent handles which intent. Unmapped intents use BaseAgent.
+_INTENT_AGENT: dict[str, str] = {
+    Intent.RECEIPT_OCR: "AccountantAgent",
+    Intent.BOOKING: "ConciergeAgent",
+}
+
+
+def _matches(text: str, words: set[str], bank: set[str]) -> bool:
+    """True if any keyword in ``bank`` is present.
+
+    Single-word keywords match on whole-word boundaries (via the ``words`` token
+    set, so "hi" won't match inside "this"). Multi-word keywords (e.g.
+    "good morning", "how much", "ቀጠሮ ያዝ") match as substrings of the raw text —
+    something the old single-token set intersection could never do.
+    """
+    for kw in bank:
+        if " " in kw:
+            if kw in text:
+                return True
+        elif kw in words:
+            return True
+    return False
+
+
 class IntentRouter:
     """
     Lightweight keyword-based intent classifier.
@@ -75,25 +110,26 @@ class IntentRouter:
         if not text:
             return Intent.GENERAL_QA
 
-        # Exact / partial keyword matching
-        words = set(re.findall(r"[\w\u1200-\u137f]+", text))
+        # Token set for whole-word matching; _matches also does substring
+        # matching for multi-word phrases against the raw text.
+        words = set(re.findall(r"[\wሀ-፿]+", text))
 
-        if words & _HANDOFF_WORDS:
+        if _matches(text, words, _HANDOFF_WORDS):
             return Intent.HUMAN_HANDOFF
 
-        if words & _COMPLAINT_WORDS:
+        if _matches(text, words, _COMPLAINT_WORDS):
             return Intent.COMPLAINT
 
-        if words & _BOOKING_WORDS:
+        if _matches(text, words, _BOOKING_WORDS):
             return Intent.BOOKING
 
-        if words & _ORDER_WORDS:
+        if _matches(text, words, _ORDER_WORDS):
             return Intent.ORDER
 
-        if words & _PRICE_WORDS:
+        if _matches(text, words, _PRICE_WORDS):
             return Intent.PRICE_CHECK
 
-        if words & _GREETING_WORDS and len(words) <= 5:
+        if _matches(text, words, _GREETING_WORDS) and len(words) <= 5:
             return Intent.GREETING
 
         return Intent.GENERAL_QA
@@ -102,25 +138,21 @@ class IntentRouter:
         self,
         intent: str,
         available_agents: Optional[list[str]] = None,
-    ) -> str:
+    ) -> BaseAgent:
         """
-        Map intent → agent class name.
-        `available_agents` is the list of ChildAgent types deployed for this business.
-        Falls back to 'BaseAgent' when a specialist isn't available.
+        Map an intent to the agent instance that should handle it.
+
+        ``available_agents`` optionally restricts routing to the ChildAgent
+        types a business has deployed: when provided, a specialist is only
+        chosen if it's in that list; when None, specialists are available by
+        default. Always falls back to the general-purpose BaseAgent.
         """
-        deployed = set(available_agents or [])
-
-        if intent == Intent.RECEIPT_OCR and "AccountantAgent" in deployed:
-            return "AccountantAgent"
-
-        if intent == Intent.BOOKING and "ConciergeAgent" in deployed:
-            return "ConciergeAgent"
-
-        if intent in (Intent.ORDER, Intent.PRICE_CHECK, Intent.PRODUCT_INQUIRY):
-            if "SalesCloserAgent" in deployed:
-                return "SalesCloserAgent"
-
-        return "BaseAgent"
+        target = _INTENT_AGENT.get(intent)
+        if target and (available_agents is None or target in set(available_agents)):
+            agent = _AGENT_REGISTRY.get(target)
+            if agent is not None:
+                return agent
+        return _AGENT_REGISTRY["BaseAgent"]
 
 
 intent_router = IntentRouter()
