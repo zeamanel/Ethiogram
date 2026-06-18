@@ -8,7 +8,6 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.base import AgentResponse, BaseAgent
-from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.models import BusinessBrainConfig
 from app.services.telegram_service import MessageEnvelope
@@ -45,7 +44,7 @@ class ConciergeAgent(BaseAgent):
             services = child_data.get("services", "")
             duration = child_data.get("appointment_duration_minutes", 60)
             hours = child_data.get("business_hours", "9:00 AM - 5:00 PM, Monday to Friday")
-            timezone_name = child_data.get("timezone", settings.base_url)
+            timezone_name = child_data.get("timezone", "Africa/Addis_Ababa")
             service_info = (
                 f"\n\nAppointment details:\n"
                 f"- Services offered: {services}\n"
@@ -194,7 +193,12 @@ class ConciergeAgent(BaseAgent):
     ) -> dict:
         """
         Create a Google Calendar event and return the event dict.
-        Falls back to a mock confirmation if Calendar API is unavailable.
+
+        On success returns the Calendar event (which carries ``status`` from
+        Google, e.g. "confirmed"). On failure returns
+        ``{"status": "failed", "error": <message>, "id": None}`` — it must
+        NEVER report a confirmed booking when the calendar write did not
+        succeed, so the caller can tell the customer it didn't go through.
         """
         try:
             import asyncio
@@ -220,11 +224,12 @@ class ConciergeAgent(BaseAgent):
         except Exception as exc:
             logger.error("Calendar booking failed", error=str(exc))
             return {
-                "id": "mock",
+                "id": None,
+                "status": "failed",
+                "error": str(exc),
                 "summary": f"{service_name} — {customer_name}",
                 "start": {"dateTime": slot_start},
                 "end": {"dateTime": slot_end},
-                "status": "confirmed",
             }
 
     def _create_event_sync(
