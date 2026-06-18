@@ -175,10 +175,10 @@ async def telegram_webhook(
     if language != conversation.detected_language:
         conversation.detected_language = language
 
-    # 10. Build response via agent (base Q&A until agents layer is built)
+    # 10. Build response: classify intent → route to the right agent
     brain_config = await _get_brain_config(str(bot.business_id), db)
     response_text, tokens_used, model_id = await _process_message(
-        envelope, conversation, brain_config, db
+        envelope, conversation, brain_config, db, raw_token
     )
     logger.info(
         "Reply generated",
@@ -337,40 +337,76 @@ async def _process_message(
     conversation: Conversation,
     brain_config: BusinessBrainConfig | None,
     db: AsyncSession,
+    raw_token: str | None = None,
 ) -> tuple[str, dict, str]:
     """
-    Route message through AI. Uses BaseAgent when agents layer exists;
-    falls back to a direct model call via model_router for now.
+    Classify the message intent, route it to the right agent, and run it.
+
+    The selected agent (Accountant for receipts, Concierge for bookings, or the
+    base Q&A agent for everything else) handles RAG + model failover internally.
+    If agent processing raises for any reason, fall back to a direct model call
+    so the bot never goes silent.
     """
+    from app.agents.router import intent_router
     from app.services.model_router import model_router
 
-    persona = brain_config.persona_name if brain_config else "Assistant"
-    tone = brain_config.persona_tone if brain_config else "friendly"
     fallback = brain_config.fallback_message if brain_config else "I'm here to help!"
-
     text = envelope.text or ""
-    if not text.strip():
-        logger.info("Empty message text — returning fallback without model call",
+    has_media = envelope.media_type in ("photo", "document")
+
+    # Nothing to act on (no text and no media) → cheap fallback, no model call.
+    if not text.strip() and not has_media:
+        logger.info("Empty message — returning fallback without model call",
                     business_id=envelope.business_id)
         return fallback, {"input_tokens": 0, "output_tokens": 0}, "none"
 
+    # Agents that download media (Accountant OCR) need the raw bot token; it is
+    # passed out-of-band on the envelope's raw payload.
+    if raw_token:
+        envelope.raw["_bot_token"] = raw_token
+
+    # 1. Classify intent → 2. select the agent instance for it.
+    intent = intent_router.classify(envelope)
+    agent = intent_router.select_agent(intent)
+    logger.info("Routing message to agent", intent=intent, agent=agent.agent_name,
+                business_id=envelope.business_id)
+
+    # 3. Run the agent (RAG + model failover happen inside process()).
+    try:
+        result = await agent.process(
+            envelope=envelope,
+            conversation=conversation,
+            brain_config=brain_config,
+            child_data=None,
+            db=db,
+        )
+        logger.info("Agent returned reply", business_id=envelope.business_id,
+                    agent=agent.agent_name, model_id=result.model_id,
+                    response_chars=len(result.text or ""))
+        tokens = {
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+        }
+        return result.text, tokens, result.model_id
+    except Exception as exc:
+        logger.error("Agent processing failed — falling back to direct model call",
+                     agent=agent.agent_name, business_id=envelope.business_id,
+                     error=f"{type(exc).__name__}: {exc}", exc_info=True)
+
+    # 4. Fallback path: a plain model call so the bot never goes silent.
+    persona = brain_config.persona_name if brain_config else "Assistant"
+    tone = brain_config.persona_tone if brain_config else "friendly"
     system_prompt = (
         f"You are {persona}, a {tone} AI assistant for this business. "
         f"Answer customer questions helpfully and concisely. "
         f"If you don't know the answer, say so politely."
     )
-
-    messages = [{"role": "user", "content": text}]
-
-    logger.info("Calling model router", business_id=envelope.business_id, text_chars=len(text))
     try:
         response_text, tokens, model_id = await model_router.execute_with_fallback(
-            messages=messages,
+            messages=[{"role": "user", "content": text}],
             system_prompt=system_prompt,
             business_id=envelope.business_id,
         )
-        logger.info("Model router returned reply", business_id=envelope.business_id,
-                    model_id=model_id, response_chars=len(response_text or ""))
         return response_text, tokens, model_id
     except Exception as exc:
         logger.error("All models failed — returning fallback text",
