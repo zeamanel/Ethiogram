@@ -14,6 +14,12 @@ set -euo pipefail
 export ENVIRONMENT=development
 export USE_FAKE_REDIS=1
 
+# Dev-only admin secret so local admin endpoints don't 403. The gate now fails
+# closed when unset (see verify_admin_secret_header). NEVER use this value in
+# prod — set a real ADMIN_SECRET_VALUE there. Send it as the X-Ethiogram-Admin
+# header on local admin calls. Override by exporting ADMIN_SECRET_VALUE first.
+export ADMIN_SECRET_VALUE="${ADMIN_SECRET_VALUE:-dev-admin-secret-local-only}"
+
 # AI via OpenRouter (same as prod)
 export OPENAI_BASE_URL=https://openrouter.ai/api/v1
 export DEFAULT_MODEL_ID=openai/gpt-4o-mini
@@ -35,4 +41,5 @@ export TELEGRAM_READ_TIMEOUT="${TELEGRAM_READ_TIMEOUT:-20}"
 
 echo "[dev] DATABASE_URL=postgresql+asyncpg://postgres:***@127.0.0.1:5433/ethiogram"
 echo "[dev] USE_FAKE_REDIS=1  OPENAI_BASE_URL=${OPENAI_BASE_URL}  DEFAULT_MODEL_ID=${DEFAULT_MODEL_ID}"
+echo "[dev] admin header -> X-Ethiogram-Admin: ${ADMIN_SECRET_VALUE}"
 exec uvicorn app.main:app --reload --port 8000
