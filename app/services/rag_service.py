@@ -130,7 +130,7 @@ class RagService:
         self,
         document_id: uuid.UUID,
         business_id: uuid.UUID,
-        text: str,
+        document_text: str,
         db: AsyncSession,
         chunk_size: int = 500,
         overlap: int = 50,
@@ -152,7 +152,7 @@ class RagService:
         await db.flush()
 
         try:
-            raw_chunks = embedding_service.chunk_text(text, chunk_size, overlap)
+            raw_chunks = embedding_service.chunk_text(document_text, chunk_size, overlap)
             if not raw_chunks:
                 doc.status = DocumentStatus.failed
                 doc.error_message = "No text content extracted"
