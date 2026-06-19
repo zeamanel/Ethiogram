@@ -20,4 +20,26 @@
 \echo '==> 005_mini_app_landing_mcp.sql'
 \i migrations/005_mini_app_landing_mcp.sql
 
+-- 006-011: ORM reconciliation + later fixes. All idempotent (006/007 use
+-- IF NOT EXISTS, 008/010 are type-guarded, 009 uses DROP NOT NULL, 011 uses
+-- ADD COLUMN IF NOT EXISTS). On a fresh DB these complete the schema to match
+-- app/db/models.py; on an up-to-date DB they are no-ops.
+\echo '==> 006_orm_reconciliation.sql'
+\i migrations/006_orm_reconciliation.sql
+
+\echo '==> 007_column_reconciliation.sql'
+\i migrations/007_column_reconciliation.sql
+
+\echo '==> 008_enum_type_realignment.sql'
+\i migrations/008_enum_type_realignment.sql
+
+\echo '==> 009_relax_legacy_notnull.sql'
+\i migrations/009_relax_legacy_notnull.sql
+
+\echo '==> 010_chat_messages_media_type_to_text.sql'
+\i migrations/010_chat_messages_media_type_to_text.sql
+
+\echo '==> 011_notification_dispatched_at.sql'
+\i migrations/011_notification_dispatched_at.sql
+
 \echo '==> All migrations applied successfully.'

@@ -6,5 +6,14 @@
 -- expression is of type character varying") — even when the value is NULL,
 -- because the mismatch is detected at plan time. Convert the column to text so
 -- it matches what the ORM emits.
-ALTER TABLE chat_messages ALTER COLUMN media_type DROP DEFAULT;
-ALTER TABLE chat_messages ALTER COLUMN media_type TYPE text USING media_type::text;
+--
+-- IDEMPOTENCY: `ALTER COLUMN ... TYPE` always rewrites the table + takes an
+-- ACCESS EXCLUSIVE lock, so this is guarded on udt_name and only runs when the
+-- column is not already text. Fresh DB (enum) -> converts; up-to-date DB -> no-op.
+DO $$ BEGIN
+  IF (SELECT udt_name FROM information_schema.columns
+        WHERE table_name = 'chat_messages' AND column_name = 'media_type') <> 'text' THEN
+    ALTER TABLE chat_messages ALTER COLUMN media_type DROP DEFAULT;
+    ALTER TABLE chat_messages ALTER COLUMN media_type TYPE text USING media_type::text;
+  END IF;
+END $$;
