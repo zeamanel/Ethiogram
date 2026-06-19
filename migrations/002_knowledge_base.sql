@@ -25,8 +25,14 @@ CREATE TABLE IF NOT EXISTS business_brain_config (
 CREATE INDEX IF NOT EXISTS idx_brain_config_business_id ON business_brain_config(business_id);
 
 -- ── knowledge_documents ───────────────────────────────────────────────────────
-CREATE TYPE doc_status AS ENUM ('pending', 'processing', 'ready', 'failed');
-CREATE TYPE doc_type AS ENUM ('pdf', 'docx', 'xlsx', 'txt', 'csv', 'image', 'url', 'manual');
+DO $$ BEGIN
+  CREATE TYPE doc_status AS ENUM ('pending', 'processing', 'ready', 'failed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE doc_type AS ENUM ('pdf', 'docx', 'xlsx', 'txt', 'csv', 'image', 'url', 'manual');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS knowledge_documents (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -75,7 +81,10 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_document_id ON knowledge_chunks(
 CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_business_id ON knowledge_chunks(business_id);
 
 -- ── product_catalog ───────────────────────────────────────────────────────────
-CREATE TYPE product_status AS ENUM ('active', 'inactive', 'out_of_stock');
+DO $$ BEGIN
+  CREATE TYPE product_status AS ENUM ('active', 'inactive', 'out_of_stock');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS product_catalog (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -100,8 +109,14 @@ CREATE INDEX IF NOT EXISTS idx_product_catalog_status ON product_catalog(status)
 CREATE INDEX IF NOT EXISTS idx_product_catalog_deleted_at ON product_catalog(deleted_at) WHERE deleted_at IS NULL;
 
 -- ── orders ────────────────────────────────────────────────────────────────────
-CREATE TYPE order_status AS ENUM ('pending', 'confirmed', 'processing', 'completed', 'cancelled', 'refunded');
-CREATE TYPE payment_status AS ENUM ('unpaid', 'pending', 'paid', 'failed', 'refunded');
+DO $$ BEGIN
+  CREATE TYPE order_status AS ENUM ('pending', 'confirmed', 'processing', 'completed', 'cancelled', 'refunded');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE payment_status AS ENUM ('unpaid', 'pending', 'paid', 'failed', 'refunded');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS orders (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

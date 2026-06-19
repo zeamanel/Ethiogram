@@ -9,9 +9,18 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "vector";
 
 -- ── Enums ─────────────────────────────────────────────────────────────────────
-CREATE TYPE user_role AS ENUM ('user', 'creator', 'admin', 'super_admin');
-CREATE TYPE bot_status AS ENUM ('active', 'paused', 'disconnected', 'suspended');
-CREATE TYPE subscription_plan AS ENUM ('free', 'starter', 'growth', 'enterprise');
+DO $$ BEGIN
+  CREATE TYPE user_role AS ENUM ('user', 'creator', 'admin', 'super_admin');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE bot_status AS ENUM ('active', 'paused', 'disconnected', 'suspended');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE subscription_plan AS ENUM ('free', 'starter', 'growth', 'enterprise');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ── users ─────────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS users (
@@ -122,7 +131,10 @@ CREATE INDEX IF NOT EXISTS idx_bots_status ON bots(status);
 CREATE INDEX IF NOT EXISTS idx_bots_deleted_at ON bots(deleted_at) WHERE deleted_at IS NULL;
 
 -- ── conversations ─────────────────────────────────────────────────────────────
-CREATE TYPE platform_type AS ENUM ('telegram', 'whatsapp', 'instagram', 'web');
+DO $$ BEGIN
+  CREATE TYPE platform_type AS ENUM ('telegram', 'whatsapp', 'instagram', 'web');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS conversations (
     id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -149,8 +161,14 @@ CREATE INDEX IF NOT EXISTS idx_conversations_last_message_at ON conversations(la
 CREATE INDEX IF NOT EXISTS idx_conversations_customer_platform_id ON conversations(customer_platform_id);
 
 -- ── chat_messages ─────────────────────────────────────────────────────────────
-CREATE TYPE message_role AS ENUM ('user', 'assistant', 'system', 'tool');
-CREATE TYPE media_type AS ENUM ('text', 'image', 'audio', 'video', 'document', 'location', 'sticker');
+DO $$ BEGIN
+  CREATE TYPE message_role AS ENUM ('user', 'assistant', 'system', 'tool');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE media_type AS ENUM ('text', 'image', 'audio', 'video', 'document', 'location', 'sticker');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS chat_messages (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -186,13 +204,16 @@ CREATE INDEX IF NOT EXISTS idx_admin_audit_log_created_at ON admin_audit_log(cre
 CREATE INDEX IF NOT EXISTS idx_admin_audit_log_action ON admin_audit_log(action);
 
 -- ── notifications ─────────────────────────────────────────────────────────────
-CREATE TYPE notification_type AS ENUM (
-    'balance_low', 'balance_critical', 'balance_zero',
-    'trial_warning', 'trial_expired',
-    'agent_approved', 'agent_rejected',
-    'order_received', 'order_paid', 'escrow_released',
-    'broadcast', 'system'
-);
+DO $$ BEGIN
+  CREATE TYPE notification_type AS ENUM (
+      'balance_low', 'balance_critical', 'balance_zero',
+      'trial_warning', 'trial_expired',
+      'agent_approved', 'agent_rejected',
+      'order_received', 'order_paid', 'escrow_released',
+      'broadcast', 'system'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS notifications (
     id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

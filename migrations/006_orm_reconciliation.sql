@@ -97,8 +97,18 @@ CREATE TABLE IF NOT EXISTS ai_models (
 	updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
 	PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS ix_ai_models_id ON ai_models (id);
-CREATE UNIQUE INDEX IF NOT EXISTS ix_ai_models_model_id ON ai_models (model_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'ai_models' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_ai_models_id ON ai_models (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'ai_models' AND column_name IN ('model_id')) = 1 THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS ix_ai_models_model_id ON ai_models (model_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS etg_packages (
 	name VARCHAR(64) NOT NULL, 
@@ -113,7 +123,12 @@ CREATE TABLE IF NOT EXISTS etg_packages (
 	updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
 	PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS ix_etg_packages_id ON etg_packages (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'etg_packages' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_etg_packages_id ON etg_packages (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS usage_pricing (
 	action_type VARCHAR(64) NOT NULL, 
@@ -125,8 +140,18 @@ CREATE TABLE IF NOT EXISTS usage_pricing (
 	updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL, 
 	PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS ix_usage_pricing_id ON usage_pricing (id);
-CREATE UNIQUE INDEX IF NOT EXISTS ix_usage_pricing_action_type ON usage_pricing (action_type);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'usage_pricing' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_usage_pricing_id ON usage_pricing (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'usage_pricing' AND column_name IN ('action_type')) = 1 THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS ix_usage_pricing_action_type ON usage_pricing (action_type);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS users (
 	telegram_id BIGINT, 
@@ -152,11 +177,36 @@ CREATE TABLE IF NOT EXISTS users (
 	UNIQUE (phone), 
 	FOREIGN KEY(referred_by_id) REFERENCES users (id)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS ix_users_referral_code ON users (referral_code);
-CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users (email);
-CREATE INDEX IF NOT EXISTS ix_users_id ON users (id);
-CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username);
-CREATE UNIQUE INDEX IF NOT EXISTS ix_users_telegram_id ON users (telegram_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name IN ('referral_code')) = 1 THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS ix_users_referral_code ON users (referral_code);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name IN ('email')) = 1 THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users (email);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_users_id ON users (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name IN ('username')) = 1 THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name IN ('telegram_id')) = 1 THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS ix_users_telegram_id ON users (telegram_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS admin_audit_log (
 	admin_id UUID NOT NULL, 
@@ -174,9 +224,24 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(admin_id) REFERENCES users (id)
 );
-CREATE INDEX IF NOT EXISTS ix_admin_audit_log_admin_id ON admin_audit_log (admin_id);
-CREATE INDEX IF NOT EXISTS ix_admin_audit_log_action ON admin_audit_log (action);
-CREATE INDEX IF NOT EXISTS ix_admin_audit_log_id ON admin_audit_log (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'admin_audit_log' AND column_name IN ('admin_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_admin_audit_log_admin_id ON admin_audit_log (admin_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'admin_audit_log' AND column_name IN ('action')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_admin_audit_log_action ON admin_audit_log (action);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'admin_audit_log' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_admin_audit_log_id ON admin_audit_log (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS businesses (
 	owner_id UUID NOT NULL, 
@@ -207,9 +272,24 @@ CREATE TABLE IF NOT EXISTS businesses (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(owner_id) REFERENCES users (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_businesses_owner_id ON businesses (owner_id);
-CREATE UNIQUE INDEX IF NOT EXISTS ix_businesses_slug ON businesses (slug);
-CREATE INDEX IF NOT EXISTS ix_businesses_id ON businesses (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'businesses' AND column_name IN ('owner_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_businesses_owner_id ON businesses (owner_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'businesses' AND column_name IN ('slug')) = 1 THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS ix_businesses_slug ON businesses (slug);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'businesses' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_businesses_id ON businesses (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS creator_profiles (
 	user_id UUID NOT NULL, 
@@ -232,7 +312,12 @@ CREATE TABLE IF NOT EXISTS creator_profiles (
 	UNIQUE (user_id), 
 	FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_creator_profiles_id ON creator_profiles (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'creator_profiles' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_creator_profiles_id ON creator_profiles (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS notifications (
 	user_id UUID NOT NULL, 
@@ -249,8 +334,18 @@ CREATE TABLE IF NOT EXISTS notifications (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_notifications_user_id ON notifications (user_id);
-CREATE INDEX IF NOT EXISTS ix_notifications_id ON notifications (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'notifications' AND column_name IN ('user_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_notifications_user_id ON notifications (user_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'notifications' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_notifications_id ON notifications (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS platform_settings (
 	key VARCHAR(128) NOT NULL, 
@@ -265,8 +360,18 @@ CREATE TABLE IF NOT EXISTS platform_settings (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(updated_by_id) REFERENCES users (id)
 );
-CREATE INDEX IF NOT EXISTS ix_platform_settings_id ON platform_settings (id);
-CREATE UNIQUE INDEX IF NOT EXISTS ix_platform_settings_key ON platform_settings (key);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'platform_settings' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_platform_settings_id ON platform_settings (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'platform_settings' AND column_name IN ('key')) = 1 THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS ix_platform_settings_key ON platform_settings (key);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS user_sessions (
 	user_id UUID NOT NULL, 
@@ -285,10 +390,30 @@ CREATE TABLE IF NOT EXISTS user_sessions (
 	FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE, 
 	UNIQUE (refresh_token)
 );
-CREATE INDEX IF NOT EXISTS ix_user_sessions_refresh_token_jti ON user_sessions (refresh_token_jti);
-CREATE INDEX IF NOT EXISTS ix_user_sessions_access_token_jti ON user_sessions (access_token_jti);
-CREATE INDEX IF NOT EXISTS ix_user_sessions_user_id ON user_sessions (user_id);
-CREATE INDEX IF NOT EXISTS ix_user_sessions_id ON user_sessions (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'user_sessions' AND column_name IN ('refresh_token_jti')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_user_sessions_refresh_token_jti ON user_sessions (refresh_token_jti);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'user_sessions' AND column_name IN ('access_token_jti')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_user_sessions_access_token_jti ON user_sessions (access_token_jti);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'user_sessions' AND column_name IN ('user_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_user_sessions_user_id ON user_sessions (user_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'user_sessions' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_user_sessions_id ON user_sessions (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS agents (
 	creator_id UUID NOT NULL, 
@@ -325,9 +450,24 @@ CREATE TABLE IF NOT EXISTS agents (
 	FOREIGN KEY(preferred_model_id) REFERENCES ai_models (model_id), 
 	FOREIGN KEY(reviewed_by_id) REFERENCES users (id)
 );
-CREATE INDEX IF NOT EXISTS ix_agents_creator_id ON agents (creator_id);
-CREATE INDEX IF NOT EXISTS ix_agents_category ON agents (category);
-CREATE INDEX IF NOT EXISTS ix_agents_id ON agents (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agents' AND column_name IN ('creator_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agents_creator_id ON agents (creator_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agents' AND column_name IN ('category')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agents_category ON agents (category);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agents' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agents_id ON agents (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS bots (
 	business_id UUID NOT NULL, 
@@ -351,9 +491,24 @@ CREATE TABLE IF NOT EXISTS bots (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_bots_id ON bots (id);
-CREATE UNIQUE INDEX IF NOT EXISTS ix_bots_token_hash ON bots (token_hash);
-CREATE INDEX IF NOT EXISTS ix_bots_business_id ON bots (business_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'bots' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_bots_id ON bots (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'bots' AND column_name IN ('token_hash')) = 1 THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS ix_bots_token_hash ON bots (token_hash);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'bots' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_bots_business_id ON bots (business_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS business_brain_configs (
 	business_id UUID NOT NULL, 
@@ -375,7 +530,12 @@ CREATE TABLE IF NOT EXISTS business_brain_configs (
 	UNIQUE (business_id), 
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_business_brain_configs_id ON business_brain_configs (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'business_brain_configs' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_business_brain_configs_id ON business_brain_configs (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS custom_domains (
 	business_id UUID NOT NULL, 
@@ -394,9 +554,24 @@ CREATE TABLE IF NOT EXISTS custom_domains (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_custom_domains_id ON custom_domains (id);
-CREATE UNIQUE INDEX IF NOT EXISTS ix_custom_domains_domain ON custom_domains (domain);
-CREATE INDEX IF NOT EXISTS ix_custom_domains_business_id ON custom_domains (business_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'custom_domains' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_custom_domains_id ON custom_domains (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'custom_domains' AND column_name IN ('domain')) = 1 THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS ix_custom_domains_domain ON custom_domains (domain);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'custom_domains' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_custom_domains_business_id ON custom_domains (business_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS knowledge_documents (
 	business_id UUID NOT NULL, 
@@ -417,8 +592,18 @@ CREATE TABLE IF NOT EXISTS knowledge_documents (
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE, 
 	FOREIGN KEY(uploaded_by_id) REFERENCES users (id)
 );
-CREATE INDEX IF NOT EXISTS ix_knowledge_documents_id ON knowledge_documents (id);
-CREATE INDEX IF NOT EXISTS ix_knowledge_documents_business_id ON knowledge_documents (business_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'knowledge_documents' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_knowledge_documents_id ON knowledge_documents (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'knowledge_documents' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_knowledge_documents_business_id ON knowledge_documents (business_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS landing_pages (
 	business_id UUID NOT NULL, 
@@ -441,7 +626,12 @@ CREATE TABLE IF NOT EXISTS landing_pages (
 	UNIQUE (business_id), 
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_landing_pages_id ON landing_pages (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'landing_pages' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_landing_pages_id ON landing_pages (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS live_sessions (
 	business_id UUID NOT NULL, 
@@ -461,8 +651,18 @@ CREATE TABLE IF NOT EXISTS live_sessions (
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE, 
 	UNIQUE (firebase_room_id)
 );
-CREATE INDEX IF NOT EXISTS ix_live_sessions_id ON live_sessions (id);
-CREATE INDEX IF NOT EXISTS ix_live_sessions_business_id ON live_sessions (business_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'live_sessions' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_live_sessions_id ON live_sessions (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'live_sessions' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_live_sessions_business_id ON live_sessions (business_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS mcp_listings (
 	business_id UUID NOT NULL, 
@@ -479,7 +679,12 @@ CREATE TABLE IF NOT EXISTS mcp_listings (
 	UNIQUE (business_id), 
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_mcp_listings_id ON mcp_listings (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'mcp_listings' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_mcp_listings_id ON mcp_listings (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS mini_app_configs (
 	business_id UUID NOT NULL, 
@@ -503,7 +708,12 @@ CREATE TABLE IF NOT EXISTS mini_app_configs (
 	UNIQUE (business_id), 
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_mini_app_configs_id ON mini_app_configs (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'mini_app_configs' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_mini_app_configs_id ON mini_app_configs (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS payment_integrations (
 	business_id UUID NOT NULL, 
@@ -523,8 +733,18 @@ CREATE TABLE IF NOT EXISTS payment_integrations (
 	CONSTRAINT uq_payment_integration_business_provider UNIQUE (business_id, provider), 
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_payment_integrations_id ON payment_integrations (id);
-CREATE INDEX IF NOT EXISTS ix_payment_integrations_business_id ON payment_integrations (business_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'payment_integrations' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_payment_integrations_id ON payment_integrations (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'payment_integrations' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_payment_integrations_business_id ON payment_integrations (business_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS recharge_orders (
 	business_id UUID NOT NULL, 
@@ -545,9 +765,24 @@ CREATE TABLE IF NOT EXISTS recharge_orders (
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE, 
 	FOREIGN KEY(etg_package_id) REFERENCES etg_packages (id)
 );
-CREATE INDEX IF NOT EXISTS ix_recharge_orders_payment_reference ON recharge_orders (payment_reference);
-CREATE INDEX IF NOT EXISTS ix_recharge_orders_id ON recharge_orders (id);
-CREATE INDEX IF NOT EXISTS ix_recharge_orders_business_id ON recharge_orders (business_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'recharge_orders' AND column_name IN ('payment_reference')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_recharge_orders_payment_reference ON recharge_orders (payment_reference);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'recharge_orders' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_recharge_orders_id ON recharge_orders (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'recharge_orders' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_recharge_orders_business_id ON recharge_orders (business_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS subscriptions (
 	business_id UUID NOT NULL, 
@@ -565,8 +800,18 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_subscriptions_business_id ON subscriptions (business_id);
-CREATE INDEX IF NOT EXISTS ix_subscriptions_id ON subscriptions (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'subscriptions' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_subscriptions_business_id ON subscriptions (business_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'subscriptions' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_subscriptions_id ON subscriptions (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS token_wallets (
 	business_id UUID NOT NULL, 
@@ -589,7 +834,12 @@ CREATE TABLE IF NOT EXISTS token_wallets (
 	UNIQUE (business_id), 
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_token_wallets_id ON token_wallets (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'token_wallets' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_token_wallets_id ON token_wallets (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS usage_daily_aggregates (
 	business_id UUID NOT NULL, 
@@ -606,8 +856,18 @@ CREATE TABLE IF NOT EXISTS usage_daily_aggregates (
 	CONSTRAINT uq_daily_agg UNIQUE (business_id, date, action_type), 
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_usage_daily_aggregates_business_id ON usage_daily_aggregates (business_id);
-CREATE INDEX IF NOT EXISTS ix_usage_daily_aggregates_id ON usage_daily_aggregates (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'usage_daily_aggregates' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_usage_daily_aggregates_business_id ON usage_daily_aggregates (business_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'usage_daily_aggregates' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_usage_daily_aggregates_id ON usage_daily_aggregates (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS agent_reports (
 	agent_id UUID NOT NULL, 
@@ -626,8 +886,18 @@ CREATE TABLE IF NOT EXISTS agent_reports (
 	FOREIGN KEY(reported_by_id) REFERENCES users (id), 
 	FOREIGN KEY(resolved_by_id) REFERENCES users (id)
 );
-CREATE INDEX IF NOT EXISTS ix_agent_reports_agent_id ON agent_reports (agent_id);
-CREATE INDEX IF NOT EXISTS ix_agent_reports_id ON agent_reports (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agent_reports' AND column_name IN ('agent_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agent_reports_agent_id ON agent_reports (agent_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agent_reports' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agent_reports_id ON agent_reports (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS child_agents (
 	agent_id UUID NOT NULL, 
@@ -645,9 +915,24 @@ CREATE TABLE IF NOT EXISTS child_agents (
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE, 
 	FOREIGN KEY(assigned_to_bot_id) REFERENCES bots (id)
 );
-CREATE INDEX IF NOT EXISTS ix_child_agents_agent_id ON child_agents (agent_id);
-CREATE INDEX IF NOT EXISTS ix_child_agents_id ON child_agents (id);
-CREATE INDEX IF NOT EXISTS ix_child_agents_business_id ON child_agents (business_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'child_agents' AND column_name IN ('agent_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_child_agents_agent_id ON child_agents (agent_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'child_agents' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_child_agents_id ON child_agents (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'child_agents' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_child_agents_business_id ON child_agents (business_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS etg_transactions (
 	wallet_id UUID NOT NULL, 
@@ -666,8 +951,18 @@ CREATE TABLE IF NOT EXISTS etg_transactions (
 	FOREIGN KEY(wallet_id) REFERENCES token_wallets (id) ON DELETE CASCADE, 
 	FOREIGN KEY(admin_id) REFERENCES users (id)
 );
-CREATE INDEX IF NOT EXISTS ix_etg_transactions_wallet_id ON etg_transactions (wallet_id);
-CREATE INDEX IF NOT EXISTS ix_etg_transactions_id ON etg_transactions (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'etg_transactions' AND column_name IN ('wallet_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_etg_transactions_wallet_id ON etg_transactions (wallet_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'etg_transactions' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_etg_transactions_id ON etg_transactions (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS knowledge_chunks (
 	business_id UUID NOT NULL, 
@@ -684,10 +979,30 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE, 
 	FOREIGN KEY(document_id) REFERENCES knowledge_documents (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_business_id ON knowledge_chunks (business_id);
-CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_id ON knowledge_chunks (id);
-CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_business ON knowledge_chunks (business_id);
-CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_document_id ON knowledge_chunks (document_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'knowledge_chunks' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_business_id ON knowledge_chunks (business_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'knowledge_chunks' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_id ON knowledge_chunks (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'knowledge_chunks' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_business ON knowledge_chunks (business_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'knowledge_chunks' AND column_name IN ('document_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_document_id ON knowledge_chunks (document_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS knowledge_items (
 	business_id UUID NOT NULL, 
@@ -704,8 +1019,18 @@ CREATE TABLE IF NOT EXISTS knowledge_items (
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE, 
 	FOREIGN KEY(source_document_id) REFERENCES knowledge_documents (id)
 );
-CREATE INDEX IF NOT EXISTS ix_knowledge_items_id ON knowledge_items (id);
-CREATE INDEX IF NOT EXISTS ix_knowledge_items_business_id ON knowledge_items (business_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'knowledge_items' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_knowledge_items_id ON knowledge_items (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'knowledge_items' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_knowledge_items_business_id ON knowledge_items (business_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS mcp_fetch_logs (
 	listing_id UUID NOT NULL, 
@@ -719,8 +1044,18 @@ CREATE TABLE IF NOT EXISTS mcp_fetch_logs (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(listing_id) REFERENCES mcp_listings (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_mcp_fetch_logs_listing_id ON mcp_fetch_logs (listing_id);
-CREATE INDEX IF NOT EXISTS ix_mcp_fetch_logs_id ON mcp_fetch_logs (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'mcp_fetch_logs' AND column_name IN ('listing_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_mcp_fetch_logs_listing_id ON mcp_fetch_logs (listing_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'mcp_fetch_logs' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_mcp_fetch_logs_id ON mcp_fetch_logs (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS support_tickets (
 	user_id UUID NOT NULL, 
@@ -742,8 +1077,18 @@ CREATE TABLE IF NOT EXISTS support_tickets (
 	FOREIGN KEY(related_agent_id) REFERENCES agents (id), 
 	FOREIGN KEY(assigned_to_id) REFERENCES users (id)
 );
-CREATE INDEX IF NOT EXISTS ix_support_tickets_id ON support_tickets (id);
-CREATE INDEX IF NOT EXISTS ix_support_tickets_user_id ON support_tickets (user_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'support_tickets' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_support_tickets_id ON support_tickets (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'support_tickets' AND column_name IN ('user_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_support_tickets_user_id ON support_tickets (user_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS token_escrow (
 	wallet_id UUID NOT NULL, 
@@ -762,8 +1107,18 @@ CREATE TABLE IF NOT EXISTS token_escrow (
 	FOREIGN KEY(wallet_id) REFERENCES token_wallets (id) ON DELETE CASCADE, 
 	FOREIGN KEY(resolved_by_id) REFERENCES users (id)
 );
-CREATE INDEX IF NOT EXISTS ix_token_escrow_wallet_id ON token_escrow (wallet_id);
-CREATE INDEX IF NOT EXISTS ix_token_escrow_id ON token_escrow (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'token_escrow' AND column_name IN ('wallet_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_token_escrow_wallet_id ON token_escrow (wallet_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'token_escrow' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_token_escrow_id ON token_escrow (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS wallet_alerts (
 	wallet_id UUID NOT NULL, 
@@ -777,8 +1132,18 @@ CREATE TABLE IF NOT EXISTS wallet_alerts (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(wallet_id) REFERENCES token_wallets (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_wallet_alerts_id ON wallet_alerts (id);
-CREATE INDEX IF NOT EXISTS ix_wallet_alerts_wallet_id ON wallet_alerts (wallet_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'wallet_alerts' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_wallet_alerts_id ON wallet_alerts (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'wallet_alerts' AND column_name IN ('wallet_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_wallet_alerts_wallet_id ON wallet_alerts (wallet_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS agent_trials (
 	agent_id UUID NOT NULL, 
@@ -799,9 +1164,24 @@ CREATE TABLE IF NOT EXISTS agent_trials (
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE, 
 	FOREIGN KEY(child_agent_id) REFERENCES child_agents (id)
 );
-CREATE INDEX IF NOT EXISTS ix_agent_trials_business_id ON agent_trials (business_id);
-CREATE INDEX IF NOT EXISTS ix_agent_trials_id ON agent_trials (id);
-CREATE INDEX IF NOT EXISTS ix_agent_trials_agent_id ON agent_trials (agent_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agent_trials' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agent_trials_business_id ON agent_trials (business_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agent_trials' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agent_trials_id ON agent_trials (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agent_trials' AND column_name IN ('agent_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agent_trials_agent_id ON agent_trials (agent_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS agent_unlocks (
 	agent_id UUID NOT NULL, 
@@ -822,9 +1202,24 @@ CREATE TABLE IF NOT EXISTS agent_unlocks (
 	FOREIGN KEY(child_agent_id) REFERENCES child_agents (id), 
 	FOREIGN KEY(escrow_id) REFERENCES token_escrow (id)
 );
-CREATE INDEX IF NOT EXISTS ix_agent_unlocks_id ON agent_unlocks (id);
-CREATE INDEX IF NOT EXISTS ix_agent_unlocks_agent_id ON agent_unlocks (agent_id);
-CREATE INDEX IF NOT EXISTS ix_agent_unlocks_business_id ON agent_unlocks (business_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agent_unlocks' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agent_unlocks_id ON agent_unlocks (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agent_unlocks' AND column_name IN ('agent_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agent_unlocks_agent_id ON agent_unlocks (agent_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agent_unlocks' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agent_unlocks_business_id ON agent_unlocks (business_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS conversations (
 	business_id UUID NOT NULL, 
@@ -850,10 +1245,30 @@ CREATE TABLE IF NOT EXISTS conversations (
 	FOREIGN KEY(bot_id) REFERENCES bots (id) ON DELETE CASCADE, 
 	FOREIGN KEY(child_agent_id) REFERENCES child_agents (id)
 );
-CREATE INDEX IF NOT EXISTS ix_conversations_business_id ON conversations (business_id);
-CREATE INDEX IF NOT EXISTS ix_conversations_customer_platform_id ON conversations (customer_platform_id);
-CREATE INDEX IF NOT EXISTS ix_conversations_bot_id ON conversations (bot_id);
-CREATE INDEX IF NOT EXISTS ix_conversations_id ON conversations (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'conversations' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_conversations_business_id ON conversations (business_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'conversations' AND column_name IN ('customer_platform_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_conversations_customer_platform_id ON conversations (customer_platform_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'conversations' AND column_name IN ('bot_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_conversations_bot_id ON conversations (bot_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'conversations' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_conversations_id ON conversations (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS live_products (
 	session_id UUID NOT NULL, 
@@ -875,8 +1290,18 @@ CREATE TABLE IF NOT EXISTS live_products (
 	FOREIGN KEY(session_id) REFERENCES live_sessions (id) ON DELETE CASCADE, 
 	FOREIGN KEY(knowledge_item_id) REFERENCES knowledge_items (id)
 );
-CREATE INDEX IF NOT EXISTS ix_live_products_session_id ON live_products (session_id);
-CREATE INDEX IF NOT EXISTS ix_live_products_id ON live_products (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'live_products' AND column_name IN ('session_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_live_products_session_id ON live_products (session_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'live_products' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_live_products_id ON live_products (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS ticket_messages (
 	ticket_id UUID NOT NULL, 
@@ -891,8 +1316,18 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
 	FOREIGN KEY(ticket_id) REFERENCES support_tickets (id) ON DELETE CASCADE, 
 	FOREIGN KEY(sender_id) REFERENCES users (id)
 );
-CREATE INDEX IF NOT EXISTS ix_ticket_messages_id ON ticket_messages (id);
-CREATE INDEX IF NOT EXISTS ix_ticket_messages_ticket_id ON ticket_messages (ticket_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'ticket_messages' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_ticket_messages_id ON ticket_messages (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'ticket_messages' AND column_name IN ('ticket_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_ticket_messages_ticket_id ON ticket_messages (ticket_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS agent_reviews (
 	agent_id UUID NOT NULL, 
@@ -910,9 +1345,24 @@ CREATE TABLE IF NOT EXISTS agent_reviews (
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE, 
 	FOREIGN KEY(unlock_id) REFERENCES agent_unlocks (id)
 );
-CREATE INDEX IF NOT EXISTS ix_agent_reviews_business_id ON agent_reviews (business_id);
-CREATE INDEX IF NOT EXISTS ix_agent_reviews_id ON agent_reviews (id);
-CREATE INDEX IF NOT EXISTS ix_agent_reviews_agent_id ON agent_reviews (agent_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agent_reviews' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agent_reviews_business_id ON agent_reviews (business_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agent_reviews' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agent_reviews_id ON agent_reviews (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'agent_reviews' AND column_name IN ('agent_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_agent_reviews_agent_id ON agent_reviews (agent_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS chat_messages (
 	conversation_id UUID NOT NULL, 
@@ -933,8 +1383,18 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 	PRIMARY KEY (id), 
 	FOREIGN KEY(conversation_id) REFERENCES conversations (id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS ix_chat_messages_conversation_id ON chat_messages (conversation_id);
-CREATE INDEX IF NOT EXISTS ix_chat_messages_id ON chat_messages (id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'chat_messages' AND column_name IN ('conversation_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_chat_messages_conversation_id ON chat_messages (conversation_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'chat_messages' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_chat_messages_id ON chat_messages (id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS orders (
 	business_id UUID NOT NULL, 
@@ -962,11 +1422,36 @@ CREATE TABLE IF NOT EXISTS orders (
 	FOREIGN KEY(business_id) REFERENCES businesses (id) ON DELETE CASCADE, 
 	FOREIGN KEY(conversation_id) REFERENCES conversations (id)
 );
-CREATE INDEX IF NOT EXISTS ix_orders_payment_reference ON orders (payment_reference);
-CREATE INDEX IF NOT EXISTS ix_orders_business_id ON orders (business_id);
-CREATE INDEX IF NOT EXISTS ix_orders_id ON orders (id);
-CREATE UNIQUE INDEX IF NOT EXISTS ix_orders_order_number ON orders (order_number);
-CREATE INDEX IF NOT EXISTS ix_orders_customer_platform_id ON orders (customer_platform_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'orders' AND column_name IN ('payment_reference')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_orders_payment_reference ON orders (payment_reference);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'orders' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_orders_business_id ON orders (business_id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'orders' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_orders_id ON orders (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'orders' AND column_name IN ('order_number')) = 1 THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS ix_orders_order_number ON orders (order_number);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'orders' AND column_name IN ('customer_platform_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_orders_customer_platform_id ON orders (customer_platform_id);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS usage_events (
 	business_id UUID NOT NULL, 
@@ -987,8 +1472,28 @@ CREATE TABLE IF NOT EXISTS usage_events (
 	FOREIGN KEY(bot_id) REFERENCES bots (id), 
 	FOREIGN KEY(conversation_id) REFERENCES conversations (id)
 );
-CREATE INDEX IF NOT EXISTS ix_usage_events_action_type ON usage_events (action_type);
-CREATE INDEX IF NOT EXISTS ix_usage_events_id ON usage_events (id);
-CREATE INDEX IF NOT EXISTS idx_usage_events_business_created ON usage_events (business_id, created_at);
-CREATE INDEX IF NOT EXISTS ix_usage_events_business_id ON usage_events (business_id);
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'usage_events' AND column_name IN ('action_type')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_usage_events_action_type ON usage_events (action_type);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'usage_events' AND column_name IN ('id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_usage_events_id ON usage_events (id);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'usage_events' AND column_name IN ('business_id', 'created_at')) = 2 THEN
+    CREATE INDEX IF NOT EXISTS idx_usage_events_business_created ON usage_events (business_id, created_at);
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF (SELECT count(*) FROM information_schema.columns
+        WHERE table_name = 'usage_events' AND column_name IN ('business_id')) = 1 THEN
+    CREATE INDEX IF NOT EXISTS ix_usage_events_business_id ON usage_events (business_id);
+  END IF;
+END $$;
 

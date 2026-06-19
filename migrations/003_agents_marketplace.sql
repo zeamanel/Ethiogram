@@ -4,13 +4,25 @@
 BEGIN;
 
 -- ── Enums ─────────────────────────────────────────────────────────────────────
-CREATE TYPE agent_status AS ENUM ('draft', 'pending_review', 'approved', 'rejected', 'suspended');
-CREATE TYPE agent_category AS ENUM (
-    'customer_support', 'sales', 'bookings', 'accountant',
-    'inventory', 'hr', 'marketing', 'general'
-);
-CREATE TYPE agent_unlock_status AS ENUM ('active', 'expired', 'refunded');
-CREATE TYPE trial_status AS ENUM ('active', 'expired', 'converted');
+DO $$ BEGIN
+  CREATE TYPE agent_status AS ENUM ('draft', 'pending_review', 'approved', 'rejected', 'suspended');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE agent_category AS ENUM (
+      'customer_support', 'sales', 'bookings', 'accountant',
+      'inventory', 'hr', 'marketing', 'general'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE agent_unlock_status AS ENUM ('active', 'expired', 'refunded');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE trial_status AS ENUM ('active', 'expired', 'converted');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ── father_agents (marketplace templates) ────────────────────────────────────
 CREATE TABLE IF NOT EXISTS father_agents (
@@ -87,9 +99,12 @@ CREATE INDEX IF NOT EXISTS idx_agent_unlocks_business_id ON agent_unlocks(busine
 CREATE INDEX IF NOT EXISTS idx_agent_unlocks_father_agent_id ON agent_unlocks(father_agent_id);
 
 -- Add FK from child_agents to agent_unlocks after both tables exist
-ALTER TABLE child_agents
-    ADD CONSTRAINT fk_child_agents_unlock_id
-    FOREIGN KEY (unlock_id) REFERENCES agent_unlocks(id) ON DELETE SET NULL;
+DO $$ BEGIN
+  ALTER TABLE child_agents
+      ADD CONSTRAINT fk_child_agents_unlock_id
+      FOREIGN KEY (unlock_id) REFERENCES agent_unlocks(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ── agent_trials ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS agent_trials (

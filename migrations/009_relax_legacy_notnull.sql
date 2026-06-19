@@ -5,6 +5,18 @@
 -- retries -> duplicate/lagging replies):
 --   * business_id : the ORM links a transaction via wallet_id, not business_id
 --   * type        : the ORM writes the newer 'transaction_type' column instead
--- Relax both. DROP NOT NULL is idempotent (no error if already nullable).
-ALTER TABLE etg_transactions ALTER COLUMN business_id DROP NOT NULL;
-ALTER TABLE etg_transactions ALTER COLUMN type DROP NOT NULL;
+-- Relax both. Guarded on column existence so this is a no-op (not an error) on a
+-- DB that never had these legacy columns; DROP NOT NULL is itself idempotent.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'etg_transactions' AND column_name = 'business_id') THEN
+    ALTER TABLE etg_transactions ALTER COLUMN business_id DROP NOT NULL;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+               WHERE table_name = 'etg_transactions' AND column_name = 'type') THEN
+    ALTER TABLE etg_transactions ALTER COLUMN type DROP NOT NULL;
+  END IF;
+END $$;

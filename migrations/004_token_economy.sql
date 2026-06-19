@@ -4,11 +4,17 @@
 BEGIN;
 
 -- ── Enums ─────────────────────────────────────────────────────────────────────
-CREATE TYPE transaction_type AS ENUM (
-    'purchase', 'bonus', 'referral', 'grant',
-    'charge', 'refund', 'escrow_hold', 'escrow_release'
-);
-CREATE TYPE escrow_status AS ENUM ('holding', 'released', 'disputed', 'refunded');
+DO $$ BEGIN
+  CREATE TYPE transaction_type AS ENUM (
+      'purchase', 'bonus', 'referral', 'grant',
+      'charge', 'refund', 'escrow_hold', 'escrow_release'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE escrow_status AS ENUM ('holding', 'released', 'disputed', 'refunded');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ── token_wallets ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS token_wallets (

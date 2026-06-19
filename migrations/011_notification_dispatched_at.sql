@@ -12,11 +12,13 @@ ALTER TABLE notifications ADD COLUMN IF NOT EXISTS dispatched_at timestamptz NUL
 -- Backfill: mark already-touched notifications as dispatched so the new filter
 -- doesn't cause a one-time burst of re-sends for rows handled before this flag
 -- existed.
+-- Compare sent_via as text so this works whether the column is jsonb (ORM) or
+-- a legacy text/json type — '[]'::jsonb has no <> operator against text.
 UPDATE notifications
    SET dispatched_at = COALESCE(updated_at, now())
  WHERE dispatched_at IS NULL
    AND sent_via IS NOT NULL
-   AND sent_via <> '[]'::jsonb;
+   AND btrim(sent_via::text) NOT IN ('[]', '');
 
 CREATE INDEX IF NOT EXISTS ix_notifications_dispatched_at
     ON notifications (dispatched_at);
