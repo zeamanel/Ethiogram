@@ -1,8 +1,10 @@
-"""Regression test for the notification re-dispatch bug.
+"""Regression tests for notification dispatch.
 
-dispatch_pending() used to filter on is_read (never set), so it re-selected and
-re-sent the same notifications on every poll. It now filters on sent_via being
-empty and marks rows dispatched, so each notification is handled exactly once.
+dispatch_pending() used to filter on is_read (never set), re-sending the same
+notifications forever. It now selects on dispatched_at IS NULL, appends each
+delivered channel to sent_via, and sets the terminal dispatched_at only once all
+intended channels are delivered — so a failed Telegram send is retried while a
+finished notification drops out.
 """
 import uuid
 from contextlib import asynccontextmanager
@@ -11,58 +13,81 @@ import pytest
 from sqlalchemy import select
 
 import workers.notification_worker as nw
-from app.db.models import Notification
+from app.db.models import Notification, User
 
 
-@pytest.mark.asyncio
-async def test_notifications_dispatched_once(db, monkeypatch):
-    # Reuse the test session inside the worker, and stub the per-notification
-    # dispatch so no bot lookup / Telegram call happens.
+def _patch_ctx(db, monkeypatch):
     @asynccontextmanager
     async def _fake_ctx():
         yield db
-
-    async def _fake_dispatch(notif, session):
-        return ["dashboard"]
-
     monkeypatch.setattr(nw, "get_db_context", _fake_ctx)
-    monkeypatch.setattr(nw, "_dispatch_notification", _fake_dispatch)
 
-    uid = uuid.uuid4()
-    db.add_all([
-        Notification(user_id=uid, notification_type="trial", title="t1", body="b1"),
-        Notification(user_id=uid, notification_type="trial", title="t2", body="b2"),
-    ])
+
+async def _add_user(db, telegram_id=None):
+    u = User(email=f"{uuid.uuid4().hex}@x.com", telegram_id=telegram_id)
+    db.add(u)
+    await db.flush()
+    return u
+
+
+@pytest.mark.asyncio
+async def test_dashboard_only_dispatched_once(db, monkeypatch):
+    _patch_ctx(db, monkeypatch)
+    user = await _add_user(db, telegram_id=None)  # no telegram -> dashboard only
+    db.add(Notification(user_id=user.id, notification_type="trial", title="t", body="b"))
     await db.flush()
 
-    first = await nw.dispatch_pending()
-    assert first == 2                      # both dispatched on the first pass
+    assert await nw.dispatch_pending() == 1
+    assert await nw.dispatch_pending() == 0   # terminal flag set -> not re-selected
 
-    second = await nw.dispatch_pending()
-    assert second == 0                     # the bug would re-dispatch the same 2
-
-    res = await db.execute(select(Notification))
-    notifs = res.scalars().all()
-    assert all(n.sent_via for n in notifs)     # marked dispatched
-    assert all(n.is_read is False for n in notifs)  # user's read flag untouched
+    n = (await db.execute(select(Notification))).scalars().one()
+    assert n.dispatched_at is not None
+    assert "dashboard" in n.sent_via
+    assert n.is_read is False                 # user's read flag untouched
 
 
 @pytest.mark.asyncio
-async def test_orphaned_notification_not_looped(db, monkeypatch):
-    # If no channel is usable (e.g. user deleted), the row must still be marked
-    # so it can't loop forever.
-    @asynccontextmanager
-    async def _fake_ctx():
-        yield db
-
-    async def _no_channels(notif, session):
-        return []
-
-    monkeypatch.setattr(nw, "get_db_context", _fake_ctx)
-    monkeypatch.setattr(nw, "_dispatch_notification", _no_channels)
-
+async def test_orphaned_notification_marked_done(db, monkeypatch):
+    _patch_ctx(db, monkeypatch)
+    # user_id points at a nonexistent user -> only dashboard, still terminal.
     db.add(Notification(user_id=uuid.uuid4(), notification_type="x", title="o", body="b"))
     await db.flush()
 
     assert await nw.dispatch_pending() == 1
-    assert await nw.dispatch_pending() == 0   # not re-selected
+    assert await nw.dispatch_pending() == 0
+
+    n = (await db.execute(select(Notification))).scalars().one()
+    assert n.dispatched_at is not None
+
+
+@pytest.mark.asyncio
+async def test_failed_telegram_is_retried_then_completes(db, monkeypatch):
+    _patch_ctx(db, monkeypatch)
+    user = await _add_user(db, telegram_id=123456789)
+    db.add(Notification(user_id=user.id, notification_type="alert", title="t", body="b"))
+    await db.flush()
+
+    # First Telegram attempt fails, second succeeds.
+    attempts = {"n": 0}
+
+    async def _send(user_, notif_, db_):
+        attempts["n"] += 1
+        return attempts["n"] >= 2
+
+    monkeypatch.setattr(nw, "_send_telegram", _send)
+
+    # Pass 1: telegram fails -> not fully done, stays selectable.
+    assert await nw.dispatch_pending() == 0
+    n = (await db.execute(select(Notification))).scalars().one()
+    assert n.dispatched_at is None
+    assert n.sent_via == ["dashboard"]        # dashboard delivered, telegram not
+
+    # Pass 2: telegram retried and succeeds -> fully done.
+    assert await nw.dispatch_pending() == 1
+    n = (await db.execute(select(Notification))).scalars().one()
+    assert n.dispatched_at is not None
+    assert set(n.sent_via) == {"dashboard", "telegram"}
+    assert attempts["n"] == 2                  # retried exactly once
+
+    # Pass 3: nothing left.
+    assert await nw.dispatch_pending() == 0

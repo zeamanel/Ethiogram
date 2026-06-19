@@ -908,6 +908,11 @@ class Notification(Base, UUIDMixin, TimestampMixin):
     sent_via: Mapped[list] = mapped_column(JSONB, default=[], nullable=False)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set once every intended delivery channel has been handled. The dispatch
+    # worker selects on `dispatched_at IS NULL`, so this is the terminal flag
+    # that stops a row being re-processed (distinct from is_read, the user's
+    # dashboard read flag).
+    dispatched_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
 
 class AdminAuditLog(Base, UUIDMixin, TimestampMixin):
