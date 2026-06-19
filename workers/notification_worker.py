@@ -34,13 +34,21 @@ _POLL_INTERVAL = 15  # seconds
 
 
 async def dispatch_pending() -> int:
-    """Process up to _BATCH_SIZE unsent notifications. Returns count dispatched."""
+    """Dispatch up to _BATCH_SIZE not-yet-dispatched notifications.
+
+    "Pending" means ``sent_via`` is still empty — NOT ``is_read``. ``is_read`` is
+    the user's dashboard read flag (paired with ``read_at``); using it here was
+    the re-dispatch bug: nothing ever set it, so the same rows were re-selected
+    forever. Once a notification is dispatched we populate ``sent_via`` (which is
+    committed on context exit), so it drops out of the next batch.
+    Returns the count dispatched.
+    """
     dispatched = 0
 
     async with get_db_context() as db:
         result = await db.execute(
             select(Notification)
-            .where(Notification.is_read.is_(False))
+            .where(Notification.sent_via == [])
             .order_by(Notification.created_at.asc())
             .limit(_BATCH_SIZE)
             .with_for_update(skip_locked=True)
@@ -53,8 +61,10 @@ async def dispatch_pending() -> int:
         for notif in notifications:
             try:
                 sent_channels = await _dispatch_notification(notif, db)
-                if sent_channels:
-                    notif.sent_via = list(set((notif.sent_via or []) + sent_channels))
+                # Always mark processed so the row can't be re-selected. If no
+                # channel was usable (e.g. orphaned user), record "dashboard" so
+                # it still drops out of the queue instead of looping forever.
+                notif.sent_via = list(set((notif.sent_via or []) + (sent_channels or ["dashboard"])))
                 dispatched += 1
             except Exception as exc:
                 logger.error(
