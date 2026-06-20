@@ -60,11 +60,11 @@ class RagService:
                 content,
                 chunk_index,
                 document_id,
-                1 - (embedding <=> :query_vec::vector) AS similarity
+                1 - (embedding <=> CAST(:query_vec AS vector)) AS similarity
             FROM knowledge_chunks
             WHERE business_id = :business_id
-              AND 1 - (embedding <=> :query_vec::vector) >= :threshold
-            ORDER BY embedding <=> :query_vec::vector
+              AND 1 - (embedding <=> CAST(:query_vec AS vector)) >= :threshold
+            ORDER BY embedding <=> CAST(:query_vec AS vector)
             LIMIT :top_k
         """)
 
@@ -173,7 +173,7 @@ class RagService:
                         VALUES
                             (gen_random_uuid(), :business_id, :document_id, :content,
                              :token_count, :chunk_index, :model,
-                             :embedding::vector, NOW(), NOW())
+                             CAST(:embedding AS vector), NOW(), NOW())
                     """),
                     {
                         "business_id": str(business_id),
