@@ -80,6 +80,13 @@ async def telegram_webhook(
                        token_hash=token_hash[:12])
         return JSONResponse({"ok": True})
 
+    # Capture identifiers as plain strings up front. After a rollback in the
+    # post-reply error handler, the ORM objects are expired, so touching
+    # bot.id/business_id there would trigger a lazy reload — which in async mode
+    # raises MissingGreenlet and turns a swallowed failure into a 500 (-> Telegram
+    # retry). Using this local keeps the handler IO-free.
+    bot_id_str = str(bot.id)
+
     logger.info(
         "Bot fetched",
         bot_id=str(bot.id),
@@ -229,7 +236,7 @@ async def telegram_webhook(
         await db.rollback()
         logger.error(
             "Post-reply persistence/metering failed (reply already sent) — returning 200",
-            bot_id=str(bot.id), error=f"{type(exc).__name__}: {exc}", exc_info=True,
+            bot_id=bot_id_str, error=f"{type(exc).__name__}: {exc}", exc_info=True,
         )
 
     return JSONResponse({"ok": True})
