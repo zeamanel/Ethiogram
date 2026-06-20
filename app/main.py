@@ -25,12 +25,12 @@ async def lifespan(app: FastAPI):
     print(f"[BOOT] Ethiogram starting — marker={_BUILD_MARKER} env={settings.environment}", flush=True)
     logger.info(f"Starting {settings.app_name} v{settings.app_version}", build_marker=_BUILD_MARKER)
     await connect_db()
-    #await connect_redis()
+    await connect_redis()
     logger.info("All services connected — platform ready")
     yield
     logger.info("Shutting down")
     await disconnect_db()
-    #await disconnect_redis()
+    await disconnect_redis()
 
 
 app = FastAPI(
