@@ -48,3 +48,8 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+
+cloud-sql-proxy.exe
+*.json
+parsed_logs.txt
+logs*.txt
