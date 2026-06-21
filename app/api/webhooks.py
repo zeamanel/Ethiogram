@@ -10,12 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.models import (
+    Agent,
     AlertType,
     Bot,
     BotStatus,
     Business,
     BusinessBrainConfig,
     ChatMessage,
+    ChildAgent,
     Conversation,
     EtgTransaction,
     MessageRole,
@@ -26,7 +28,7 @@ from app.db.models import (
 )
 from app.db.session import get_db, get_redis
 from app.services.telegram_service import MessageEnvelope, telegram_service
-from app.core.security import decrypt
+from app.core.security import decrypt, decrypt_agent_prompt
 
 logger = get_logger(__name__)
 
@@ -339,6 +341,58 @@ async def _get_brain_config(
     return result.scalar_one_or_none()
 
 
+# Map a marketplace father Agent to the local agent class that implements it,
+# by keyword on its category / tags / capabilities.
+_ACCOUNTANT_KEYWORDS = ("account", "receipt", "expense", "finance", "invoice", "bookkeep")
+_CONCIERGE_KEYWORDS = ("concierge", "booking", "appointment", "schedule", "reserv", "calendar")
+
+
+def _agent_type_for(agent: Agent) -> str:
+    """Classify a father Agent into the local agent class name that runs it."""
+    hay = " ".join([
+        agent.category or "",
+        " ".join(agent.tags or []),
+        " ".join(agent.capabilities or []),
+    ]).lower()
+    if any(k in hay for k in _ACCOUNTANT_KEYWORDS):
+        return "AccountantAgent"
+    if any(k in hay for k in _CONCIERGE_KEYWORDS):
+        return "ConciergeAgent"
+    return "BaseAgent"
+
+
+async def _load_child_data(business_id: str, agent_type: str, db: AsyncSession) -> dict | None:
+    """
+    Return the business's active ChildAgent config for ``agent_type``, enriched
+    with the decrypted father system prompt under ``_father_prompt``.
+
+    This is what makes specialists business-specific: the Concierge gets the
+    owner's real services/hours/timezone (and calendar config), the Accountant
+    gets its business context, etc. Returns None when the business has no
+    matching deployed agent — the agent then uses its generic behaviour.
+    """
+    from uuid import UUID
+    bid = business_id if isinstance(business_id, UUID) else UUID(str(business_id))
+    result = await db.execute(
+        select(ChildAgent, Agent)
+        .join(Agent, ChildAgent.agent_id == Agent.id)
+        .where(ChildAgent.business_id == bid, ChildAgent.is_active.is_(True))
+    )
+    for child, father in result.all():
+        if _agent_type_for(father) != agent_type:
+            continue
+        data = dict(child.child_data or {})
+        try:
+            data["_father_prompt"] = decrypt_agent_prompt(
+                father.encrypted_system_prompt, father.encryption_key_ref
+            )
+        except Exception as exc:
+            logger.warning("Failed to decrypt father prompt",
+                           agent_id=str(father.id), error=str(exc))
+        return data
+    return None
+
+
 async def _process_message(
     envelope: MessageEnvelope,
     conversation: Conversation,
@@ -375,8 +429,18 @@ async def _process_message(
     # 1. Classify intent → 2. select the agent instance for it.
     intent = intent_router.classify(envelope)
     agent = intent_router.select_agent(intent)
+
+    # 2b. Load the business's deployed config for this agent type (ChildAgent),
+    # so specialists answer with the owner's real services/hours/timezone and
+    # the father agent's prompt instead of generic defaults.
+    child_data = None
+    if conversation is not None and db is not None:
+        child_data = await _load_child_data(
+            str(conversation.business_id), type(agent).__name__, db
+        )
+
     logger.info("Routing message to agent", intent=intent, agent=agent.agent_name,
-                business_id=envelope.business_id)
+                business_id=envelope.business_id, child_data=bool(child_data))
 
     # 3. Run the agent (RAG + model failover happen inside process()).
     try:
@@ -384,7 +448,7 @@ async def _process_message(
             envelope=envelope,
             conversation=conversation,
             brain_config=brain_config,
-            child_data=None,
+            child_data=child_data,
             db=db,
         )
         logger.info("Agent returned reply", business_id=envelope.business_id,
