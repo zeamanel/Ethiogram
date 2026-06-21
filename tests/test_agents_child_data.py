@@ -10,9 +10,10 @@ import uuid
 
 import pytest
 
+from app.agents.base import base_agent
 from app.agents.concierge import concierge_agent
 from app.api.webhooks import _agent_type_for, _load_child_data
-from app.core.security import encrypt_agent_prompt
+from app.core.security import encrypt_agent_prompt, encrypt_child_secrets
 from app.db.models import Agent, AgentStatus, ChildAgent
 
 
@@ -32,7 +33,7 @@ def test_agent_type_for_mapping():
     assert _agent_type_for(_FakeFather(category="general qa")) == "BaseAgent"
 
 
-async def _deploy_agent(db, business_id, *, category, child_data, prompt):
+async def _deploy_agent(db, business_id, *, category, child_data, prompt, secrets=None):
     enc, key_ref = encrypt_agent_prompt(prompt, str(uuid.uuid4()))
     father = Agent(
         creator_id=uuid.uuid4(), name="A", tagline="t", description="d",
@@ -43,7 +44,9 @@ async def _deploy_agent(db, business_id, *, category, child_data, prompt):
     db.add(father)
     await db.flush()
     child = ChildAgent(
-        agent_id=father.id, business_id=business_id, is_active=True, child_data=child_data,
+        agent_id=father.id, business_id=business_id, is_active=True,
+        child_data=child_data,
+        child_secrets=encrypt_child_secrets(secrets) if secrets else None,
     )
     db.add(child)
     await db.flush()
@@ -100,3 +103,56 @@ def test_child_data_surfaces_in_concierge_prompt():
     assert "10-6" in prompt              # owner's real hours
     assert "Africa/Addis_Ababa" in prompt
     assert "Be a great concierge." in prompt   # father agent prompt
+
+
+@pytest.mark.asyncio
+async def test_child_secrets_decrypted_into_underscore_secrets(db):
+    biz = uuid.uuid4()
+    await _deploy_agent(
+        db, biz, category="concierge",
+        child_data={"services": "Haircut"},
+        prompt="p",
+        secrets={"calendar_id": "cal@x.com", "credentials_json": '{"token":"SENSITIVE"}'},
+    )
+    data = await _load_child_data(str(biz), "ConciergeAgent", db)
+    assert data is not None
+    # secrets are decrypted and exposed under the reserved _secrets key
+    assert data["_secrets"]["calendar_id"] == "cal@x.com"
+    assert data["_secrets"]["credentials_json"] == '{"token":"SENSITIVE"}'
+    # plain config is still there
+    assert data["services"] == "Haircut"
+
+
+def test_secrets_never_render_into_prompt():
+    prompt = base_agent.build_system_prompt(
+        brain_config=None,
+        child_data={
+            "services": "Haircut",
+            "_father_prompt": "Be helpful.",
+            "_secrets": {"credentials_json": '{"token":"SENSITIVE"}', "api_key": "sk-LEAK"},
+        },
+        chunks=[],
+    )
+    assert "Haircut" in prompt              # plain config rendered
+    assert "Be helpful." in prompt          # father prompt rendered
+    assert "SENSITIVE" not in prompt        # secret value must NOT leak
+    assert "sk-LEAK" not in prompt
+    assert "_secrets" not in prompt
+    assert "credentials_json" not in prompt
+
+
+def test_rendering_is_prose_not_python_repr():
+    prompt = base_agent.build_system_prompt(
+        brain_config=None,
+        child_data={
+            "menu_items": ["Burger", "Fries", "Cola"],
+            "hours": {"mon": "9-5", "sun": "closed"},
+            "delivery": True,
+        },
+        chunks=[],
+    )
+    # lists/dicts/bools become readable text, not ['..'] / {'..'} / True
+    assert "Burger, Fries, Cola" in prompt
+    assert "['Burger'" not in prompt and "[" not in prompt.split("Business-specific")[1]
+    assert "mon: 9-5" in prompt
+    assert "Delivery: yes" in prompt

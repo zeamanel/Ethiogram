@@ -19,7 +19,7 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.logging import get_logger
-from app.core.security import decrypt_agent_prompt, encrypt_agent_prompt
+from app.core.security import decrypt_agent_prompt, encrypt_agent_prompt, encrypt_child_secrets
 from app.db.models import (
     Agent,
     AgentReview,
@@ -97,15 +97,18 @@ class PublishAgentRequest(BaseModel):
 class StartTrialRequest(BaseModel):
     business_id: uuid.UUID
     child_data: Optional[dict] = None
+    child_secrets: Optional[dict] = None   # credentials/API keys — encrypted at rest
 
 
 class UnlockRequest(BaseModel):
     business_id: uuid.UUID
     child_data: Optional[dict] = None
+    child_secrets: Optional[dict] = None   # credentials/API keys — encrypted at rest
 
 
 class ChildAgentUpdateRequest(BaseModel):
     child_data: dict
+    child_secrets: Optional[dict] = None   # credentials/API keys — encrypted at rest
     display_name: Optional[str] = None
     is_active: Optional[bool] = None
 
@@ -261,6 +264,7 @@ async def start_trial(
         agent_id=agent_id,
         business_id=body.business_id,
         child_data=body.child_data or {},
+        child_secrets=encrypt_child_secrets(body.child_secrets) if body.child_secrets else None,
     )
     db.add(child)
     await db.flush()
@@ -336,11 +340,15 @@ async def unlock_agent(
             agent_id=agent_id,
             business_id=body.business_id,
             child_data=body.child_data or {},
+            child_secrets=encrypt_child_secrets(body.child_secrets) if body.child_secrets else None,
         )
         db.add(child)
         await db.flush()
-    elif body.child_data:
-        child.child_data = body.child_data
+    else:
+        if body.child_data:
+            child.child_data = body.child_data
+        if body.child_secrets:
+            child.child_secrets = encrypt_child_secrets(body.child_secrets)
 
     unlock = AgentUnlock(
         agent_id=agent_id,
@@ -390,6 +398,8 @@ async def update_child_agent(
 ) -> None:
     child = await _get_owned_child_agent(child_agent_id, current_user.id, db)
     child.child_data = body.child_data
+    if body.child_secrets is not None:
+        child.child_secrets = encrypt_child_secrets(body.child_secrets)
     if body.display_name is not None:
         child.display_name = body.display_name
     if body.is_active is not None:

@@ -23,6 +23,18 @@ from app.services.telegram_service import MessageEnvelope
 logger = get_logger(__name__)
 
 
+def _humanize_value(v) -> str:
+    """Render a JSON value as readable prose for the system prompt (no raw
+    Python/JSON repr like ['a','b'] or {'k': 'v'})."""
+    if isinstance(v, bool):
+        return "yes" if v else "no"
+    if isinstance(v, dict):
+        return "; ".join(f"{k.replace('_', ' ')}: {_humanize_value(val)}" for k, val in v.items())
+    if isinstance(v, (list, tuple)):
+        return ", ".join(_humanize_value(x) for x in v)
+    return str(v)
+
+
 @dataclass
 class AgentResponse:
     text: str
@@ -149,11 +161,16 @@ class BaseAgent:
             if father_prompt:
                 parts.append(f"\n{father_prompt}")
 
-            # Business-specific context filled by the owner (Child layer)
+            # Business-specific context filled by the owner (Child layer).
+            # Only non-"_" keys are rendered, so reserved/sensitive slots
+            # (_father_prompt, _secrets, ...) never reach the model prompt.
             child_context = {k: v for k, v in child_data.items() if not k.startswith("_")}
             if child_context:
-                ctx_lines = [f"  {k}: {v}" for k, v in child_context.items()]
-                parts.append("Business-specific context:\n" + "\n".join(ctx_lines))
+                lines = [
+                    f"- {k.replace('_', ' ').strip().capitalize()}: {_humanize_value(v)}"
+                    for k, v in child_context.items()
+                ]
+                parts.append("Business-specific details:\n" + "\n".join(lines))
 
         # RAG context
         if chunks:

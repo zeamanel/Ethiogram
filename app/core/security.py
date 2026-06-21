@@ -1,6 +1,7 @@
 # app/core/security.py
 import hashlib
 import hmac
+import json
 import secrets
 import base64
 from datetime import datetime, timedelta, timezone
@@ -137,6 +138,20 @@ def encrypt_agent_prompt(prompt: str, agent_id: str) -> tuple[str, str]:
 
 def decrypt_agent_prompt(encrypted_prompt: str, key_ref: str) -> str:
     return decrypt(encrypted_prompt)
+
+def encrypt_child_secrets(secrets_dict: dict) -> str:
+    """Fernet-encrypt a ChildAgent's sensitive config (credentials/API keys).
+
+    Stored in child_agents.child_secrets; never persisted plaintext, never
+    rendered into the LLM prompt.
+    """
+    return encrypt(json.dumps(secrets_dict or {}))
+
+def decrypt_child_secrets(blob: Optional[str]) -> dict:
+    """Decrypt child_secrets back to a dict. Returns {} when empty."""
+    if not blob:
+        return {}
+    return json.loads(decrypt(blob))
 
 def generate_referral_code() -> str:
     return secrets.token_hex(4).upper()

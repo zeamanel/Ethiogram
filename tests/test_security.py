@@ -17,6 +17,8 @@ from app.core.security import (
     encrypt_api_key,
     encrypt_agent_prompt,
     decrypt_agent_prompt,
+    decrypt_child_secrets,
+    encrypt_child_secrets,
     generate_order_id,
     generate_referral_code,
     hash_bot_token,
@@ -152,6 +154,23 @@ class TestGenerators:
         masked = mask_sensitive("1234567890:ABCDEF", visible_chars=4)
         assert masked.endswith("CDEF")
         assert "1234567890" not in masked
+
+
+class TestChildSecrets:
+    def test_roundtrip(self):
+        data = {"calendar_id": "cal@x.com", "credentials_json": '{"token":"abc"}'}
+        blob = encrypt_child_secrets(data)
+        assert decrypt_child_secrets(blob) == data
+
+    def test_ciphertext_does_not_leak_values(self):
+        blob = encrypt_child_secrets({"api_key": "sk-SENSITIVE-123"})
+        assert "sk-SENSITIVE-123" not in blob
+        assert "api_key" not in blob
+
+    def test_empty_and_none(self):
+        assert decrypt_child_secrets(None) == {}
+        assert decrypt_child_secrets("") == {}
+        assert decrypt_child_secrets(encrypt_child_secrets({})) == {}
 
 
 class TestAdminSecretHeader:

@@ -42,4 +42,7 @@
 \echo '==> 011_notification_dispatched_at.sql'
 \i migrations/011_notification_dispatched_at.sql
 
+\echo '==> 012_child_agent_secrets.sql'
+\i migrations/012_child_agent_secrets.sql
+
 \echo '==> All migrations applied successfully.'

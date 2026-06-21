@@ -28,7 +28,7 @@ from app.db.models import (
 )
 from app.db.session import get_db, get_redis
 from app.services.telegram_service import MessageEnvelope, telegram_service
-from app.core.security import decrypt, decrypt_agent_prompt
+from app.core.security import decrypt, decrypt_agent_prompt, decrypt_child_secrets
 
 logger = get_logger(__name__)
 
@@ -381,7 +381,9 @@ async def _load_child_data(business_id: str, agent_type: str, db: AsyncSession) 
     for child, father in result.all():
         if _agent_type_for(father) != agent_type:
             continue
-        data = dict(child.child_data or {})
+        # Plain config (rendered into the prompt). Keys are owner-controlled, so
+        # strip any "_"-prefixed keys to avoid clobbering reserved slots.
+        data = {k: v for k, v in (child.child_data or {}).items() if not k.startswith("_")}
         try:
             data["_father_prompt"] = decrypt_agent_prompt(
                 father.encrypted_system_prompt, father.encryption_key_ref
@@ -389,6 +391,15 @@ async def _load_child_data(business_id: str, agent_type: str, db: AsyncSession) 
         except Exception as exc:
             logger.warning("Failed to decrypt father prompt",
                            agent_id=str(father.id), error=str(exc))
+        # Sensitive config (credentials/API keys): decrypted only here and placed
+        # under "_secrets" — a "_"-prefixed key, so build_system_prompt never
+        # renders it into the model prompt. Agent code reads it directly.
+        if child.child_secrets:
+            try:
+                data["_secrets"] = decrypt_child_secrets(child.child_secrets)
+            except Exception as exc:
+                logger.error("Failed to decrypt child_secrets",
+                             child_agent_id=str(child.id), error=str(exc))
         return data
     return None
 

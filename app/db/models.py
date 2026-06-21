@@ -462,7 +462,13 @@ class ChildAgent(Base, UUIDMixin, TimestampMixin):
     agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True)
     business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
     display_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    # Non-sensitive, owner-filled config (products, hours, rules, tone). Rendered
+    # into the system prompt.
     child_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    # Sensitive config (calendar/API credentials). Fernet-encrypted JSON blob —
+    # NEVER stored plaintext and NEVER rendered into the prompt; decrypted only
+    # in code and exposed to the agent under the "_secrets" key.
+    child_secrets: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     assigned_to_bot_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("bots.id"), nullable=True)
 
