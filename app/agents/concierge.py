@@ -1,32 +1,37 @@
 # app/agents/concierge.py
 from __future__ import annotations
 
+import asyncio
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.agents.base import AgentResponse, BaseAgent
+from app.agents.base import BaseAgent
 from app.core.logging import get_logger
 from app.db.models import BusinessBrainConfig
-from app.services.telegram_service import MessageEnvelope
+from app.services.telegram_service import MessageEnvelope  # noqa: F401  (kept for type parity)
 
 logger = get_logger(__name__)
 
-# Day names for slot formatting
-_DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+def _calendar_creds(child_data: Optional[dict]) -> tuple[Optional[str], Optional[str]]:
+    """Pull (calendar_id, credentials_json) from the ENCRYPTED secrets only.
+
+    These live under child_data['_secrets'] (decrypted in the webhook), never in
+    plain child_data and never in the prompt.
+    """
+    secrets = (child_data or {}).get("_secrets") or {}
+    return secrets.get("calendar_id"), secrets.get("credentials_json")
 
 
 class ConciergeAgent(BaseAgent):
     """
     Specialist agent for appointment booking and calendar management.
 
-    Extended behaviour over BaseAgent:
-    - Detects booking intent and queries Google Calendar for availability
-    - Presents available slots to the customer as inline buttons
-    - Confirms bookings and creates Calendar events
-    - Sends reminder details back to the customer
+    Booking actions use the business's real Google Calendar credentials, read
+    from the encrypted child_data['_secrets']. There is NO mock/fake fallback:
+    if the calendar isn't configured or the API fails, the customer is told the
+    truth (no availability / booking didn't go through) — never a fake success.
     """
 
     agent_name = "Concierge"
@@ -57,57 +62,41 @@ class ConciergeAgent(BaseAgent):
             "\n\nYou are also a professional concierge and appointment scheduler. "
             "When a customer wants to book:\n"
             "1. Ask what service they need (if not already specified).\n"
-            "2. Ask for their preferred date and time.\n"
+            "2. Offer available times.\n"
             "3. Confirm the booking details before finalising.\n"
-            "4. Once confirmed, tell the customer their appointment is booked "
-            "and provide a brief summary.\n"
             "Always be warm, professional, and proactive." + service_info
         )
         return base + booking_addendum
 
+    # ------------------------------------------------------------------
+    # Availability (real Google Calendar free/busy)
+    # ------------------------------------------------------------------
+
     async def get_available_slots(
         self,
-        calendar_id: str,
-        credentials_json: str,
+        child_data: Optional[dict],
         date: datetime,
-        duration_minutes: int = 60,
         num_slots: int = 5,
     ) -> list[dict]:
         """
-        Query Google Calendar free/busy and return open slots on `date`.
-        Returns list of {"start": ISO str, "end": ISO str, "label": "Mon 9:00 AM"}
+        Return open slots on ``date`` from the business's real Google Calendar.
+        Returns [] when the calendar isn't configured or the API fails — we
+        never invent availability.
         """
-        try:
-            slots = await self._fetch_free_slots(
-                calendar_id, credentials_json, date, duration_minutes, num_slots
-            )
-            return slots
-        except Exception as exc:
-            logger.error(
-                "Failed to fetch calendar slots",
-                error=str(exc),
-                calendar_id=calendar_id,
-            )
-            return self._generate_mock_slots(date, duration_minutes, num_slots)
+        calendar_id, credentials_json = _calendar_creds(child_data)
+        if not calendar_id or not credentials_json:
+            logger.info("Concierge: no calendar credentials — no slots offered")
+            return []
 
-    async def _fetch_free_slots(
-        self,
-        calendar_id: str,
-        credentials_json: str,
-        date: datetime,
-        duration_minutes: int,
-        num_slots: int,
-    ) -> list[dict]:
-        import asyncio
-        return await asyncio.get_event_loop().run_in_executor(
-            None,
-            self._fetch_free_slots_sync,
-            calendar_id,
-            credentials_json,
-            date,
-            duration_minutes,
-            num_slots,
-        )
+        duration = int((child_data or {}).get("appointment_duration_minutes", 60))
+        try:
+            return await asyncio.get_event_loop().run_in_executor(
+                None, self._fetch_free_slots_sync,
+                calendar_id, credentials_json, date, duration, num_slots,
+            )
+        except Exception as exc:
+            logger.error("Concierge: free/busy lookup failed — no slots offered", error=str(exc))
+            return []
 
     def _fetch_free_slots_sync(
         self,
@@ -117,11 +106,8 @@ class ConciergeAgent(BaseAgent):
         duration_minutes: int,
         num_slots: int,
     ) -> list[dict]:
-        try:
-            from google.oauth2.service_account import Credentials
-            from googleapiclient.discovery import build
-        except ImportError:
-            raise RuntimeError("google-api-python-client not installed")
+        from google.oauth2.service_account import Credentials
+        from googleapiclient.discovery import build
 
         creds_data = json.loads(credentials_json)
         creds = Credentials.from_service_account_info(
@@ -141,11 +127,9 @@ class ConciergeAgent(BaseAgent):
         busy_result = service.freebusy().query(body=body).execute()
         busy_periods = busy_result.get("calendars", {}).get(calendar_id, {}).get("busy", [])
 
-        # Walk through the day in `duration_minutes` increments, skip busy blocks
         slots: list[dict] = []
         cursor = day_start
         step = timedelta(minutes=duration_minutes)
-
         while cursor + step <= day_end and len(slots) < num_slots:
             slot_end = cursor + step
             conflict = any(
@@ -160,77 +144,62 @@ class ConciergeAgent(BaseAgent):
                     "label": cursor.strftime("%a %I:%M %p"),
                 })
             cursor += step
-
         return slots
 
-    def _generate_mock_slots(
-        self, date: datetime, duration_minutes: int, num_slots: int
-    ) -> list[dict]:
-        """Fallback when Calendar API is unavailable — return placeholder slots."""
-        slots = []
-        cursor = date.replace(hour=9, minute=0, second=0, microsecond=0)
-        step = timedelta(minutes=duration_minutes)
-        for _ in range(num_slots):
-            end = cursor + step
-            slots.append({
-                "start": cursor.isoformat(),
-                "end": end.isoformat(),
-                "label": cursor.strftime("%a %I:%M %p"),
-            })
-            cursor = end
-        return slots
+    # ------------------------------------------------------------------
+    # Confirmation (real Google Calendar insert) — fail-closed
+    # ------------------------------------------------------------------
 
     async def confirm_booking(
         self,
-        calendar_id: str,
-        credentials_json: str,
+        child_data: Optional[dict],
         slot_start: str,
         slot_end: str,
         customer_name: str,
-        customer_email: Optional[str],
-        service_name: str,
+        customer_email: Optional[str] = None,
+        service_name: Optional[str] = None,
         notes: str = "",
     ) -> dict:
         """
-        Create a Google Calendar event and return the event dict.
+        Create a Google Calendar event using the business's encrypted creds.
 
-        On success returns the Calendar event (which carries ``status`` from
-        Google, e.g. "confirmed"). On failure returns
-        ``{"status": "failed", "error": <message>, "id": None}`` — it must
-        NEVER report a confirmed booking when the calendar write did not
-        succeed, so the caller can tell the customer it didn't go through.
+        Returns the created event on success. On ANY failure — missing creds,
+        API error, or a response with no event id — returns
+        ``{"id": None, "status": "failed", "error": ...}``. It must NEVER report
+        a confirmed booking unless the calendar write actually succeeded.
         """
-        try:
-            import asyncio
-            event = await asyncio.get_event_loop().run_in_executor(
-                None,
-                self._create_event_sync,
-                calendar_id,
-                credentials_json,
-                slot_start,
-                slot_end,
-                customer_name,
-                customer_email,
-                service_name,
-                notes,
-            )
-            logger.info(
-                "Calendar event created",
-                agent=self.agent_name,
-                event_id=event.get("id"),
-                customer=customer_name,
-            )
-            return event
-        except Exception as exc:
-            logger.error("Calendar booking failed", error=str(exc))
+        service_name = service_name or (child_data or {}).get("services") or "Appointment"
+        calendar_id, credentials_json = _calendar_creds(child_data)
+
+        def _fail(reason: str) -> dict:
             return {
-                "id": None,
-                "status": "failed",
-                "error": str(exc),
+                "id": None, "status": "failed", "error": reason,
                 "summary": f"{service_name} — {customer_name}",
-                "start": {"dateTime": slot_start},
-                "end": {"dateTime": slot_end},
+                "start": {"dateTime": slot_start}, "end": {"dateTime": slot_end},
             }
+
+        if not calendar_id or not credentials_json:
+            logger.warning("Concierge: confirm_booking with no calendar credentials")
+            return _fail("calendar_not_configured")
+
+        try:
+            event = await asyncio.get_event_loop().run_in_executor(
+                None, self._create_event_sync,
+                calendar_id, credentials_json, slot_start, slot_end,
+                customer_name, customer_email, service_name, notes,
+            )
+        except Exception as exc:
+            logger.error("Concierge: calendar booking failed", error=str(exc))
+            return _fail(str(exc))
+
+        # Success ONLY if the calendar actually returned a created event id.
+        if not event or not event.get("id"):
+            logger.error("Concierge: calendar returned no event id", event=event)
+            return _fail("no_event_id")
+
+        logger.info("Calendar event created", agent=self.agent_name,
+                    event_id=event.get("id"), customer=customer_name)
+        return event
 
     def _create_event_sync(
         self,
@@ -264,13 +233,37 @@ class ConciergeAgent(BaseAgent):
 
         return service.events().insert(calendarId=calendar_id, body=event_body).execute()
 
-    def format_slots_as_buttons(self, slots: list[dict]) -> list[list[dict]]:
+    # ------------------------------------------------------------------
+    # Customer-facing message + slot buttons
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def booking_reply_text(result: dict, slot_label: Optional[str] = None) -> str:
+        """The ONLY place that decides what the customer is told about a booking.
+
+        Reports success strictly when the calendar write succeeded (status not
+        'failed' AND a real event id). Otherwise an explicit failure — never a
+        fake 'confirmed'.
         """
-        Convert slot list into Telegram inline keyboard rows (one button per slot).
-        callback_data encodes the slot index for retrieval.
+        succeeded = bool(result) and result.get("status") != "failed" and bool(result.get("id"))
+        if succeeded:
+            when = slot_label or (result.get("start") or {}).get("dateTime", "")
+            tail = f" for {when}" if when else ""
+            return f"✅ Your appointment is confirmed{tail}. We look forward to seeing you!"
+        return (
+            "⚠️ Sorry — I couldn't confirm your booking and it did not go through. "
+            "Please pick another time or contact us directly to book."
+        )
+
+    def format_slots_as_buttons(self, slots: list[dict], session_key: str) -> list[list[dict]]:
+        """
+        Inline keyboard (one button per slot). callback_data is
+        ``book_slot:<session_key>:<index>`` — the full slot details are kept
+        server-side (Redis) under ``session_key`` to stay within Telegram's
+        64-byte callback_data limit and avoid colons-in-ISO parsing issues.
         """
         return [
-            [{"text": slot["label"], "callback_data": f"book_slot:{i}:{slot['start']}"}]
+            [{"text": slot["label"], "callback_data": f"book_slot:{session_key}:{i}"}]
             for i, slot in enumerate(slots)
         ]
 

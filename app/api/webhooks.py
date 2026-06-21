@@ -1,6 +1,8 @@
 # app/api/webhooks.py
 import hmac
-from datetime import datetime, timezone
+import json
+import secrets as _secrets
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
@@ -183,6 +185,11 @@ async def telegram_webhook(
     language = _detect_language(envelope.text or "")
     if language != conversation.detected_language:
         conversation.detected_language = language
+
+    # 9b. Booking sub-flow (Concierge with a configured calendar): present real
+    # slots on booking intent, or confirm a tapped slot. Handles its own reply.
+    if await _maybe_handle_booking(envelope, bot, raw_token, conversation, db, redis, body):
+        return JSONResponse({"ok": True})
 
     # 10. Build response: classify intent → route to the right agent
     brain_config = await _get_brain_config(str(bot.business_id), db)
@@ -402,6 +409,125 @@ async def _load_child_data(business_id: str, agent_type: str, db: AsyncSession) 
                              child_agent_id=str(child.id), error=str(exc))
         return data
     return None
+
+
+async def _maybe_handle_booking(
+    envelope: MessageEnvelope,
+    bot: Bot,
+    raw_token: str,
+    conversation: Conversation,
+    db: AsyncSession,
+    redis,
+    body: dict,
+) -> bool:
+    """
+    Handle the Concierge booking sub-flow. Returns True if it produced the reply
+    (and the caller should stop), False to fall through to the normal agent path.
+
+    - callback_query "book_slot:<key>:<idx>" → confirm via real calendar.
+    - booking intent + a Concierge configured with calendar credentials →
+      fetch REAL availability and present slot buttons.
+    """
+    from app.agents.concierge import concierge_agent
+    from app.agents.router import Intent, intent_router
+
+    cb = body.get("callback_query")
+
+    # A. A tapped slot → confirm the booking.
+    if cb and str(cb.get("data", "")).startswith("book_slot:"):
+        await _confirm_booking_callback(envelope, bot, raw_token, conversation, db, redis, cb)
+        return True
+    if cb:
+        return False  # some other callback — let the normal flow deal with it
+
+    # B. Booking intent → present real slots, only if a Concierge is configured.
+    if intent_router.classify(envelope) != Intent.BOOKING:
+        return False
+    child_data = await _load_child_data(str(conversation.business_id), "ConciergeAgent", db)
+    if not child_data or not (child_data.get("_secrets") or {}).get("credentials_json"):
+        return False  # no configured calendar → fall through to LLM booking guidance
+
+    target_day = datetime.now(timezone.utc) + timedelta(days=1)
+    slots = await concierge_agent.get_available_slots(child_data, target_day)
+    if not slots:
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "I don't see any open times right now. Please try again later or contact us directly.",
+        )
+        return True
+
+    session_key = _secrets.token_hex(6)
+    await redis.set(f"book:{bot.id}:{session_key}", json.dumps(slots), ex=3600)
+    buttons = concierge_agent.format_slots_as_buttons(slots, session_key)
+    await telegram_service.send_message_with_buttons(
+        raw_token, envelope.customer_id,
+        "Here are the next available times — tap one to book:", buttons,
+    )
+    logger.info("Presented booking slots", bot_id=str(bot.id), slots=len(slots))
+    return True
+
+
+async def _confirm_booking_callback(
+    envelope: MessageEnvelope,
+    bot: Bot,
+    raw_token: str,
+    conversation: Conversation,
+    db: AsyncSession,
+    redis,
+    cb: dict,
+) -> None:
+    """Confirm a tapped slot against the real calendar and reply honestly."""
+    from app.agents.concierge import concierge_agent
+
+    # Always answer the callback so the client's spinner stops.
+    try:
+        await telegram_service.answer_callback_query(raw_token, cb.get("id"))
+    except Exception:
+        pass
+
+    parts = str(cb.get("data", "")).split(":")
+    if len(parts) != 3:
+        return
+    _, session_key, idx_s = parts
+
+    raw = await redis.get(f"book:{bot.id}:{session_key}")
+    if not raw:
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "⚠️ That booking option expired. Please ask for available times again.",
+        )
+        return
+    try:
+        slots = json.loads(raw)
+        slot = slots[int(idx_s)]
+    except (ValueError, IndexError, TypeError, json.JSONDecodeError):
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "⚠️ I couldn't read that slot. Please ask for available times again.",
+        )
+        return
+
+    child_data = await _load_child_data(str(conversation.business_id), "ConciergeAgent", db)
+    result = await concierge_agent.confirm_booking(
+        child_data=child_data,
+        slot_start=slot["start"],
+        slot_end=slot["end"],
+        customer_name=envelope.customer_name or "Customer",
+        customer_email=None,
+        service_name=(child_data or {}).get("services") if child_data else None,
+    )
+    # booking_reply_text is the single source of truth for what the customer is
+    # told — it says "confirmed" ONLY when the calendar write actually succeeded.
+    await telegram_service.send_message(
+        raw_token, envelope.customer_id,
+        concierge_agent.booking_reply_text(result, slot_label=slot.get("label")),
+    )
+    # On success, consume the slot session so a re-tap can't double-book.
+    if result.get("status") != "failed" and result.get("id"):
+        await redis.delete(f"book:{bot.id}:{session_key}")
+        logger.info("Booking confirmed", bot_id=str(bot.id), event_id=result.get("id"))
+    else:
+        logger.warning("Booking failed", bot_id=str(bot.id), error=result.get("error"))
 
 
 async def _process_message(
