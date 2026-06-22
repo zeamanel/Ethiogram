@@ -71,7 +71,7 @@ async def generic_error_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"error": "INTERNAL_ERROR", "message": "Unexpected error"})
 
 
-from app.api import auth, bots, webhooks, admin, billing, agents, dashboard
+from app.api import auth, bots, webhooks, admin, billing, agents, dashboard, knowledge
 
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(bots.router, prefix=settings.api_prefix)
@@ -80,6 +80,7 @@ app.include_router(admin.router, prefix=settings.api_prefix)
 app.include_router(billing.router, prefix=settings.api_prefix)
 app.include_router(agents.router, prefix=settings.api_prefix)
 app.include_router(dashboard.router, prefix=settings.api_prefix)
+app.include_router(knowledge.router, prefix=settings.api_prefix)
 
 
 @app.get("/health")
