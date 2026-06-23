@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- ───── SEO: what Google reads ───── -->
+<title>Selam Store — Traditional & Modern Fashion in Bole, Addis Ababa</title>
+<meta name="description" content="Selam Store offers Habesha Kemis, leather bags, sneakers and handmade jewelry in Bole, Addis Ababa. Free delivery over 500 ETB. Order on Telegram.">
+<meta property="og:title" content="Selam Store — Fashion in Bole, Addis Ababa">
+<meta property="og:description" content="Traditional & modern Ethiopian fashion. Free delivery over 500 ETB.">
+<meta property="og:type" content="business.business">
+<meta property="og:url" content="https://ethiogram.com/biz/selam-store">
+
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;450;500;600&display=swap" rel="stylesheet">
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #FAF7F0;
+    --bg-2:      #F2ECDF;
+    --ink:       #211C16;
+    --ink-soft:  #4A4339;
+    --muted:     #7C7264;
+    --faint:     #A89E8E;
+    --line:      #E4DBC9;
+    --terra:     #C2542A;   /* the brand — terracotta/Ethiopian clay */
+    --terra-deep:#A1431F;
+    --gold:      #C8941F;
+    --green:     #2F6B45;
+    --card:      #FFFFFF;
+    --cream-card:#FFFDF8;
+  }
+
+  body {
+    background: var(--bg);
+    font-family: 'Inter', sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  .serif { font-family: 'Fraunces', serif; }
+
+  /* ───── annotation ribbon (explains this is the SEO surface) ───── */
+  .seo-note {
+    background: #1C2B22; color: #9DC4AC;
+    font-size: 12px; text-align: center; padding: 7px 16px;
+    font-family: 'Inter', monospace; letter-spacing: 0.02em;
+  }
+  .seo-note b { color: #EDE7DA; }
+
+  /* ───── top bar ───── */
+  .topnav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 0;
+  }
+  .logo-row { display: flex; align-items: center; gap: 11px; }
+  .logo-mark {
+    width: 40px; height: 40px; border-radius: 11px;
+    background: linear-gradient(140deg, var(--terra), var(--gold));
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-family: 'Fraunces', serif; font-weight: 700; font-size: 19px;
+  }
+  .logo-name { font-family: 'Fraunces', serif; font-weight: 600; font-size: 19px; letter-spacing: -0.01em; }
+  .logo-loc { font-size: 11.5px; color: var(--muted); margin-top: -2px; }
+  .nav-links { display: flex; gap: 26px; align-items: center; }
+  .nav-links a { color: var(--ink-soft); text-decoration: none; font-size: 14px; font-weight: 450; }
+  .nav-links a:hover { color: var(--terra); }
+  .nav-cta {
+    background: var(--ink); color: var(--bg); padding: 9px 17px;
+    border-radius: 9px; font-size: 13.5px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 7px; text-decoration: none;
+  }
+  .nav-cta:hover { background: var(--terra); }
+
+  /* ───── hero ───── */
+  .hero { padding: 40px 0 30px; display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 44px; align-items: center; }
+  .eyebrow {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.04em;
+    color: var(--terra-deep); text-transform: uppercase; margin-bottom: 16px;
+  }
+  .eyebrow::before { content: ''; width: 22px; height: 1.5px; background: var(--terra); }
+  .hero h1 {
+    font-family: 'Fraunces', serif; font-weight: 600;
+    font-size: 50px; line-height: 1.05; letter-spacing: -0.02em;
+    margin-bottom: 18px;
+  }
+  .hero h1 em { font-style: italic; color: var(--terra); }
+  .hero p { font-size: 16px; color: var(--ink-soft); max-width: 440px; margin-bottom: 26px; }
+  .hero-cta-row { display: flex; gap: 12px; align-items: center; }
+  .btn-tg {
+    background: var(--terra); color: white; padding: 13px 24px;
+    border-radius: 11px; font-size: 14.5px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 9px; text-decoration: none;
+    box-shadow: 0 8px 22px rgba(194,84,42,0.25); transition: all 0.18s;
+  }
+  .btn-tg:hover { background: var(--terra-deep); transform: translateY(-2px); }
+  .btn-ghost { color: var(--ink); padding: 13px 18px; font-size: 14.5px; font-weight: 500; text-decoration: none; display: inline-flex; align-items: center; gap: 7px; }
+  .btn-ghost:hover { color: var(--terra); }
+
+  .hero-trust { display: flex; gap: 22px; margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line); }
+  .trust-item .tv { font-family: 'Fraunces', serif; font-weight: 600; font-size: 22px; }
+  .trust-item .tl { font-size: 12px; color: var(--muted); margin-top: 1px; }
+
+  /* hero visual */
+  .hero-visual {
+    background: linear-gradient(150deg, #2A211A, #46301F);
+    border-radius: 22px; aspect-ratio: 4/5; position: relative; overflow: hidden;
+    display: flex; align-items: flex-end; padding: 24px;
+  }
+  .hero-visual::before {
+    content: '👗'; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%,-55%); font-size: 110px; opacity: 0.92;
+    filter: drop-shadow(0 10px 30px rgba(0,0,0,0.4));
+  }
+  .hero-badge {
+    position: relative; background: rgba(255,253,248,0.95);
+    border-radius: 13px; padding: 13px 16px; backdrop-filter: blur(8px);
+    display: flex; align-items: center; gap: 11px;
+  }
+  .hb-star { font-size: 19px; }
+  .hb-rate { font-family: 'Fraunces', serif; font-weight: 700; font-size: 18px; }
+  .hb-sub { font-size: 11.5px; color: var(--muted); }
+
+  /* ───── trust strip ───── */
+  .strip { background: var(--ink); color: var(--bg); }
+  .strip-inner { display: flex; justify-content: space-around; padding: 16px 0; flex-wrap: wrap; gap: 14px; }
+  .strip-item { display: flex; align-items: center; gap: 9px; font-size: 13.5px; color: #D8CFBE; }
+  .strip-item b { color: #fff; font-weight: 600; }
+
+  /* ───── section heading ───── */
+  .sec { padding: 56px 0; }
+  .sec-eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; color: var(--terra-deep); text-transform: uppercase; }
+  .sec-title { font-family: 'Fraunces', serif; font-weight: 600; font-size: 32px; letter-spacing: -0.02em; margin-top: 8px; }
+  .sec-head-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 30px; }
+
+  /* ───── products grid (real text — Google reads it) ───── */
+  .pgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .pcard { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; transition: all 0.18s; }
+  .pcard:hover { transform: translateY(-3px); box-shadow: 0 16px 40px rgba(33,28,22,0.1); border-color: #D9CFB9; }
+  .pcard-img { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 54px; position: relative; }
+  .pi-1 { background: linear-gradient(140deg, #F3E4D0, #E8D0B0); }
+  .pi-2 { background: linear-gradient(140deg, #E0EADF, #C9DCC9); }
+  .pi-3 { background: linear-gradient(140deg, #E5DEF0, #D2C6E8); }
+  .pi-4 { background: linear-gradient(140deg, #F3DAD0, #E8BBA8); }
+  .pi-5 { background: linear-gradient(140deg, #DDE7EE, #C2D4E2); }
+  .pi-6 { background: linear-gradient(140deg, #F0E6CE, #E2D0A6); }
+  .pcard-tag { position: absolute; top: 12px; left: 12px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 9px; border-radius: 6px; }
+  .tag-new { background: var(--terra); color: white; }
+  .tag-sale { background: var(--green); color: white; }
+  .pcard-body { padding: 15px 16px 17px; }
+  .pcard-cat { font-size: 11px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .pcard-name { font-family: 'Fraunces', serif; font-weight: 600; font-size: 17px; margin: 4px 0 6px; }
+  .pcard-desc { font-size: 13px; color: var(--muted); margin-bottom: 12px; line-height: 1.45; }
+  .pcard-foot { display: flex; align-items: center; justify-content: space-between; }
+  .pcard-price { font-family: 'Fraunces', serif; font-weight: 700; font-size: 18px; color: var(--terra-deep); }
+  .pcard-price .old { font-family: 'Inter'; font-size: 12px; color: var(--faint); text-decoration: line-through; font-weight: 400; margin-left: 6px; }
+  .pcard-buy { font-size: 12.5px; font-weight: 600; color: var(--ink); border: 1px solid var(--line); padding: 6px 13px; border-radius: 8px; text-decoration: none; }
+  .pcard-buy:hover { background: var(--terra); color: white; border-color: var(--terra); }
+
+  /* ───── about / info two-col ───── */
+  .about { background: var(--bg-2); }
+  .about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: start; }
+  .about-text p { font-size: 15px; color: var(--ink-soft); margin-bottom: 14px; }
+  .info-card { background: var(--cream-card); border: 1px solid var(--line); border-radius: 16px; padding: 24px; }
+  .info-row { display: flex; gap: 13px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .info-row:last-child { border-bottom: none; }
+  .info-ic { font-size: 17px; width: 24px; text-align: center; }
+  .info-k { font-size: 12px; color: var(--muted); }
+  .info-v { font-size: 14px; font-weight: 500; margin-top: 1px; }
+
+  /* hours table */
+  .hours-mini { font-size: 13px; }
+  .hours-mini div { display: flex; justify-content: space-between; padding: 2px 0; }
+  .hours-mini .day { color: var(--muted); }
+
+  /* ───── FAQ (great for SEO rich results) ───── */
+  .faq-list { max-width: 720px; margin: 0 auto; }
+  .faq-item { border-bottom: 1px solid var(--line); padding: 18px 0; }
+  .faq-q { font-family: 'Fraunces', serif; font-weight: 600; font-size: 17px; display: flex; justify-content: space-between; cursor: pointer; }
+  .faq-q span { color: var(--terra); }
+  .faq-a { font-size: 14.5px; color: var(--ink-soft); margin-top: 9px; max-width: 640px; }
+
+  /* ───── final CTA ───── */
+  .final-cta { background: linear-gradient(150deg, #2A211A 0%, #46301F 100%); color: var(--bg); border-radius: 24px; padding: 48px; text-align: center; margin: 56px 0; position: relative; overflow: hidden; }
+  .final-cta::after { content: ''; position: absolute; right: -60px; bottom: -60px; width: 240px; height: 240px; background: radial-gradient(circle, rgba(194,84,42,0.4), transparent 65%); }
+  .final-cta h2 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 34px; letter-spacing: -0.02em; position: relative; }
+  .final-cta p { font-size: 15.5px; color: #C9BFAE; margin: 12px auto 26px; max-width: 480px; position: relative; }
+
+  /* ───── footer ───── */
+  footer { padding: 40px 0; border-top: 1px solid var(--line); }
+  .foot-grid { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; }
+  .foot-powered { font-size: 13px; color: var(--muted); }
+  .foot-powered b { color: var(--terra-deep); font-weight: 600; }
+  .foot-links { display: flex; gap: 20px; }
+  .foot-links a { font-size: 13px; color: var(--muted); text-decoration: none; }
+
+  /* schema annotation tag */
+  .schema-tag {
+    display: inline-block; font-family: monospace; font-size: 10.5px;
+    background: #1C2B22; color: #9DC4AC; padding: 2px 8px; border-radius: 5px;
+    margin-bottom: 10px;
+  }
+
+  @media (max-width: 880px) {
+    .hero { grid-template-columns: 1fr; gap: 30px; }
+    .hero h1 { font-size: 38px; }
+    .pgrid { grid-template-columns: 1fr 1fr; }
+    .about-grid { grid-template-columns: 1fr; }
+    .nav-links { display: none; }
+  }
+  @media (max-width: 560px) {
+    .pgrid { grid-template-columns: 1fr; }
+    .hero-trust { flex-wrap: wrap; }
+  }
+
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  .hero { animation: rise 0.6s ease both; }
+</style>
+</head>
+<body>
+
+  <!-- annotation: this explains the mockup, not part of the real page -->
+  <div class="seo-note">
+    🔍 <b>Public SEO Landing Page</b> · ethiogram.com/biz/selam-store · server-rendered HTML · indexed by Google · NOT the Telegram Mini App
+  </div>
+
+  <div class="wrap">
+    <!-- NAV -->
+    <nav class="topnav">
+      <div class="logo-row">
+        <div class="logo-mark">S</div>
+        <div>
+          <div class="logo-name">Selam Store</div>
+          <div class="logo-loc">Bole · Addis Ababa</div>
+        </div>
+      </div>
+      <div class="nav-links">
+        <a href="#products">Products</a>
+        <a href="#about">About</a>
+        <a href="#visit">Visit</a>
+        <a href="#faq">FAQ</a>
+        <a class="nav-cta" href="#">💬 Chat on Telegram</a>
+      </div>
+    </nav>
+
+    <!-- HERO -->
+    <section class="hero">
+      <div>
+        <div class="schema-tag">&lt;h1&gt; — indexed</div>
+        <div class="eyebrow">Fashion · Bole, Addis Ababa</div>
+        <h1>Traditional &amp; modern <em>Ethiopian fashion</em>, delivered.</h1>
+        <p>From handwoven Habesha Kemis to everyday sneakers and handmade silver jewelry — discover Selam Store's curated collection. Free delivery on orders over 500 ETB.</p>
+        <div class="hero-cta-row">
+          <a class="btn-tg" href="#">💬 Order on Telegram</a>
+          <a class="btn-ghost" href="#products">Browse products ↓</a>
+        </div>
+        <div class="hero-trust">
+          <div class="trust-item"><div class="tv">142</div><div class="tl">Products</div></div>
+          <div class="trust-item"><div class="tv">4.9★</div><div class="tl">2,100+ buyers</div></div>
+          <div class="trust-item"><div class="tv">Free</div><div class="tl">Delivery 500+ ETB</div></div>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <div class="hero-badge">
+          <span class="hb-star">⭐</span>
+          <div>
+            <div class="hb-rate">4.9 / 5</div>
+            <div class="hb-sub">Loved by 2,100+ customers in Addis</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- TRUST STRIP -->
+  <div class="strip">
+    <div class="wrap">
+      <div class="strip-inner">
+        <div class="strip-item">🚚 <b>Free delivery</b> over 500 ETB</div>
+        <div class="strip-item">💳 <b>Telebirr · CBE · Chapa</b> accepted</div>
+        <div class="strip-item">🕐 <b>Open</b> Mon–Sat, 8am–9pm</div>
+        <div class="strip-item">📍 <b>Bole</b>, near Edna Mall</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <!-- PRODUCTS -->
+    <section class="sec" id="products">
+      <div class="sec-head-row">
+        <div>
+          <div class="schema-tag">schema.org/Product × 142</div>
+          <div class="sec-eyebrow">Our Collection</div>
+          <div class="sec-title">Featured products</div>
+        </div>
+      </div>
+      <div class="pgrid">
+        <div class="pcard">
+          <div class="pcard-img pi-1">👗<span class="pcard-tag tag-new">New</span></div>
+          <div class="pcard-body">
+            <div class="pcard-cat">Clothing</div>
+            <div class="pcard-name">Habesha Kemis</div>
+            <div class="pcard-desc">Handwoven traditional dress with tilet embroidery. White cotton.</div>
+            <div class="pcard-foot"><div class="pcard-price">1,200 ETB</div><a class="pcard-buy" href="#">Order →</a></div>
+          </div>
+        </div>
+        <div class="pcard">
+          <div class="pcard-img pi-2">👟<span class="pcard-tag tag-sale">Sale</span></div>
+          <div class="pcard-body">
+            <div class="pcard-cat">Shoes</div>
+            <div class="pcard-name">Casual Sneakers</div>
+            <div class="pcard-desc">Lightweight everyday sneakers. Sizes 37–44, three colors.</div>
+            <div class="pcard-foot"><div class="pcard-price">850 ETB <span class="old">1,100</span></div><a class="pcard-buy" href="#">Order →</a></div>
+          </div>
+        </div>
+        <div class="pcard">
+          <div class="pcard-img pi-3">👜</div>
+          <div class="pcard-body">
+            <div class="pcard-cat">Bags</div>
+            <div class="pcard-name">Leather Tote Bag</div>
+            <div class="pcard-desc">Handmade full-grain leather tote in warm brown. Fits a laptop.</div>
+            <div class="pcard-foot"><div class="pcard-price">2,400 ETB</div><a class="pcard-buy" href="#">Order →</a></div>
+          </div>
+        </div>
+        <div class="pcard">
+          <div class="pcard-img pi-4">💍</div>
+          <div class="pcard-body">
+            <div class="pcard-cat">Jewelry</div>
+            <div class="pcard-name">Silver Necklace</div>
+            <div class="pcard-desc">Hand-crafted Ethiopian cross pendant on sterling silver chain.</div>
+            <div class="pcard-foot"><div class="pcard-price">650 ETB</div><a class="pcard-buy" href="#">Order →</a></div>
+          </div>
+        </div>
+        <div class="pcard">
+          <div class="pcard-img pi-5">🧥</div>
+          <div class="pcard-body">
+            <div class="pcard-cat">Clothing</div>
+            <div class="pcard-name">Wool Netela Shawl</div>
+            <div class="pcard-desc">Soft handwoven shawl with golden border. Perfect for cool evenings.</div>
+            <div class="pcard-foot"><div class="pcard-price">900 ETB</div><a class="pcard-buy" href="#">Order →</a></div>
+          </div>
+        </div>
+        <div class="pcard">
+          <div class="pcard-img pi-6">👛</div>
+          <div class="pcard-body">
+            <div class="pcard-cat">Accessories</div>
+            <div class="pcard-name">Beaded Clutch</div>
+            <div class="pcard-desc">Hand-beaded evening clutch in traditional patterns. Gift-ready.</div>
+            <div class="pcard-foot"><div class="pcard-price">480 ETB</div><a class="pcard-buy" href="#">Order →</a></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ABOUT + VISIT -->
+  <section class="sec about" id="about">
+    <div class="wrap">
+      <div class="about-grid">
+        <div class="about-text">
+          <div class="sec-eyebrow">Our Story</div>
+          <div class="sec-title" style="margin-bottom:18px;">Fashion rooted in Ethiopian craft</div>
+          <p>Selam Store began in Bole with a simple belief: traditional Ethiopian craftsmanship deserves a modern home. We work directly with local weavers, leatherworkers, and silversmiths across Addis Ababa.</p>
+          <p>Every Habesha Kemis is handwoven. Every bag is cut and stitched by hand. When you order from Selam Store, you're supporting Ethiopian artisans — and getting a piece made to last.</p>
+          <p>Chat with us on Telegram any time. Our assistant answers instantly, in Amharic or English, and helps you find exactly what you're looking for.</p>
+        </div>
+        <div class="info-card" id="visit">
+          <div class="schema-tag">schema.org/LocalBusiness</div>
+          <div class="info-row">
+            <div class="info-ic">📍</div>
+            <div><div class="info-k">Location</div><div class="info-v">Bole, near Edna Mall, Addis Ababa</div></div>
+          </div>
+          <div class="info-row">
+            <div class="info-ic">🕐</div>
+            <div style="flex:1">
+              <div class="info-k" style="margin-bottom:5px;">Opening hours</div>
+              <div class="hours-mini">
+                <div><span class="day">Mon – Fri</span><span>8:00 – 21:00</span></div>
+                <div><span class="day">Saturday</span><span>9:00 – 21:00</span></div>
+                <div><span class="day">Sunday</span><span>Closed</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="info-row">
+            <div class="info-ic">💳</div>
+            <div><div class="info-k">Payment</div><div class="info-v">Telebirr · CBE Birr · Chapa</div></div>
+          </div>
+          <div class="info-row">
+            <div class="info-ic">🚚</div>
+            <div><div class="info-k">Delivery</div><div class="info-v">Free over 500 ETB · Addis-wide</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <!-- FAQ -->
+    <section class="sec" id="faq">
+      <div style="text-align:center; margin-bottom:34px;">
+        <div class="schema-tag">schema.org/FAQPage — rich results</div>
+        <div class="sec-eyebrow">Questions</div>
+        <div class="sec-title">Frequently asked</div>
+      </div>
+      <div class="faq-list">
+        <div class="faq-item">
+          <div class="faq-q">Do you deliver across Addis Ababa? <span>+</span></div>
+          <div class="faq-a">Yes — we deliver anywhere in Addis Ababa. Delivery is free on orders over 500 ETB, and a small flat fee applies below that. Most orders arrive within 1–2 days.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">What payment methods do you accept? <span>+</span></div>
+          <div class="faq-a">We accept Telebirr, CBE Birr, and card payments through Chapa. You can pay securely right inside our Telegram chat when you place your order.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Are the Habesha Kemis handwoven? <span>+</span></div>
+          <div class="faq-a">Every Habesha Kemis we sell is handwoven by local artisans in Addis Ababa, with traditional tilet embroidery. No machine-made copies.</div>
+        </div>
+        <div class="faq-item">
+          <div class="faq-q">Can I order in Amharic? <span>+</span></div>
+          <div class="faq-a">Absolutely. Our Telegram assistant replies in both Amharic and English, automatically — just message us in whichever you prefer.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FINAL CTA -->
+    <section class="final-cta">
+      <h2>Find your next piece today</h2>
+      <p>Message Selam Store on Telegram — browse the full collection, ask questions, and order in minutes. Our assistant is online 24/7.</p>
+      <a class="btn-tg" href="#" style="position:relative;">💬 Open Selam Store on Telegram</a>
+    </section>
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="wrap">
+      <div class="foot-grid">
+        <div>
+          <div class="logo-row" style="margin-bottom:8px;">
+            <div class="logo-mark" style="width:32px;height:32px;font-size:15px;">S</div>
+            <div class="logo-name" style="font-size:16px;">Selam Store</div>
+          </div>
+          <div class="foot-powered">Powered by <b>Ethiogram</b> · ethiogram.com/biz/selam-store</div>
+        </div>
+        <div class="foot-links">
+          <a href="#products">Products</a>
+          <a href="#about">About</a>
+          <a href="#visit">Visit</a>
+          <a href="#">Telegram</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ───── schema.org JSON-LD (what gives Google rich results) ───── -->
+  <!-- This is the invisible SEO payload. Shown here as a comment for the mockup. -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "ClothingStore",
+    "name": "Selam Store",
+    "description": "Traditional & modern Ethiopian fashion in Bole, Addis Ababa.",
+    "address": { "@type": "PostalAddress", "addressLocality": "Bole, Addis Ababa", "addressCountry": "ET" },
+    "openingHours": ["Mo-Fr 08:00-21:00", "Sa 09:00-21:00"],
+    "aggregateRating": { "@type": "AggregateRating", "ratingValue": "4.9", "reviewCount": "2100" },
+    "paymentAccepted": "Telebirr, CBE Birr, Chapa",
+    "url": "https://ethiogram.com/biz/selam-store"
+  }
+  </script>
+
+</body>
+</html>

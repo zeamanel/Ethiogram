@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ethiogram Mini App — Selam Store</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --brand:        #E8421A;
+    --brand-dark:   #C23510;
+    --brand-soft:   #FFF0EC;
+    --gold:         #F5A623;
+    --bg:           #0F0D0C;
+    --surface:      #1A1714;
+    --surface2:     #232019;
+    --border:       rgba(255,255,255,0.07);
+    --text:         #F5F0EB;
+    --text-muted:   #8A8279;
+    --text-faint:   #4A4540;
+    --green:        #2ECC71;
+    --radius:       16px;
+    --radius-sm:    10px;
+  }
+
+  body {
+    background: #0A0908;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    font-family: 'DM Sans', sans-serif;
+    padding: 40px 20px;
+  }
+
+  /* outer scene */
+  .scene {
+    display: flex;
+    gap: 48px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  /* phone shell */
+  .phone {
+    width: 375px;
+    height: 780px;
+    background: var(--bg);
+    border-radius: 44px;
+    border: 1.5px solid rgba(255,255,255,0.12);
+    overflow: hidden;
+    position: relative;
+    box-shadow:
+      0 0 0 8px #1A1714,
+      0 0 0 9px rgba(255,255,255,0.06),
+      0 40px 80px rgba(0,0,0,0.7),
+      0 0 120px rgba(232,66,26,0.08);
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* notch */
+  .notch {
+    width: 120px; height: 32px;
+    background: #0F0D0C;
+    border-radius: 0 0 20px 20px;
+    margin: 0 auto;
+    position: absolute;
+    top: 0; left: 50%; transform: translateX(-50%);
+    z-index: 10;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .notch-dot { width: 8px; height: 8px; border-radius: 50%; background: #2A2520; }
+  .notch-dot.cam { background: #1E3A5F; width: 10px; height: 10px; }
+
+  /* status bar */
+  .status-bar {
+    height: 44px;
+    padding: 10px 24px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .status-time { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+  .status-icons { display: flex; gap: 5px; align-items: center; }
+  .status-icons span { font-size: 11px; color: var(--text-muted); }
+
+  /* scroll content */
+  .app-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: none;
+  }
+  .app-scroll::-webkit-scrollbar { display: none; }
+
+  /* HEADER */
+  .app-header {
+    padding: 12px 20px 16px;
+    background: var(--bg);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(20px);
+  }
+  .header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .store-info { display: flex; align-items: center; gap: 10px; }
+  .store-logo {
+    width: 38px; height: 38px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--brand), var(--gold));
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Syne', sans-serif;
+    font-weight: 800; font-size: 16px; color: white;
+    flex-shrink: 0;
+  }
+  .store-name {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700; font-size: 15px;
+    color: var(--text);
+    line-height: 1.2;
+  }
+  .store-tag {
+    font-size: 11px; color: var(--text-muted);
+    font-weight: 400;
+  }
+  .header-actions { display: flex; gap: 8px; }
+  .icon-btn {
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--text-muted); font-size: 15px;
+    transition: all 0.2s;
+  }
+  .icon-btn:hover { background: var(--surface2); color: var(--text); }
+  .icon-btn.cart-btn { position: relative; }
+  .cart-badge {
+    position: absolute; top: -4px; right: -4px;
+    width: 16px; height: 16px;
+    background: var(--brand);
+    border-radius: 50%;
+    font-size: 9px; font-weight: 700; color: white;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* search bar */
+  .search-bar {
+    display: flex;
+    align-items: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 9px 14px;
+    gap: 8px;
+  }
+  .search-bar span { font-size: 14px; color: var(--text-faint); }
+  .search-bar input {
+    flex: 1; background: none; border: none; outline: none;
+    font-size: 13px; color: var(--text-muted);
+    font-family: 'DM Sans', sans-serif;
+  }
+  .search-bar input::placeholder { color: var(--text-faint); }
+
+  /* HERO BANNER */
+  .hero-banner {
+    margin: 16px;
+    border-radius: var(--radius);
+    background: linear-gradient(135deg, #1A0E0A 0%, #2D1208 50%, #1A0E0A 100%);
+    border: 1px solid rgba(232,66,26,0.2);
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-banner::before {
+    content: '';
+    position: absolute;
+    top: -30px; right: -30px;
+    width: 120px; height: 120px;
+    background: radial-gradient(circle, rgba(232,66,26,0.3), transparent 70%);
+  }
+  .hero-label {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: rgba(232,66,26,0.15);
+    border: 1px solid rgba(232,66,26,0.3);
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-size: 10px; font-weight: 600;
+    color: var(--brand); text-transform: uppercase; letter-spacing: 0.8px;
+    margin-bottom: 10px;
+  }
+  .hero-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800; font-size: 22px;
+    color: var(--text); line-height: 1.2;
+    margin-bottom: 6px;
+  }
+  .hero-title span { color: var(--brand); }
+  .hero-sub { font-size: 12px; color: var(--text-muted); margin-bottom: 14px; }
+  .hero-cta {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--brand);
+    color: white; border: none;
+    padding: 9px 18px; border-radius: 10px;
+    font-size: 12px; font-weight: 600;
+    cursor: pointer; font-family: 'DM Sans', sans-serif;
+    transition: all 0.2s;
+  }
+  .hero-cta:hover { background: var(--brand-dark); transform: translateY(-1px); }
+
+  /* STATS ROW */
+  .stats-row {
+    display: flex;
+    gap: 10px;
+    padding: 0 16px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    text-align: center;
+  }
+  .stat-num {
+    font-family: 'Syne', sans-serif;
+    font-size: 18px; font-weight: 800;
+    color: var(--text);
+  }
+  .stat-num.green { color: var(--green); }
+  .stat-num.gold { color: var(--gold); }
+  .stat-label { font-size: 10px; color: var(--text-faint); margin-top: 2px; }
+
+  /* SECTION HEADERS */
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 16px;
+    margin-bottom: 12px;
+  }
+  .section-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px; font-weight: 700;
+    color: var(--text);
+  }
+  .section-link {
+    font-size: 12px; color: var(--brand);
+    text-decoration: none; cursor: pointer;
+  }
+
+  /* CATEGORY CHIPS */
+  .categories {
+    display: flex; gap: 8px;
+    padding: 0 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-bottom: 18px;
+  }
+  .categories::-webkit-scrollbar { display: none; }
+  .chip {
+    flex-shrink: 0;
+    padding: 7px 14px;
+    border-radius: 20px;
+    font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: all 0.2s;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .chip.active {
+    background: var(--brand);
+    border-color: var(--brand);
+    color: white; font-weight: 600;
+  }
+
+  /* PRODUCT GRID */
+  .product-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    padding: 0 16px;
+    margin-bottom: 20px;
+  }
+  .product-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .product-card:hover {
+    border-color: rgba(232,66,26,0.3);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  }
+  .product-img {
+    width: 100%; aspect-ratio: 1;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 40px;
+    position: relative;
+  }
+  .product-img.amber { background: linear-gradient(135deg, #2D1E08, #1A1208); }
+  .product-img.green-bg { background: linear-gradient(135deg, #0D1F0E, #081408); }
+  .product-img.blue-bg { background: linear-gradient(135deg, #0D1525, #080F1A); }
+  .product-img.purple-bg { background: linear-gradient(135deg, #1A0D25, #100819); }
+  .badge {
+    position: absolute; top: 8px; left: 8px;
+    padding: 3px 8px; border-radius: 6px;
+    font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .badge.new { background: var(--brand); color: white; }
+  .badge.hot { background: var(--gold); color: #1A1200; }
+  .badge.sale { background: var(--green); color: #0A1A0D; }
+  .product-info { padding: 10px 10px 12px; }
+  .product-name {
+    font-size: 13px; font-weight: 600;
+    color: var(--text); margin-bottom: 3px;
+    line-height: 1.3;
+  }
+  .product-sub { font-size: 10px; color: var(--text-faint); margin-bottom: 8px; }
+  .product-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .product-price {
+    font-family: 'Syne', sans-serif;
+    font-size: 14px; font-weight: 700;
+    color: var(--brand);
+  }
+  .product-price-old {
+    font-size: 10px; color: var(--text-faint);
+    text-decoration: line-through;
+  }
+  .add-btn {
+    width: 28px; height: 28px;
+    background: var(--brand);
+    border: none; border-radius: 8px;
+    color: white; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .add-btn:hover { background: var(--brand-dark); transform: scale(1.1); }
+
+  /* FEATURED / HORIZONTAL SCROLL */
+  .featured-scroll {
+    display: flex; gap: 10px;
+    padding: 0 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-bottom: 20px;
+  }
+  .featured-scroll::-webkit-scrollbar { display: none; }
+  .featured-card {
+    flex-shrink: 0;
+    width: 200px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .featured-img {
+    height: 100px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 36px;
+  }
+  .featured-img.f1 { background: linear-gradient(135deg, #1A0E0A, #2D1A08); }
+  .featured-img.f2 { background: linear-gradient(135deg, #0A1A15, #081510); }
+  .featured-img.f3 { background: linear-gradient(135deg, #150A1A, #100814); }
+  .featured-body { padding: 10px 12px 12px; }
+  .featured-name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .featured-desc { font-size: 10px; color: var(--text-muted); margin-bottom: 8px; line-height: 1.4; }
+  .featured-footer { display: flex; justify-content: space-between; align-items: center; }
+  .featured-price { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; color: var(--gold); }
+
+  /* CHAT WIDGET */
+  .chat-widget {
+    margin: 0 16px 20px;
+    background: linear-gradient(135deg, #0D1525, #091020);
+    border: 1px solid rgba(66,133,244,0.2);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    display: flex; align-items: center; gap: 12px;
+    cursor: pointer;
+  }
+  .chat-icon {
+    width: 40px; height: 40px;
+    background: linear-gradient(135deg, #4285F4, #0052CC);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .chat-text .chat-title { font-size: 13px; font-weight: 600; color: var(--text); }
+  .chat-text .chat-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .chat-arrow { margin-left: auto; color: var(--text-faint); font-size: 16px; }
+
+  /* BOTTOM NAV */
+  .bottom-nav {
+    height: 64px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    flex-shrink: 0;
+  }
+  .nav-item {
+    flex: 1;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 3px; cursor: pointer;
+    padding: 6px 4px;
+    border-radius: 10px;
+    transition: all 0.2s;
+  }
+  .nav-item:hover { background: var(--surface2); }
+  .nav-icon { font-size: 20px; }
+  .nav-label { font-size: 9px; color: var(--text-faint); font-weight: 500; }
+  .nav-item.active .nav-label { color: var(--brand); }
+  .nav-item.active .nav-icon { filter: drop-shadow(0 0 4px var(--brand)); }
+
+  /* INFO PANEL (right side) */
+  .info-panel {
+    width: 280px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding-top: 20px;
+  }
+  .panel-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 22px; font-weight: 800;
+    color: #F5F0EB;
+    line-height: 1.2;
+  }
+  .panel-title span { color: var(--brand); }
+  .panel-sub { font-size: 13px; color: #6A6460; line-height: 1.6; margin-top: 6px; }
+
+  .feature-list { display: flex; flex-direction: column; gap: 12px; }
+  .feature-item {
+    display: flex; align-items: flex-start; gap: 10px;
+  }
+  .feature-dot {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .feature-dot.r { background: rgba(232,66,26,0.15); }
+  .feature-dot.g { background: rgba(46,204,113,0.12); }
+  .feature-dot.b { background: rgba(66,133,244,0.12); }
+  .feature-dot.o { background: rgba(245,166,35,0.12); }
+  .feature-text .ft { font-size: 13px; font-weight: 600; color: #D0C8C0; }
+  .feature-text .fs { font-size: 11px; color: #5A5450; margin-top: 1px; }
+
+  .brand-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: rgba(232,66,26,0.08);
+    border: 1px solid rgba(232,66,26,0.15);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 11px; color: #8A6A60;
+  }
+  .brand-badge strong { color: var(--brand); }
+
+  /* animations */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .phone { animation: fadeUp 0.6s ease both; }
+  .info-panel { animation: fadeUp 0.6s 0.15s ease both; }
+
+  @media (max-width: 700px) {
+    .info-panel { width: 100%; max-width: 375px; }
+    .scene { gap: 32px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="scene">
+
+  <!-- PHONE -->
+  <div class="phone">
+    <div class="notch">
+      <div class="notch-dot"></div>
+      <div class="notch-dot cam"></div>
+      <div class="notch-dot"></div>
+    </div>
+
+    <!-- Status bar -->
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <div class="status-icons">
+        <span>●●●</span>
+        <span>WiFi</span>
+        <span>🔋</span>
+      </div>
+    </div>
+
+    <div class="app-scroll">
+
+      <!-- Header -->
+      <div class="app-header">
+        <div class="header-top">
+          <div class="store-info">
+            <div class="store-logo">S</div>
+            <div>
+              <div class="store-name">Selam Store</div>
+              <div class="store-tag">✦ Open Now · Bole, Addis</div>
+            </div>
+          </div>
+          <div class="header-actions">
+            <div class="icon-btn">🔔</div>
+            <div class="icon-btn cart-btn">
+              🛒
+              <div class="cart-badge">3</div>
+            </div>
+          </div>
+        </div>
+        <div class="search-bar">
+          <span>🔍</span>
+          <input type="text" placeholder="Search products...">
+        </div>
+      </div>
+
+      <!-- Hero -->
+      <div class="hero-banner">
+        <div class="hero-label">✦ This Week Only</div>
+        <div class="hero-title">Up to <span>30% Off</span><br>New Arrivals</div>
+        <div class="hero-sub">Free delivery on orders above 500 ETB</div>
+        <button class="hero-cta">Shop Now →</button>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-num green">142</div>
+          <div class="stat-label">Products</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num gold">4.9★</div>
+          <div class="stat-label">Rating</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-num">2.1K</div>
+          <div class="stat-label">Customers</div>
+        </div>
+      </div>
+
+      <!-- Categories -->
+      <div class="section-header">
+        <div class="section-title">Categories</div>
+      </div>
+      <div class="categories">
+        <div class="chip active">All</div>
+        <div class="chip">Clothing 👗</div>
+        <div class="chip">Shoes 👟</div>
+        <div class="chip">Bags 👜</div>
+        <div class="chip">Accessories 💍</div>
+        <div class="chip">Sale 🔥</div>
+      </div>
+
+      <!-- Products grid -->
+      <div class="section-header">
+        <div class="section-title">New Arrivals</div>
+        <span class="section-link">See all</span>
+      </div>
+      <div class="product-grid">
+        <div class="product-card">
+          <div class="product-img amber">
+            👗
+            <div class="badge new">New</div>
+          </div>
+          <div class="product-info">
+            <div class="product-name">Habesha Kemis</div>
+            <div class="product-sub">Traditional · White</div>
+            <div class="product-footer">
+              <div>
+                <div class="product-price">1,200 ETB</div>
+              </div>
+              <button class="add-btn">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="product-card">
+          <div class="product-img green-bg">
+            👟
+            <div class="badge hot">Hot</div>
+          </div>
+          <div class="product-info">
+            <div class="product-name">Casual Sneakers</div>
+            <div class="product-sub">Size 37–44 · 3 colors</div>
+            <div class="product-footer">
+              <div>
+                <div class="product-price">850 ETB</div>
+                <div class="product-price-old">1,100 ETB</div>
+              </div>
+              <button class="add-btn">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="product-card">
+          <div class="product-img blue-bg">
+            👜
+            <div class="badge sale">-20%</div>
+          </div>
+          <div class="product-info">
+            <div class="product-name">Leather Tote Bag</div>
+            <div class="product-sub">Handmade · Brown</div>
+            <div class="product-footer">
+              <div>
+                <div class="product-price">2,400 ETB</div>
+              </div>
+              <button class="add-btn">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="product-card">
+          <div class="product-img purple-bg">
+            💍
+          </div>
+          <div class="product-info">
+            <div class="product-name">Silver Necklace</div>
+            <div class="product-sub">Ethiopian Design</div>
+            <div class="product-footer">
+              <div>
+                <div class="product-price">650 ETB</div>
+              </div>
+              <button class="add-btn">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Featured horizontal -->
+      <div class="section-header">
+        <div class="section-title">Featured</div>
+        <span class="section-link">View all</span>
+      </div>
+      <div class="featured-scroll">
+        <div class="featured-card">
+          <div class="featured-img f1">🎁</div>
+          <div class="featured-body">
+            <div class="featured-name">Gift Bundle</div>
+            <div class="featured-desc">Curated set — kemis, jewelry & bag</div>
+            <div class="featured-footer">
+              <div class="featured-price">3,500 ETB</div>
+              <button class="add-btn">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="featured-card">
+          <div class="featured-img f2">🌿</div>
+          <div class="featured-body">
+            <div class="featured-name">Summer Pack</div>
+            <div class="featured-desc">Light fabrics, bright colors</div>
+            <div class="featured-footer">
+              <div class="featured-price">1,800 ETB</div>
+              <button class="add-btn">+</button>
+            </div>
+          </div>
+        </div>
+        <div class="featured-card">
+          <div class="featured-img f3">✨</div>
+          <div class="featured-body">
+            <div class="featured-name">Wedding Set</div>
+            <div class="featured-desc">Full bridal accessories bundle</div>
+            <div class="featured-footer">
+              <div class="featured-price">5,200 ETB</div>
+              <button class="add-btn">+</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat widget -->
+      <div class="chat-widget">
+        <div class="chat-icon">💬</div>
+        <div class="chat-text">
+          <div class="chat-title">Ask our AI assistant</div>
+          <div class="chat-sub">Available 24/7 · Replies in seconds</div>
+        </div>
+        <div class="chat-arrow">›</div>
+      </div>
+
+    </div><!-- end scroll -->
+
+    <!-- Bottom Nav -->
+    <div class="bottom-nav">
+      <div class="nav-item active">
+        <div class="nav-icon">🏠</div>
+        <div class="nav-label" style="color:var(--brand)">Home</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-icon">🔍</div>
+        <div class="nav-label">Search</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-icon">❤️</div>
+        <div class="nav-label">Saved</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-icon">📦</div>
+        <div class="nav-label">Orders</div>
+      </div>
+      <div class="nav-item">
+        <div class="nav-icon">👤</div>
+        <div class="nav-label">Profile</div>
+      </div>
+    </div>
+
+  </div><!-- end phone -->
+
+  <!-- INFO PANEL -->
+  <div class="info-panel">
+    <div>
+      <div class="panel-title">Ethiogram<br><span>Mini App</span></div>
+      <div class="panel-sub">
+        Auto-generated from the business brain.
+        Every product, price, and offer pulled
+        from the owner's uploaded data.
+      </div>
+    </div>
+
+    <div class="feature-list">
+      <div class="feature-item">
+        <div class="feature-dot r">🎨</div>
+        <div class="feature-text">
+          <div class="ft">Brand-aware theming</div>
+          <div class="fs">Colors, fonts, tone from logo upload</div>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-dot g">🧠</div>
+        <div class="feature-text">
+          <div class="ft">Brain-powered catalog</div>
+          <div class="fs">Products auto-imported from PDF/Excel</div>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-dot b">💬</div>
+        <div class="feature-text">
+          <div class="ft">Live AI chat widget</div>
+          <div class="fs">Answers any product or store question</div>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-dot o">✏️</div>
+        <div class="feature-text">
+          <div class="ft">UI Child Agent</div>
+          <div class="fs">"Make it luxury, dark, gold accents" → done</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="brand-badge">
+      Powered by <strong>Ethiogram</strong> · Zero code needed
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
