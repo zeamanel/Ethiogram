@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Ethiogram — Owner Console</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+
+  <!-- LOADING -->
+  <div id="loading" class="center-state">
+    <div class="spinner"></div>
+    <div class="onb-text">Opening your console…</div>
+  </div>
+
+  <!-- ERROR -->
+  <div id="error" class="center-state hidden">
+    <div class="onb-emoji">⚠️</div>
+    <div class="onb-title">Couldn't load</div>
+    <div class="onb-text" id="error-msg"></div>
+    <button class="onb-btn" onclick="location.reload()">Retry</button>
+  </div>
+
+  <!-- ONBOARDING (no business yet) -->
+  <div id="onboarding" class="center-state hidden">
+    <div class="onb-emoji">🏪</div>
+    <div class="onb-title">Welcome to Ethiogram</div>
+    <div class="onb-text">You don't have a business yet. Create one and connect your Telegram bot to start serving customers with AI.</div>
+    <button class="onb-btn" id="onb-create">Create my business</button>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dashboard" class="hidden">
+
+    <div class="greet">
+      <div class="greet-hi" id="greet-hi">Selam 👋</div>
+      <div class="greet-sub" id="greet-sub"></div>
+    </div>
+
+    <div id="low-balance" class="alert-strip hidden">
+      <div>🔔</div>
+      <div class="alert-txt"><b>Low balance.</b> Recharge before your bot pauses.</div>
+    </div>
+
+    <div class="wallet">
+      <div class="wallet-label">⛁ ETG Wallet</div>
+      <div class="wallet-bal"><span id="w-bal">—</span> <span class="u">ETG</span></div>
+      <div class="wallet-runway" id="w-runway">—</div>
+      <div class="runway-bar"><div class="runway-fill" id="w-fill"></div></div>
+      <div class="wallet-btns">
+        <button class="wbtn wbtn-amber" id="btn-recharge">＋ Recharge</button>
+        <button class="wbtn wbtn-ghost" id="btn-auto">Auto-recharge: —</button>
+      </div>
+    </div>
+
+    <div class="qstats" id="qstats"></div>
+
+    <div class="sec-head"><div class="sec-title">ETG Usage · 7 days</div></div>
+    <div class="chart-card" id="usage"></div>
+
+    <div class="gap"></div>
+
+    <div class="sec-head"><div class="sec-title">Recent Orders</div></div>
+    <div class="lcard" id="orders"></div>
+
+    <div class="gap"></div>
+
+    <div class="sec-head"><div class="sec-title">Business Brain</div></div>
+    <div class="lcard" id="brain"></div>
+
+    <div class="gap"></div>
+
+    <div class="sec-head"><div class="sec-title">Active Agents</div></div>
+    <div class="lcard" id="agents"></div>
+
+    <div class="gap"></div>
+
+    <div class="sec-head"><div class="sec-title">My Bots</div></div>
+    <div class="lcard" id="bots"></div>
+
+    <div class="gap"></div>
+  </div>
+
+  <script src="../shared/tg.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

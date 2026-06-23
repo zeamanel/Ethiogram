@@ -82,6 +82,13 @@ app.include_router(agents.router, prefix=settings.api_prefix)
 app.include_router(dashboard.router, prefix=settings.api_prefix)
 app.include_router(knowledge.router, prefix=settings.api_prefix)
 
+# Telegram Mini Apps (static, same-origin). Owner console at /app/owner/.
+import os as _os
+from fastapi.staticfiles import StaticFiles
+
+_static_dir = _os.path.join(_os.path.dirname(__file__), "static")
+app.mount("/app", StaticFiles(directory=_static_dir, html=True), name="miniapp")
+
 
 @app.get("/health")
 async def health_check():
