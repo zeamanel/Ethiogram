@@ -4,6 +4,7 @@ import hmac
 import json
 import secrets
 import base64
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from uuid import UUID
@@ -119,6 +120,58 @@ def verify_admin_secret_header(header_value: Optional[str]) -> bool:
     if not header_value or not expected:
         return False
     return hmac.compare_digest(header_value, expected)
+
+
+def verify_webapp_init_data(
+    init_data: str, bot_token: str, max_age_seconds: int = 86400
+) -> Optional[dict]:
+    """
+    Validate a Telegram Mini App ``initData`` string and return its parsed
+    fields (with ``user`` decoded to a dict) on success, or None.
+
+    Spec (https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app):
+      1. Drop the ``hash`` field; build data_check_string from the remaining
+         fields as "key=value" lines sorted by key and joined with "\\n".
+      2. secret_key = HMAC_SHA256(key="WebAppData", data=bot_token)
+      3. expected_hash = HMAC_SHA256(key=secret_key, data=data_check_string)
+      4. constant-time compare expected_hash == received hash.
+    Also rejects data older than ``max_age_seconds`` (auth_date).
+    """
+    from urllib.parse import parse_qsl
+
+    if not init_data or not bot_token:
+        return None
+    try:
+        pairs = dict(parse_qsl(init_data, strict_parsing=True))
+    except ValueError:
+        return None
+
+    received_hash = pairs.pop("hash", None)   # (1) exclude hash before the DCS
+    if not received_hash:
+        return None
+
+    data_check_string = "\n".join(f"{k}={pairs[k]}" for k in sorted(pairs))
+    secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()  # (2)
+    expected_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()  # (3)
+    if not hmac.compare_digest(expected_hash, received_hash):  # (4)
+        return None
+
+    # Freshness: auth_date must be present, numeric, and within the window.
+    if max_age_seconds:
+        try:
+            auth_ts = int(pairs.get("auth_date", ""))
+        except (TypeError, ValueError):
+            return None
+        if time.time() - auth_ts > max_age_seconds:
+            return None
+
+    result = dict(pairs)
+    if "user" in result:
+        try:
+            result["user"] = json.loads(result["user"])
+        except (ValueError, TypeError):
+            pass
+    return result
 
 def encrypt_api_key(raw_key: str, provider: str) -> str:
     tagged = f"{provider}::{raw_key}"

@@ -52,7 +52,7 @@ class Settings(BaseSettings):
 
     # MASTER BOT
     master_bot_token: str = ""
-    master_bot_username: str = "ethiogram_bot"
+    master_bot_username: str = "ethiogramchat_bot"
     master_bot_webhook_url: str = ""
 
     # Telegram HTTP client timeouts (seconds). Raise connect for local dev
