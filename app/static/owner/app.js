@@ -33,8 +33,7 @@
       return fail("Couldn't load your account.");
     }
     if (!businesses || businesses.length === 0) {
-      hide("loading"); show("onboarding");
-      $("onb-create").onclick = () => notify("Business creation is coming soon. For now, set up via @ethiogramchat_bot.");
+      hide("loading"); setupWizard(); show("onboarding");
       return;
     }
     const biz = businesses[0];
@@ -61,6 +60,51 @@
 
   function fail(msg) {
     hide("loading"); $("error-msg").textContent = msg; show("error");
+  }
+
+  // ---- onboarding wizard ----
+  function setupWizard() {
+    let businessId = null;
+    const showOnly = (id) => ["onboarding", "wiz-business", "wiz-bot"].forEach(x => x === id ? show(x) : hide(x));
+    const showErr = (id, msg) => { const e = $(id); e.textContent = msg; e.classList.remove("hidden"); };
+    const busy = (id, on, label) => { const b = $(id); b.disabled = on; b.textContent = label; };
+
+    $("onb-start").onclick = () => { showOnly("wiz-business"); $("wb-name").focus(); };
+
+    $("wb-continue").onclick = async () => {
+      const name = $("wb-name").value.trim();
+      const cat = $("wb-cat").value.trim();
+      hide("wb-err");
+      if (name.length < 2) return showErr("wb-err", "Please enter a business name (at least 2 characters).");
+      busy("wb-continue", true, "Creating…");
+      try {
+        const biz = await Eth.post("/businesses", { name, category: cat || null });
+        businessId = biz.id;
+        showOnly("wiz-bot"); $("wb-token").focus();
+      } catch (e) {
+        showErr("wb-err", e.detail || "Couldn't create your business. Try again.");
+      } finally {
+        busy("wb-continue", false, "Continue →");
+      }
+    };
+
+    $("wt-connect").onclick = async () => {
+      const token = $("wb-token").value.trim();
+      hide("wt-err");
+      if (!/^\d+:[A-Za-z0-9_-]{30,}$/.test(token))
+        return showErr("wt-err", "That doesn't look like a bot token — copy the full token from @BotFather.");
+      busy("wt-connect", true, "Connecting…");
+      try {
+        await Eth.post("/bots", { token, business_id: businessId });
+        location.reload();          // bot live → reopen into the dashboard
+      } catch (e) {
+        showErr("wt-err", e.detail || "Couldn't connect the bot. Check the token and try again.");
+        busy("wt-connect", false, "Connect bot →");
+      }
+    };
+
+    // Created the business but not ready to connect a bot yet → show the dashboard.
+    $("wt-skip").onclick = () => location.reload();
   }
 
   function render(ov, orders, docs, wallet) {

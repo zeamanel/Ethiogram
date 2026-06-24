@@ -41,6 +41,22 @@
       if (!res.ok) throw new Error("GET " + path + " -> " + res.status);
       return res.json();
     },
+
+    /** Authenticated POST against /api/v1. Throws Error with .detail on failure. */
+    async post(path, body) {
+      const res = await fetch("/api/v1" + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + this.token },
+        body: JSON.stringify(body || {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error("POST " + path + " -> " + res.status);
+        err.detail = (data && (data.message || data.detail)) || ("Error " + res.status);
+        throw err;
+      }
+      return data;
+    },
   };
 
   global.Eth = Eth;

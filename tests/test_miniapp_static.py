@@ -24,3 +24,13 @@ async def test_owner_assets_served(client):
     tg = await client.get("/app/shared/tg.js")
     assert tg.status_code == 200
     assert "/api/v1/auth/miniapp" in tg.text  # owner auth path
+
+
+@pytest.mark.asyncio
+async def test_onboarding_wizard_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="wiz-business"' in html and 'id="wiz-bot"' in html   # both wizard steps
+    js = (await client.get("/app/owner/app.js")).text
+    assert "/businesses" in js and "/bots" in js                     # wizard posts to both
+    tg = (await client.get("/app/shared/tg.js")).text
+    assert "async post(" in tg                                        # POST helper exists

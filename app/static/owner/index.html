@@ -24,12 +24,53 @@
     <button class="onb-btn" onclick="location.reload()">Retry</button>
   </div>
 
-  <!-- ONBOARDING (no business yet) -->
+  <!-- ONBOARDING intro (no business yet) -->
   <div id="onboarding" class="center-state hidden">
     <div class="onb-emoji">🏪</div>
     <div class="onb-title">Welcome to Ethiogram</div>
-    <div class="onb-text">You don't have a business yet. Create one and connect your Telegram bot to start serving customers with AI.</div>
-    <button class="onb-btn" id="onb-create">Create my business</button>
+    <div class="onb-text">Create your business and connect your Telegram bot to start serving customers with AI — right here, no app to install.</div>
+    <button class="onb-btn" id="onb-start">Create my business</button>
+  </div>
+
+  <!-- WIZARD step 1: business details -->
+  <div id="wiz-business" class="wiz hidden">
+    <div class="wiz-step-tag">Step 1 of 2</div>
+    <div class="wiz-title">Your business</div>
+    <div class="wiz-sub">This is how your store appears to customers.</div>
+    <div class="field">
+      <label for="wb-name">Business name</label>
+      <input id="wb-name" type="text" placeholder="e.g. Selam Store" autocomplete="off" maxlength="255">
+    </div>
+    <div class="field">
+      <label for="wb-cat">Category <span style="color:var(--text-3)">(optional)</span></label>
+      <input id="wb-cat" type="text" placeholder="e.g. Fashion, Restaurant, Electronics" autocomplete="off">
+    </div>
+    <div class="err-inline hidden" id="wb-err"></div>
+    <div class="wiz-actions">
+      <button class="onb-btn" id="wb-continue">Continue →</button>
+    </div>
+  </div>
+
+  <!-- WIZARD step 2: connect bot -->
+  <div id="wiz-bot" class="wiz hidden">
+    <div class="wiz-step-tag">Step 2 of 2</div>
+    <div class="wiz-title">Connect your bot</div>
+    <div class="wiz-sub">Paste your Telegram bot token to go live. You get free ETG credit when your first bot connects.</div>
+    <div class="steps-note">
+      <b>Get a token in 30 seconds:</b><br>
+      1. Open <b>@BotFather</b> in Telegram<br>
+      2. Send <code>/newbot</code> and follow the prompts<br>
+      3. Copy the token it gives you and paste it below
+    </div>
+    <div class="field">
+      <label for="wb-token">Bot token</label>
+      <input id="wb-token" type="text" placeholder="1234567890:AA..." autocomplete="off" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="err-inline hidden" id="wt-err"></div>
+    <div class="wiz-actions">
+      <button class="onb-btn" id="wt-connect">Connect bot →</button>
+      <button class="onb-btn-ghost" id="wt-skip">Skip for now</button>
+    </div>
   </div>
 
   <!-- DASHBOARD -->
