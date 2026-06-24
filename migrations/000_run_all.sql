@@ -45,4 +45,7 @@
 \echo '==> 012_child_agent_secrets.sql'
 \i migrations/012_child_agent_secrets.sql
 
+\echo '==> 013_usage_events_uuid_realignment.sql'
+\i migrations/013_usage_events_uuid_realignment.sql
+
 \echo '==> All migrations applied successfully.'
