@@ -90,6 +90,17 @@ class BaseAgent:
         # 3. Build prompt
         system_prompt = self.build_system_prompt(brain_config, child_data, chunks)
 
+        # 3b. Inject the structured catalog (knowledge_items). Unlike documents,
+        # these are curated rows (products, services, FAQs) the bot should always
+        # see — they are not retrieved by similarity, they are appended verbatim.
+        if brain_config:
+            items = await rag_service.get_knowledge_items(
+                str(conversation.business_id), db, active_only=True
+            )
+            items_block = rag_service.format_knowledge_items_for_prompt(items)
+            if items_block:
+                system_prompt = system_prompt + "\n\n" + items_block
+
         # 4. Assemble messages: history + current turn
         messages = history + [{"role": "user", "content": text or ""}]
 
