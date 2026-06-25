@@ -18,6 +18,12 @@
   function notify(msg) {
     if (Eth.tg && Eth.tg.showAlert) Eth.tg.showAlert(msg); else alert(msg);
   }
+  function confirmAction(msg) {
+    return new Promise((resolve) => {
+      if (Eth.tg && Eth.tg.showConfirm) Eth.tg.showConfirm(msg, (ok) => resolve(!!ok));
+      else resolve(window.confirm(msg));
+    });
+  }
 
   async function boot() {
     Eth.initTelegram();
@@ -395,6 +401,19 @@
         ? "🔒 Connected. Leave blank to keep them, or fill all fields to replace."
         : "Not connected. Fill all fields to enable.";
       renderSchemaFields("ag-secret-fields", sdefs, {}, "ags");
+      // disconnect is only meaningful when something is connected
+      const disc = $("ag-secrets-disconnect");
+      disc.classList.toggle("hidden", !a.has_secrets);
+      disc.onclick = async () => {
+        const ok = await confirmAction("Disconnect these credentials? The agent will stop using them until you reconnect.");
+        if (!ok) return;
+        try {
+          await Eth.del(`/agents/child/${childId}/secrets`);
+          openAgentManager(bizId, childId);   // reload — now shows "Not connected"
+        } catch (e) {
+          showErr("ag-err", e.detail || "Couldn't disconnect the credentials.");
+        }
+      };
     }
 
     $("ag-save").onclick = async () => {

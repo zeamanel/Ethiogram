@@ -197,3 +197,38 @@ async def test_patch_without_secrets_keeps_existing(client, db, sample_user_id,
     assert resp.status_code == 204
     # child_secrets untouched (read directly — same in-session object)
     assert decrypt_child_secrets(child.child_secrets)["calendar_id"] == "keep@x.com"
+
+
+@pytest.mark.asyncio
+async def test_disconnect_secrets_clears_them(client, db, sample_user_id,
+                                              sample_business_id, valid_access_token):
+    _, child = await _seed(db, sample_user_id, sample_business_id,
+                           child_data={"services": "X"},
+                           secrets={"calendar_id": "cal@x.com", "credentials_json": "{}"})
+    hdr = {"Authorization": f"Bearer {valid_access_token}"}
+    assert child.child_secrets is not None
+
+    resp = await client.delete(f"/api/v1/agents/child/{child.id}/secrets", headers=hdr)
+    assert resp.status_code == 204
+    assert child.child_secrets is None                      # cleared in-session
+
+    # GET now reports not-connected; config is untouched
+    got = (await client.get(f"/api/v1/agents/child/{child.id}", headers=hdr)).json()
+    assert got["has_secrets"] is False
+    assert got["child_data"] == {"services": "X"}
+
+    # idempotent — disconnecting again is still a clean 204
+    again = await client.delete(f"/api/v1/agents/child/{child.id}/secrets", headers=hdr)
+    assert again.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_disconnect_secrets_requires_ownership(client, db, sample_user_id, valid_access_token):
+    other_biz = uuid.uuid4()
+    _, child = await _seed(db, uuid.uuid4(), other_biz, child_data={"services": "X"},
+                           secrets={"calendar_id": "cal@x.com", "credentials_json": "{}"})
+    db.add(User(id=sample_user_id))
+    await db.flush()
+    resp = await client.delete(f"/api/v1/agents/child/{child.id}/secrets",
+                               headers={"Authorization": f"Bearer {valid_access_token}"})
+    assert resp.status_code == 404

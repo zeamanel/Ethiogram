@@ -453,6 +453,19 @@ async def update_child_agent(
         child.is_active = body.is_active
 
 
+@router.delete("/child/{child_agent_id}/secrets", status_code=204)
+async def disconnect_child_secrets(
+    child_agent_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Clear a deployed agent's credentials. A dedicated endpoint because the
+    partial PATCH treats child_secrets=None as 'unchanged', so it can't express
+    'remove'. Setting the column NULL makes has_secrets False again. Idempotent."""
+    child = await _get_owned_child_agent(child_agent_id, current_user.id, db)
+    child.child_secrets = None
+
+
 # ---------------------------------------------------------------------------
 # Reviews
 # ---------------------------------------------------------------------------
