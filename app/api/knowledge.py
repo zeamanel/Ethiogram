@@ -2,14 +2,20 @@
 import uuid
 
 from fastapi import APIRouter, Depends, File, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
 from app.core.exceptions import NotFoundError, ValidationError
 from app.core.logging import get_logger
-from app.db.models import Business, DocumentStatus, KnowledgeDocument
+from app.db.models import (
+    Business,
+    DocumentStatus,
+    KnowledgeDocument,
+    KnowledgeItem,
+    KnowledgeItemType,
+)
 from app.db.session import get_db
 from app.services.rag_service import rag_service
 from app.services.storage_service import storage_service
@@ -135,3 +141,151 @@ async def delete_document(
         raise NotFoundError("KnowledgeDocument", str(document_id))
     await rag_service.delete_document_chunks(document_id, db)
     await db.delete(doc)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Structured catalog — knowledge_items (products, services, FAQs, policies).
+# Unlike documents these are curated rows injected verbatim into the bot prompt
+# (see BaseAgent.process), so a business can keep a precise, always-on catalog
+# without uploading a file.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_ITEM_TYPES = {t.value for t in KnowledgeItemType}
+
+
+class ItemResponse(BaseModel):
+    id: str
+    item_type: str
+    title: str
+    body: str | None = None
+    data: dict | None = None
+    is_active: bool
+    created_at: str
+
+
+class ItemCreate(BaseModel):
+    item_type: str = "general"
+    title: str = Field(min_length=1, max_length=255)
+    body: str | None = None
+    data: dict | None = None
+    is_active: bool = True
+
+    @field_validator("item_type")
+    @classmethod
+    def _valid_type(cls, v: str) -> str:
+        if v not in _ITEM_TYPES:
+            raise ValueError(f"item_type must be one of {sorted(_ITEM_TYPES)}")
+        return v
+
+
+class ItemUpdate(BaseModel):
+    item_type: str | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    body: str | None = None
+    data: dict | None = None
+    is_active: bool | None = None
+
+    @field_validator("item_type")
+    @classmethod
+    def _valid_type(cls, v: str | None) -> str | None:
+        if v is not None and v not in _ITEM_TYPES:
+            raise ValueError(f"item_type must be one of {sorted(_ITEM_TYPES)}")
+        return v
+
+
+def _item_to_response(item: KnowledgeItem) -> ItemResponse:
+    return ItemResponse(
+        id=str(item.id),
+        item_type=item.item_type.value if hasattr(item.item_type, "value") else str(item.item_type),
+        title=item.title,
+        body=item.body,
+        data=item.data,
+        is_active=item.is_active,
+        created_at=item.created_at.isoformat() if item.created_at else "",
+    )
+
+
+async def _get_owned_item(
+    business_id: uuid.UUID, item_id: uuid.UUID, db: AsyncSession
+) -> KnowledgeItem:
+    result = await db.execute(
+        select(KnowledgeItem).where(
+            KnowledgeItem.id == item_id,
+            KnowledgeItem.business_id == business_id,
+        )
+    )
+    item = result.scalar_one_or_none()
+    if item is None:
+        raise NotFoundError("KnowledgeItem", str(item_id))
+    return item
+
+
+@router.post("/{business_id}/items", response_model=ItemResponse, status_code=201)
+async def create_item(
+    business_id: uuid.UUID,
+    payload: ItemCreate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> ItemResponse:
+    await _assert_owns_business(current_user.id, business_id, db)
+    item = KnowledgeItem(
+        business_id=business_id,
+        item_type=KnowledgeItemType(payload.item_type),
+        title=payload.title,
+        body=payload.body,
+        data=payload.data,
+        is_active=payload.is_active,
+    )
+    db.add(item)
+    await db.flush()
+    logger.info("Knowledge item created", item_id=str(item.id),
+                business_id=str(business_id), item_type=payload.item_type)
+    return _item_to_response(item)
+
+
+@router.get("/{business_id}/items", response_model=list[ItemResponse])
+async def list_items(
+    business_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> list[ItemResponse]:
+    await _assert_owns_business(current_user.id, business_id, db)
+    result = await db.execute(
+        select(KnowledgeItem)
+        .where(KnowledgeItem.business_id == business_id)
+        .order_by(KnowledgeItem.created_at.desc())
+    )
+    return [_item_to_response(i) for i in result.scalars().all()]
+
+
+@router.patch("/{business_id}/items/{item_id}", response_model=ItemResponse)
+async def update_item(
+    business_id: uuid.UUID,
+    item_id: uuid.UUID,
+    payload: ItemUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> ItemResponse:
+    await _assert_owns_business(current_user.id, business_id, db)
+    item = await _get_owned_item(business_id, item_id, db)
+
+    fields = payload.model_dump(exclude_unset=True)
+    if "item_type" in fields:
+        item.item_type = KnowledgeItemType(fields.pop("item_type"))
+    for key, value in fields.items():
+        setattr(item, key, value)
+    await db.flush()
+    logger.info("Knowledge item updated", item_id=str(item.id), business_id=str(business_id))
+    return _item_to_response(item)
+
+
+@router.delete("/{business_id}/items/{item_id}", status_code=204)
+async def delete_item(
+    business_id: uuid.UUID,
+    item_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await _assert_owns_business(current_user.id, business_id, db)
+    item = await _get_owned_item(business_id, item_id, db)
+    await db.delete(item)
