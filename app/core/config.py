@@ -123,7 +123,10 @@ class Settings(BaseSettings):
     escrow_release_days: int = 7
     grace_period_hours: int = 24
     rag_default_top_k: int = 5
-    rag_default_similarity_threshold: float = 0.75
+    # text-embedding-004 cosine similarity for genuinely relevant chunks sits
+    # around 0.4-0.65, so 0.75 filtered everything out. 0.3 retrieves real
+    # matches while the LLM ignores anything off-topic.
+    rag_default_similarity_threshold: float = 0.3
     max_conversation_history: int = 20
 
     # RATE LIMITING
