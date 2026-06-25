@@ -280,6 +280,106 @@
     return "🏷";
   }
 
+  // ---- Agent manager (Phase D: manage a deployed child agent) ----
+  // Resolve the editable field list from the author's child_schema, falling
+  // back to whatever keys the saved child_data already has.
+  function agentFieldDefs(schema, data) {
+    let defs = [];
+    if (schema && Array.isArray(schema.fields)) {
+      defs = schema.fields.map(f => ({
+        key: f.key, label: f.label || f.key, type: f.type || "text",
+        placeholder: f.placeholder || "", help: f.help || "",
+      }));
+    } else if (schema && typeof schema === "object") {
+      defs = Object.keys(schema).map(k => ({
+        key: k, label: (schema[k] && schema[k].label) || k,
+        type: (schema[k] && schema[k].type) || "text",
+        placeholder: (schema[k] && schema[k].placeholder) || "", help: "",
+      }));
+    }
+    // include any saved keys the schema didn't declare (never drop owner data)
+    const known = new Set(defs.map(d => d.key));
+    Object.keys(data || {}).forEach(k => {
+      if (!known.has(k)) defs.push({ key: k, label: humanizeKey(k), type: "text", placeholder: "", help: "" });
+    });
+    return defs;
+  }
+  function humanizeKey(k) {
+    return String(k).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  }
+  // child_data values may be scalars or structured. Scalars edit as text;
+  // arrays/objects edit as JSON in a textarea so they round-trip safely.
+  function valueToField(v) {
+    if (v == null) return { str: "", json: false };
+    if (Array.isArray(v) || typeof v === "object") return { str: JSON.stringify(v, null, 2), json: true };
+    return { str: String(v), json: false };
+  }
+  function fieldToValue(raw, wasJson, original) {
+    if (wasJson) { try { return JSON.parse(raw); } catch (e) { return raw; } }
+    if (typeof original === "number") { const n = Number(raw); return isNaN(n) ? raw : n; }
+    return raw;
+  }
+
+  async function openAgentManager(bizId, childId) {
+    hide("dashboard"); show("agent-manager");
+    $("ag-back").onclick = () => { hide("agent-manager"); show("dashboard"); };
+    $("ag-refresh").onclick = () => openAgentManager(bizId, childId);
+    $("ag-fields").innerHTML = "<div class='lempty'>Loading…</div>";
+    hide("ag-err"); hide("ag-guide"); hide("ag-secrets");
+
+    let a;
+    try { a = await Eth.get(`/agents/child/${childId}`); }
+    catch (e) { $("ag-fields").innerHTML = ""; return showErr("ag-err", "Couldn't load this agent."); }
+
+    const statusTxt = a.status === "unlocked" ? "Unlocked"
+      : (a.days_left != null ? `Trial · ${a.days_left} days left` : "Trial");
+    $("ag-head").innerHTML = `<div class="ag-name">${esc(a.agent_name)}</div>
+      <div class="ag-cat">${esc(a.category)} · ${statusTxt}</div>`;
+    if (a.setup_guide) { $("ag-guide").textContent = a.setup_guide; show("ag-guide"); }
+    if (a.has_secrets) show("ag-secrets");
+
+    $("ag-active").checked = !!a.is_active;
+    $("ag-name").value = a.display_name || "";
+
+    const data = a.child_data || {};
+    const defs = agentFieldDefs(a.child_schema, data);
+    if (!defs.length) {
+      $("ag-fields").innerHTML = empty("This agent has no editable settings.");
+    } else {
+      $("ag-fields").innerHTML = defs.map((d, i) => {
+        const fv = valueToField(data[d.key]);
+        const ctrl = (d.type === "multiline" || d.type === "textarea" || fv.json)
+          ? `<textarea id="agf-${i}" rows="${fv.json ? 4 : 3}" placeholder="${esc(d.placeholder)}">${esc(fv.str)}</textarea>`
+          : `<input id="agf-${i}" type="text" placeholder="${esc(d.placeholder)}" value="${esc(fv.str)}">`;
+        const help = d.help ? `<div class="mgr-note" style="text-align:left;margin-top:6px">${esc(d.help)}</div>` : "";
+        return `<div class="field"><label for="agf-${i}">${esc(d.label)}</label>${ctrl}${help}</div>`;
+      }).join("");
+    }
+
+    $("ag-save").onclick = async () => {
+      hide("ag-err");
+      const child_data = Object.assign({}, data);
+      defs.forEach((d, i) => {
+        const el = $(`agf-${i}`);
+        if (el) child_data[d.key] = fieldToValue(el.value, valueToField(data[d.key]).json, data[d.key]);
+      });
+      const body = {
+        is_active: $("ag-active").checked,
+        display_name: $("ag-name").value.trim() || null,
+        child_data,
+      };
+      setBtn("ag-save", true, "Saving…");
+      try {
+        await Eth.patch(`/agents/child/${childId}`, body);
+        hide("agent-manager"); show("dashboard");
+        boot();   // refresh the dashboard so the row reflects the new state
+      } catch (e) {
+        showErr("ag-err", e.detail || "Couldn't save your changes.");
+        setBtn("ag-save", false, "Save changes");
+      }
+    };
+  }
+
   async function loadDocs(bizId) {
     let docs = [];
     try { docs = await Eth.get(`/knowledge/${bizId}/documents`); } catch (e) { /* show empty */ }
@@ -356,18 +456,28 @@
     $("brain").innerHTML = brainHtml;
     $("brain-manage").onclick = () => openBrainManager(b.id);
 
-    // active agents
-    $("agents").innerHTML = (ov.active_agents && ov.active_agents.length)
-      ? ov.active_agents.map(a => {
+    // active agents — each row opens the manage view (pause/rename/config)
+    const agents = ov.active_agents || [];
+    $("agents").innerHTML = agents.length
+      ? agents.map(a => {
           const meta = a.status === "trial" && a.days_left != null
             ? `${esc(a.category)} · Trial · ${a.days_left} days left`
             : esc(a.category);
-          const pill = a.status === "unlocked"
-            ? `<span class="lpill pl-live">Active</span>`
-            : `<span class="lpill pl-sync">Trial</span>`;
-          return litem(agentIc(a.category), "ic-blue", esc(a.display_name || a.category), meta, pill);
+          const pill = !a.is_active
+            ? `<span class="lpill pl-fail">Paused</span>`
+            : a.status === "unlocked"
+              ? `<span class="lpill pl-live">Active</span>`
+              : `<span class="lpill pl-sync">Trial</span>`;
+          return `<div class="litem" data-agent="${esc(a.id)}" style="cursor:pointer">
+            <div class="lic ic-blue">${agentIc(a.category)}</div>
+            <div class="linfo"><div class="lname">${esc(a.display_name || a.category)}</div>
+              <div class="lmeta">${meta}</div></div>
+            ${pill}<span class="lchev">›</span></div>`;
         }).join("")
       : empty("No agents deployed yet.");
+    $("agents").querySelectorAll("[data-agent]").forEach(row => {
+      row.onclick = () => openAgentManager(b.id, row.dataset.agent);
+    });
 
     // bots — list + an always-present "Connect a bot" action (covers the case
     // where the owner skipped bot setup during onboarding).

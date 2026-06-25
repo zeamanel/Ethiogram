@@ -212,6 +212,37 @@
     </div>
   </div>
 
+  <!-- AGENT MANAGER (manage a deployed child agent: pause, rename, config) -->
+  <div id="agent-manager" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="ag-back">‹ Back</button>
+      <div class="mgr-title">Agent</div>
+      <button class="mgr-refresh" id="ag-refresh" title="Refresh">↻</button>
+    </div>
+    <div class="mgr-body">
+      <div id="ag-head" class="ag-head"></div>
+      <div id="ag-guide" class="steps-note hidden"></div>
+
+      <div class="ag-toggle-row">
+        <div>
+          <div class="ag-toggle-label">Agent is active</div>
+          <div class="mgr-note" style="text-align:left;margin:0">Pause to stop it replying — without uninstalling.</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="ag-active"><span class="slider"></span></label>
+      </div>
+
+      <div class="field"><label for="ag-name">Display name</label>
+        <input id="ag-name" type="text" maxlength="128" placeholder="e.g. Front Desk"></div>
+
+      <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:8px"><div class="sec-title">Configuration</div></div>
+      <div id="ag-fields"></div>
+
+      <div id="ag-secrets" class="ag-secrets hidden">🔒 Credentials configured. Update them via @ethiogramchat_bot for now.</div>
+      <div class="err-inline hidden" id="ag-err"></div>
+      <div class="wiz-actions"><button class="onb-btn" id="ag-save">Save changes</button></div>
+    </div>
+  </div>
+
   <script src="../shared/tg.js"></script>
   <script src="app.js"></script>
 </body>

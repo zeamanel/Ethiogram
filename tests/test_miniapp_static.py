@@ -67,6 +67,16 @@ async def test_catalog_manager_present(client):
 
 
 @pytest.mark.asyncio
+async def test_agent_manager_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="agent-manager"' in html and 'id="ag-active"' in html   # view + active toggle
+    assert 'id="ag-fields"' in html and 'id="ag-name"' in html         # config + rename
+    js = (await client.get("/app/owner/app.js")).text
+    assert "openAgentManager" in js and "/agents/child/" in js          # GET/PATCH wired
+    assert 'data-agent=' in js                                          # rows are clickable
+
+
+@pytest.mark.asyncio
 async def test_app_responses_are_no_cache(client):
     # redeploys should not be masked by Telegram's asset cache
     resp = await client.get("/app/owner/app.js")
