@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentAdmin, CurrentUser
@@ -107,10 +107,29 @@ class UnlockRequest(BaseModel):
 
 
 class ChildAgentUpdateRequest(BaseModel):
-    child_data: dict
+    # All fields optional → partial updates. A pause/resume or rename does not
+    # require resending the whole child_data config.
+    child_data: Optional[dict] = None
     child_secrets: Optional[dict] = None   # credentials/API keys — encrypted at rest
     display_name: Optional[str] = None
     is_active: Optional[bool] = None
+
+
+class ChildAgentDetailResponse(BaseModel):
+    """A deployed agent's editable config. NEVER includes secret values —
+    only a boolean saying whether credentials are configured."""
+    id: str
+    agent_id: str
+    agent_name: str
+    category: str
+    display_name: Optional[str]
+    is_active: bool
+    status: str                      # "trial" | "unlocked"
+    days_left: Optional[int] = None  # remaining trial days (trials only)
+    child_data: dict
+    child_schema: Optional[dict] = None   # author's field contract (for the UI)
+    setup_guide: Optional[str] = None
+    has_secrets: bool
 
 
 class ReviewRequest(BaseModel):
@@ -389,6 +408,33 @@ async def unlock_agent(
 # Child Agent management
 # ---------------------------------------------------------------------------
 
+@router.get("/child/{child_agent_id}", response_model=ChildAgentDetailResponse)
+async def get_child_agent(
+    child_agent_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> ChildAgentDetailResponse:
+    """Fetch a deployed agent's editable config to populate the manage UI.
+    Secret credentials are never returned — only has_secrets."""
+    child = await _get_owned_child_agent(child_agent_id, current_user.id, db)
+    father = await db.get(Agent, child.agent_id)
+    status, days_left = await _child_status(child, db)
+    return ChildAgentDetailResponse(
+        id=str(child.id),
+        agent_id=str(child.agent_id),
+        agent_name=father.name if father else "Agent",
+        category=father.category if father else "",
+        display_name=child.display_name,
+        is_active=child.is_active,
+        status=status,
+        days_left=days_left,
+        child_data=child.child_data or {},
+        child_schema=father.child_schema if father else None,
+        setup_guide=father.setup_guide if father else None,
+        has_secrets=child.child_secrets is not None,
+    )
+
+
 @router.patch("/child/{child_agent_id}", status_code=204)
 async def update_child_agent(
     child_agent_id: uuid.UUID,
@@ -397,7 +443,8 @@ async def update_child_agent(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     child = await _get_owned_child_agent(child_agent_id, current_user.id, db)
-    child.child_data = body.child_data
+    if body.child_data is not None:
+        child.child_data = body.child_data
     if body.child_secrets is not None:
         child.child_secrets = encrypt_child_secrets(body.child_secrets)
     if body.display_name is not None:
@@ -512,6 +559,31 @@ async def _assert_owns_business(
     )
     if result.scalar_one_or_none() is None:
         raise NotFoundError("Business", str(business_id))
+
+
+async def _child_status(child: ChildAgent, db: AsyncSession) -> tuple[str, Optional[int]]:
+    """Classify a deployed agent as unlocked/trial and compute remaining trial days."""
+    unlocked = await db.scalar(
+        select(func.count(AgentUnlock.id)).where(
+            AgentUnlock.child_agent_id == child.id,
+            AgentUnlock.is_refunded.is_(False),
+        )
+    ) or 0
+    if unlocked:
+        return "unlocked", None
+    trial = (await db.execute(
+        select(AgentTrial)
+        .where(AgentTrial.child_agent_id == child.id)
+        .order_by(AgentTrial.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    days_left = None
+    if trial and trial.expires_at:
+        exp = trial.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        days_left = max(0, (exp - datetime.now(timezone.utc)).days)
+    return "trial", days_left
 
 
 async def _get_owned_child_agent(
