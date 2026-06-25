@@ -62,13 +62,12 @@
     hide("loading"); $("error-msg").textContent = msg; show("error");
   }
 
-  // ---- onboarding wizard ----
-  function setupWizard() {
-    let businessId = null;
-    const showOnly = (id) => ["onboarding", "wiz-business", "wiz-bot"].forEach(x => x === id ? show(x) : hide(x));
-    const showErr = (id, msg) => { const e = $(id); e.textContent = msg; e.classList.remove("hidden"); };
-    const busy = (id, on, label) => { const b = $(id); b.disabled = on; b.textContent = label; };
+  function showErr(id, msg) { const e = $(id); e.textContent = msg; e.classList.remove("hidden"); }
+  function setBtn(id, busy, label) { const b = $(id); b.disabled = busy; b.textContent = label; }
 
+  // ---- onboarding wizard (step 1: business details) ----
+  function setupWizard() {
+    const showOnly = (id) => ["onboarding", "wiz-business", "wiz-bot"].forEach(x => x === id ? show(x) : hide(x));
     $("onb-start").onclick = () => { showOnly("wiz-business"); $("wb-name").focus(); };
 
     $("wb-continue").onclick = async () => {
@@ -76,35 +75,40 @@
       const cat = $("wb-cat").value.trim();
       hide("wb-err");
       if (name.length < 2) return showErr("wb-err", "Please enter a business name (at least 2 characters).");
-      busy("wb-continue", true, "Creating…");
+      setBtn("wb-continue", true, "Creating…");
       try {
         const biz = await Eth.post("/businesses", { name, category: cat || null });
-        businessId = biz.id;
-        showOnly("wiz-bot"); $("wb-token").focus();
+        // step 2; skipping reloads into the new (bot-less) dashboard.
+        connectBotFlow(biz.id, () => location.reload());
       } catch (e) {
         showErr("wb-err", e.detail || "Couldn't create your business. Try again.");
-      } finally {
-        busy("wb-continue", false, "Continue →");
+        setBtn("wb-continue", false, "Continue →");
       }
     };
+  }
+
+  // ---- connect-a-bot flow (shared by onboarding step 2 AND the dashboard "My Bots") ----
+  function connectBotFlow(businessId, onCancel) {
+    ["loading", "error", "onboarding", "wiz-business", "dashboard"].forEach(hide);
+    $("wb-token").value = ""; hide("wt-err");
+    setBtn("wt-connect", false, "Connect bot →");
+    show("wiz-bot"); $("wb-token").focus();
 
     $("wt-connect").onclick = async () => {
       const token = $("wb-token").value.trim();
       hide("wt-err");
       if (!/^\d+:[A-Za-z0-9_-]{30,}$/.test(token))
         return showErr("wt-err", "That doesn't look like a bot token — copy the full token from @BotFather.");
-      busy("wt-connect", true, "Connecting…");
+      setBtn("wt-connect", true, "Connecting…");
       try {
         await Eth.post("/bots", { token, business_id: businessId });
-        location.reload();          // bot live → reopen into the dashboard
+        location.reload();          // bot live → reload into the dashboard
       } catch (e) {
         showErr("wt-err", e.detail || "Couldn't connect the bot. Check the token and try again.");
-        busy("wt-connect", false, "Connect bot →");
+        setBtn("wt-connect", false, "Connect bot →");
       }
     };
-
-    // Created the business but not ready to connect a bot yet → show the dashboard.
-    $("wt-skip").onclick = () => location.reload();
+    $("wt-skip").onclick = onCancel;
   }
 
   function render(ov, orders, docs, wallet) {
@@ -173,8 +177,9 @@
         }).join("")
       : empty("No agents deployed yet.");
 
-    // bots
-    $("bots").innerHTML = (ov.bots && ov.bots.length)
+    // bots — list + an always-present "Connect a bot" action (covers the case
+    // where the owner skipped bot setup during onboarding).
+    const botList = (ov.bots && ov.bots.length)
       ? ov.bots.map(bot => {
           const live = bot.status === "active"
             ? `<span class="live-tag"><span class="live-pulse"></span> Live</span>`
@@ -183,6 +188,13 @@
             "@" + esc(bot.bot_username || "bot"), `${fmt(bot.messages_7d)} msgs · 7d`, live);
         }).join("")
       : empty("No bots connected yet.");
+    const connectRow = `<div class="litem" id="bots-connect" style="cursor:pointer">
+      <div class="lic ic-amber">＋</div>
+      <div class="linfo"><div class="lname" style="color:var(--amber-deep)">Connect a bot</div>
+      <div class="lmeta">Add a Telegram bot to this business</div></div></div>`;
+    $("bots").innerHTML = botList + connectRow;
+    $("bots-connect").onclick = () =>
+      connectBotFlow(b.id, () => { hide("wiz-bot"); show("dashboard"); });
   }
 
   function renderUsage(rows) {
