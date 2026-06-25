@@ -71,3 +71,11 @@ def test_concierge_schema_matches_agent_keys():
     concierge = next(s for s in SEED_AGENTS if s["name"] == "Booking Concierge")
     keys = {f["key"] for f in concierge["child_schema"]["fields"]}
     assert {"services", "appointment_duration_minutes", "business_hours", "timezone"} <= keys
+
+
+def test_concierge_secret_fields_match_calendar_creds():
+    # The secret_fields keys MUST match what ConciergeAgent._calendar_creds reads
+    # from _secrets, or a connected calendar still won't work.
+    concierge = next(s for s in SEED_AGENTS if s["name"] == "Booking Concierge")
+    secret_keys = {f["key"] for f in concierge["child_schema"]["secret_fields"]}
+    assert secret_keys == {"calendar_id", "credentials_json"}

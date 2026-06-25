@@ -340,13 +340,35 @@
     });
     return out;
   }
+  // Sensitive fields (calendar creds etc). Declared in child_schema.secret_fields.
+  // Values are write-only — never sent back from the server — so inputs are
+  // always blank and saving is all-or-nothing (the encrypted blob is replaced
+  // whole, so a partial entry can't be merged).
+  function secretFieldDefs(schema) {
+    if (schema && Array.isArray(schema.secret_fields)) {
+      return schema.secret_fields.map(f => ({
+        key: f.key, label: f.label || f.key, type: f.type || "text",
+        placeholder: f.placeholder || "", help: f.help || "",
+      }));
+    }
+    return [];
+  }
+  function collectSecrets(defs, prefix) {
+    const vals = {}; let filled = 0;
+    defs.forEach((d, i) => {
+      const el = $(`${prefix}-${i}`);
+      const v = el ? el.value.trim() : "";
+      if (v) { vals[d.key] = v; filled++; }
+    });
+    return { vals, filled, total: defs.length };
+  }
 
   async function openAgentManager(bizId, childId) {
     hide("dashboard"); show("agent-manager");
     $("ag-back").onclick = () => { hide("agent-manager"); show("dashboard"); };
     $("ag-refresh").onclick = () => openAgentManager(bizId, childId);
     $("ag-fields").innerHTML = "<div class='lempty'>Loading…</div>";
-    hide("ag-err"); hide("ag-guide"); hide("ag-secrets");
+    hide("ag-err"); hide("ag-guide"); hide("ag-secrets-sec");
 
     let a;
     try { a = await Eth.get(`/agents/child/${childId}`); }
@@ -357,7 +379,6 @@
     $("ag-head").innerHTML = `<div class="ag-name">${esc(a.agent_name)}</div>
       <div class="ag-cat">${esc(a.category)} · ${statusTxt}</div>`;
     if (a.setup_guide) { $("ag-guide").textContent = a.setup_guide; show("ag-guide"); }
-    if (a.has_secrets) show("ag-secrets");
 
     $("ag-active").checked = !!a.is_active;
     $("ag-name").value = a.display_name || "";
@@ -365,6 +386,16 @@
     const data = a.child_data || {};
     const defs = agentFieldDefs(a.child_schema, data);
     renderSchemaFields("ag-fields", defs, data, "agf");
+
+    // credentials editor (write-only) — only if the agent declares secret_fields
+    const sdefs = secretFieldDefs(a.child_schema);
+    if (sdefs.length) {
+      show("ag-secrets-sec");
+      $("ag-secrets-status").textContent = a.has_secrets
+        ? "🔒 Connected. Leave blank to keep them, or fill all fields to replace."
+        : "Not connected. Fill all fields to enable.";
+      renderSchemaFields("ag-secret-fields", sdefs, {}, "ags");
+    }
 
     $("ag-save").onclick = async () => {
       hide("ag-err");
@@ -374,6 +405,12 @@
         display_name: $("ag-name").value.trim() || null,
         child_data,
       };
+      if (sdefs.length) {
+        const s = collectSecrets(sdefs, "ags");
+        if (s.filled > 0 && s.filled < s.total)
+          return showErr("ag-err", "Enter all credential fields — they're saved together.");
+        if (s.filled === s.total) body.child_secrets = s.vals;   // replace the whole blob
+      }
       setBtn("ag-save", true, "Saving…");
       try {
         await Eth.patch(`/agents/child/${childId}`, body);

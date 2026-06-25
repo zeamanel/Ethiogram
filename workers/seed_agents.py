@@ -81,7 +81,21 @@ SEED_AGENTS = [
                  "placeholder": "9:00 AM - 5:00 PM, Monday to Friday"},
                 {"key": "timezone", "label": "Timezone", "type": "text",
                  "placeholder": "Africa/Addis_Ababa"},
-            ]
+            ],
+            # Sensitive fields — collected via the write-only secrets editor,
+            # Fernet-encrypted into child_agents.child_secrets, and surfaced to
+            # the agent under _secrets (calendar_id, credentials_json). Keys MUST
+            # match what ConciergeAgent._calendar_creds reads.
+            "secret_fields": [
+                {"key": "calendar_id", "label": "Google Calendar ID", "type": "text",
+                 "placeholder": "you@gmail.com or ...@group.calendar.google.com",
+                 "help": "The calendar bookings are written to. Share it with the "
+                         "service-account email (Editor access)."},
+                {"key": "credentials_json", "label": "Service-account key (JSON)", "type": "multiline",
+                 "placeholder": '{ "type": "service_account", ... }',
+                 "help": "Paste the full service-account key JSON from Google Cloud. "
+                         "Stored encrypted; never shown again."},
+            ],
         },
         "setup_guide": (
             "Fill in your services, hours and timezone. To enable live calendar "

@@ -153,3 +153,47 @@ async def test_cannot_manage_unowned_child_agent(client, db, sample_user_id, val
     patch = await client.patch(f"/api/v1/agents/child/{child.id}",
                                json={"is_active": False}, headers=hdr)
     assert patch.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_patch_secrets_round_trip_and_never_leak(client, db, sample_user_id,
+                                                       sample_business_id, valid_access_token):
+    from app.core.security import decrypt_child_secrets
+    _, child = await _seed(db, sample_user_id, sample_business_id,
+                           child_data={"services": "Consult"})
+    hdr = {"Authorization": f"Bearer {valid_access_token}"}
+
+    # connect credentials via the write-only secrets editor path
+    creds = {"calendar_id": "cal@x.com", "credentials_json": '{"token":"SENSITIVE"}'}
+    resp = await client.patch(f"/api/v1/agents/child/{child.id}",
+                              json={"child_secrets": creds}, headers=hdr)
+    assert resp.status_code == 204
+
+    # stored encrypted, decrypts back to exactly what we sent (the agent will read it).
+    # The endpoint mutates the same in-session object — read directly (refresh would
+    # revert the not-yet-committed change).
+    assert child.child_secrets is not None
+    assert decrypt_child_secrets(child.child_secrets) == creds
+
+    # GET reports connected but NEVER returns the secret values
+    got = await client.get(f"/api/v1/agents/child/{child.id}", headers=hdr)
+    assert got.json()["has_secrets"] is True
+    assert "SENSITIVE" not in got.text
+    assert "cal@x.com" not in got.text
+
+
+@pytest.mark.asyncio
+async def test_patch_without_secrets_keeps_existing(client, db, sample_user_id,
+                                                    sample_business_id, valid_access_token):
+    from app.core.security import decrypt_child_secrets
+    _, child = await _seed(db, sample_user_id, sample_business_id,
+                           child_data={"services": "X"},
+                           secrets={"calendar_id": "keep@x.com", "credentials_json": "{}"})
+    hdr = {"Authorization": f"Bearer {valid_access_token}"}
+
+    # a save that omits child_secrets (blank editor) must NOT wipe credentials
+    resp = await client.patch(f"/api/v1/agents/child/{child.id}",
+                              json={"display_name": "Renamed"}, headers=hdr)
+    assert resp.status_code == 204
+    # child_secrets untouched (read directly — same in-session object)
+    assert decrypt_child_secrets(child.child_secrets)["calendar_id"] == "keep@x.com"

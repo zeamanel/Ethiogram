@@ -74,6 +74,9 @@ async def test_agent_manager_present(client):
     js = (await client.get("/app/owner/app.js")).text
     assert "openAgentManager" in js and "/agents/child/" in js          # GET/PATCH wired
     assert 'data-agent=' in js                                          # rows are clickable
+    # write-only credentials editor
+    assert 'id="ag-secrets-sec"' in html and 'id="ag-secret-fields"' in html
+    assert "secretFieldDefs" in js and "child_secrets" in js
 
 
 @pytest.mark.asyncio
