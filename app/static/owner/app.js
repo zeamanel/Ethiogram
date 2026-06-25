@@ -111,6 +111,55 @@
     $("wt-skip").onclick = onCancel;
   }
 
+  // ---- Business Brain manager (Phase A: documents) ----
+  async function openBrainManager(bizId) {
+    hide("dashboard"); show("brain-manager");
+    $("bm-back").onclick = () => { hide("brain-manager"); show("dashboard"); };
+    $("bm-refresh").onclick = () => loadDocs(bizId);
+    $("bm-upload").onclick = () => $("bm-file").click();
+    $("bm-file").onchange = async () => {
+      const file = $("bm-file").files[0];
+      if (!file) return;
+      hide("bm-err");
+      if (file.size > 50 * 1024 * 1024) {
+        $("bm-file").value = ""; return showErr("bm-err", "That file is over the 50 MB limit.");
+      }
+      setBtn("bm-upload", true, "Uploading…");
+      try {
+        await Eth.upload(`/knowledge/${bizId}/documents`, file);
+        $("bm-file").value = "";
+        await loadDocs(bizId);
+      } catch (e) {
+        showErr("bm-err", e.detail || "Upload failed. Check the file type and try again.");
+      } finally {
+        setBtn("bm-upload", false, "＋ Upload document");
+      }
+    };
+    await loadDocs(bizId);
+  }
+
+  async function loadDocs(bizId) {
+    let docs = [];
+    try { docs = await Eth.get(`/knowledge/${bizId}/documents`); } catch (e) { /* show empty */ }
+    if (!docs.length) {
+      $("bm-list").innerHTML = empty("No documents yet. Upload a menu, price list, FAQ or policy.");
+      return;
+    }
+    $("bm-list").innerHTML = docs.map(d => `<div class="litem">
+      <div class="lic ${brainIc(d.status)}">📄</div>
+      <div class="linfo"><div class="lname">${esc(d.filename)}</div>
+        <div class="lmeta">${esc(d.status)} · ${fmt(d.chunk_count)} chunks</div></div>
+      ${brainPill(d.status)}
+      <button class="ldel" data-id="${esc(d.id)}" title="Delete">✕</button></div>`).join("");
+    $("bm-list").querySelectorAll(".ldel").forEach(btn => {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        try { await Eth.del(`/knowledge/${bizId}/documents/${btn.dataset.id}`); await loadDocs(bizId); }
+        catch (e) { btn.disabled = false; }
+      };
+    });
+  }
+
   function render(ov, orders, docs, wallet) {
     const b = ov.business;
 
@@ -163,6 +212,7 @@
           `${esc(d.status)} · ${fmt(d.chunk_count)} chunks`, brainPill(d.status))).join("")
       : empty("No documents uploaded yet.");
     $("brain").innerHTML = brainHtml;
+    $("brain-manage").onclick = () => openBrainManager(b.id);
 
     // active agents
     $("agents").innerHTML = (ov.active_agents && ov.active_agents.length)

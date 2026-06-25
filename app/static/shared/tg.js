@@ -57,6 +57,34 @@
       }
       return data;
     },
+
+    /** Authenticated multipart upload (a File) — no JSON content-type. */
+    async upload(path, file) {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/v1" + path, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + this.token },  // browser sets multipart boundary
+        body: fd,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error("upload " + path + " -> " + res.status);
+        err.detail = (data && (data.message || data.detail)) || ("Error " + res.status);
+        throw err;
+      }
+      return data;
+    },
+
+    /** Authenticated DELETE against /api/v1. */
+    async del(path) {
+      const res = await fetch("/api/v1" + path, {
+        method: "DELETE",
+        headers: { "Authorization": "Bearer " + this.token },
+      });
+      if (!res.ok) throw new Error("DELETE " + path + " -> " + res.status);
+      return true;
+    },
   };
 
   global.Eth = Eth;

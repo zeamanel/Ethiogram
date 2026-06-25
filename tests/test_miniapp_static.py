@@ -34,3 +34,20 @@ async def test_onboarding_wizard_present(client):
     assert "/businesses" in js and "/bots" in js                     # wizard posts to both
     tg = (await client.get("/app/shared/tg.js")).text
     assert "async post(" in tg                                        # POST helper exists
+
+
+@pytest.mark.asyncio
+async def test_brain_manager_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="brain-manager"' in html and 'id="bm-upload"' in html  # manager + upload control
+    js = (await client.get("/app/owner/app.js")).text
+    assert "openBrainManager" in js and "knowledge/" in js            # upload/list/delete wired
+    tg = (await client.get("/app/shared/tg.js")).text
+    assert "async upload(" in tg and "async del(" in tg               # multipart + delete helpers
+
+
+@pytest.mark.asyncio
+async def test_app_responses_are_no_cache(client):
+    # redeploys should not be masked by Telegram's asset cache
+    resp = await client.get("/app/owner/app.js")
+    assert "no-cache" in resp.headers.get("cache-control", "").lower()

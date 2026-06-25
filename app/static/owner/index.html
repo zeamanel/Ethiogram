@@ -109,7 +109,7 @@
 
     <div class="gap"></div>
 
-    <div class="sec-head"><div class="sec-title">Business Brain</div></div>
+    <div class="sec-head"><div class="sec-title">Business Brain</div><div class="sec-link" id="brain-manage" style="cursor:pointer">Manage →</div></div>
     <div class="lcard" id="brain"></div>
 
     <div class="gap"></div>
@@ -123,6 +123,24 @@
     <div class="lcard" id="bots"></div>
 
     <div class="gap"></div>
+  </div>
+
+  <!-- BRAIN MANAGER (documents) -->
+  <div id="brain-manager" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="bm-back">‹ Back</button>
+      <div class="mgr-title">Business Brain</div>
+      <button class="mgr-refresh" id="bm-refresh" title="Refresh">↻</button>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Upload menus, price lists, FAQs, or policies (.txt, .pdf, .docx, .xlsx, .csv, .md). Your bot answers customers from them automatically.</div>
+      <input type="file" id="bm-file" accept=".txt,.md,.csv,.pdf,.docx,.xlsx" style="display:none">
+      <button class="onb-btn bm-upload-btn" id="bm-upload">＋ Upload document</button>
+      <div class="err-inline hidden" id="bm-err"></div>
+      <div class="mgr-note">Processing (embedding) can take a few minutes — pull ↻ to refresh status.</div>
+      <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:16px"><div class="sec-title">Documents</div></div>
+      <div class="lcard" id="bm-list"></div>
+    </div>
   </div>
 
   <script src="../shared/tg.js"></script>

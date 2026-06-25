@@ -119,3 +119,16 @@ body {
 .steps-note b { color:var(--text); }
 .steps-note code { font-family:'JetBrains Mono',monospace; background:var(--card); padding:1px 6px; border-radius:5px; font-size:11.5px; }
 .err-inline { margin-top:12px; font-size:12.5px; color:var(--red); }
+
+/* brain manager */
+.mgr-bar { position:sticky; top:0; z-index:5; background:var(--surface); display:flex; align-items:center;
+  gap:10px; padding:14px 16px; border-bottom:1px solid var(--line); }
+.mgr-back { background:none; border:none; color:var(--blue); font-size:15px; font-weight:500; cursor:pointer; padding:0; }
+.mgr-title { font-family:'Sora',sans-serif; font-size:16px; font-weight:600; flex:1; }
+.mgr-refresh { background:none; border:none; font-size:18px; color:var(--text-2); cursor:pointer; }
+.mgr-body { padding:18px 16px 30px; max-width:480px; margin:0 auto; }
+.mgr-intro { font-size:13px; color:var(--text-2); line-height:1.5; margin-bottom:16px; }
+.bm-upload-btn { width:100%; margin-top:0; }
+.ldel { background:none; border:none; color:var(--text-3); font-size:16px; cursor:pointer; padding:4px 6px; line-height:1; }
+.ldel:hover { color:var(--red); }
+.mgr-note { font-size:11.5px; color:var(--text-3); margin-top:10px; text-align:center; }
