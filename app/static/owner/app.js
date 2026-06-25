@@ -516,6 +516,80 @@
     };
   }
 
+  // ---- Storefront editor (customer Mini App config) ----
+  let SF_SECTIONS = [];
+
+  function setColor(id, hex) {
+    // <input type=color> needs #rrggbb; ignore rgba()/short forms
+    if (/^#[0-9a-fA-F]{6}$/.test(hex || "")) $(id).value = hex;
+  }
+
+  function moveSf(i, dir) {
+    const j = i + dir;
+    if (j < 0 || j >= SF_SECTIONS.length) return;
+    [SF_SECTIONS[i], SF_SECTIONS[j]] = [SF_SECTIONS[j], SF_SECTIONS[i]];
+    renderSfSections();
+  }
+
+  function renderSfSections() {
+    $("se-sections").innerHTML = SF_SECTIONS.map((s, i) => `<div class="litem">
+      <div class="linfo"><div class="lname">${esc(s.label)}</div></div>
+      <button class="se-move" data-up="${i}" ${i === 0 ? "disabled" : ""} title="Move up">▲</button>
+      <button class="se-move" data-down="${i}" ${i === SF_SECTIONS.length - 1 ? "disabled" : ""} title="Move down">▼</button>
+      <label class="switch switch-sm"><input type="checkbox" data-vis="${i}" ${s.visible ? "checked" : ""}><span class="slider"></span></label>
+    </div>`).join("");
+    $("se-sections").querySelectorAll("[data-up]").forEach(b => b.onclick = () => moveSf(+b.dataset.up, -1));
+    $("se-sections").querySelectorAll("[data-down]").forEach(b => b.onclick = () => moveSf(+b.dataset.down, 1));
+    $("se-sections").querySelectorAll("[data-vis]").forEach(c => c.onchange = () => { SF_SECTIONS[+c.dataset.vis].visible = c.checked; });
+  }
+
+  async function openStorefront(bizId) {
+    hide("dashboard"); show("storefront-editor");
+    $("se-back").onclick = () => { hide("storefront-editor"); show("dashboard"); };
+    hide("se-err");
+
+    let cfg;
+    try { cfg = await Eth.get(`/businesses/${bizId}/storefront`); }
+    catch (e) { return showErr("se-err", "Couldn't load your storefront."); }
+
+    $("se-view").onclick = () => {
+      const url = location.origin + cfg.store_url;
+      if (Eth.tg && Eth.tg.openLink) Eth.tg.openLink(url); else window.open(url, "_blank");
+    };
+    $("se-published").checked = !!cfg.is_published;
+    setColor("se-primary", cfg.theme.primary);
+    setColor("se-accent", cfg.theme.accent);
+    setColor("se-bg", cfg.theme.bg);
+    setColor("se-text", cfg.theme.text);
+    $("se-tagline").value = cfg.tagline || "";
+    $("se-hours").value = cfg.hours || "";
+
+    SF_SECTIONS = (cfg.sections || []).map(s => ({ type: s.type, label: s.label, visible: s.visible }));
+    renderSfSections();
+
+    $("se-save").onclick = async () => {
+      hide("se-err");
+      const body = {
+        is_published: $("se-published").checked,
+        theme: {
+          primary: $("se-primary").value, accent: $("se-accent").value,
+          bg: $("se-bg").value, text: $("se-text").value,
+        },
+        tagline: $("se-tagline").value.trim(),
+        hours: $("se-hours").value.trim(),
+        sections: SF_SECTIONS.map((s, i) => ({ type: s.type, visible: s.visible, order: i })),
+      };
+      setBtn("se-save", true, "Saving…");
+      try {
+        await Eth.patch(`/businesses/${bizId}/storefront`, body);
+        hide("storefront-editor"); show("dashboard");
+      } catch (e) {
+        showErr("se-err", e.detail || "Couldn't save your storefront.");
+        setBtn("se-save", false, "Save changes");
+      }
+    };
+  }
+
   async function loadDocs(bizId) {
     let docs = [];
     try { docs = await Eth.get(`/knowledge/${bizId}/documents`); } catch (e) { /* show empty */ }
@@ -591,6 +665,15 @@
       : empty("No documents uploaded yet.");
     $("brain").innerHTML = brainHtml;
     $("brain-manage").onclick = () => openBrainManager(b.id);
+
+    // storefront entry
+    $("storefront-card").innerHTML = `<div class="litem" id="sf-row" style="cursor:pointer">
+      <div class="lic ic-amber">🏪</div>
+      <div class="linfo"><div class="lname">Your public store</div>
+        <div class="lmeta">Theme, sections, tagline &amp; publish</div></div>
+      <span class="lchev">›</span></div>`;
+    $("sf-row").onclick = () => openStorefront(b.id);
+    $("store-customize").onclick = () => openStorefront(b.id);
 
     // active agents — each row opens the manage view (pause/rename/config)
     const agents = ov.active_agents || [];

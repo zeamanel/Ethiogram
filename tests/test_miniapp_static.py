@@ -92,6 +92,17 @@ async def test_browse_and_deploy_present(client):
 
 
 @pytest.mark.asyncio
+async def test_storefront_editor_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="storefront-editor"' in html and 'id="se-sections"' in html   # view + section list
+    assert 'id="se-primary"' in html and 'id="se-published"' in html         # theme + publish
+    assert 'id="store-customize"' in html                                    # dashboard entry
+    js = (await client.get("/app/owner/app.js")).text
+    assert "openStorefront" in js and "/storefront" in js                    # GET/PATCH wired
+    assert "SF_SECTIONS" in js                                               # reorder/toggle state
+
+
+@pytest.mark.asyncio
 async def test_app_responses_are_no_cache(client):
     # redeploys should not be masked by Telegram's asset cache
     resp = await client.get("/app/owner/app.js")
