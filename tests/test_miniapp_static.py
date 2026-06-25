@@ -47,6 +47,16 @@ async def test_brain_manager_present(client):
 
 
 @pytest.mark.asyncio
+async def test_brain_settings_editor_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="brain-settings"' in html and 'id="bs-thresh"' in html   # settings view + threshold field
+    js = (await client.get("/app/owner/app.js")).text
+    assert "openBrainSettings" in js and "/brain" in js                 # GET/PATCH wired
+    tg = (await client.get("/app/shared/tg.js")).text
+    assert "async patch(" in tg                                          # PATCH helper exists
+
+
+@pytest.mark.asyncio
 async def test_app_responses_are_no_cache(client):
     # redeploys should not be masked by Telegram's asset cache
     resp = await client.get("/app/owner/app.js")

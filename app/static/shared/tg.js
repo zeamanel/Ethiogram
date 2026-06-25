@@ -76,6 +76,22 @@
       return data;
     },
 
+    /** Authenticated PATCH against /api/v1. */
+    async patch(path, body) {
+      const res = await fetch("/api/v1" + path, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + this.token },
+        body: JSON.stringify(body || {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const err = new Error("PATCH " + path + " -> " + res.status);
+        err.detail = (data && (data.message || data.detail)) || ("Error " + res.status);
+        throw err;
+      }
+      return data;
+    },
+
     /** Authenticated DELETE against /api/v1. */
     async del(path) {
       const res = await fetch("/api/v1" + path, {

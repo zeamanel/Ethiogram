@@ -116,6 +116,7 @@
     hide("dashboard"); show("brain-manager");
     $("bm-back").onclick = () => { hide("brain-manager"); show("dashboard"); };
     $("bm-refresh").onclick = () => loadDocs(bizId);
+    $("bm-settings-link").onclick = () => openBrainSettings(bizId);
     $("bm-upload").onclick = () => $("bm-file").click();
     $("bm-file").onchange = async () => {
       const file = $("bm-file").files[0];
@@ -136,6 +137,50 @@
       }
     };
     await loadDocs(bizId);
+  }
+
+  // ---- Brain settings editor (Phase B: persona/tone/fallback/RAG tuning) ----
+  async function openBrainSettings(bizId) {
+    hide("brain-manager"); show("brain-settings");
+    $("bs-back").onclick = () => { hide("brain-settings"); show("brain-manager"); };
+
+    let cfg;
+    try { cfg = await Eth.get(`/businesses/${bizId}/brain`); }
+    catch (e) { return showErr("bs-err", "Couldn't load settings."); }
+
+    $("bs-persona").value = cfg.persona_name || "";
+    $("bs-tone").value = cfg.persona_tone || "";
+    $("bs-extra").value = cfg.system_prompt_extra || "";
+    $("bs-fallback").value = cfg.fallback_message || "";
+    $("bs-thresh").value = cfg.rag_similarity_threshold;
+    $("bs-topk").value = cfg.rag_top_k;
+
+    $("bs-save").onclick = async () => {
+      hide("bs-err");
+      const persona = $("bs-persona").value.trim();
+      const thresh = parseFloat($("bs-thresh").value);
+      const topk = parseInt($("bs-topk").value, 10);
+      if (!persona) return showErr("bs-err", "Bot name can't be empty.");
+      if (isNaN(thresh) || thresh < 0 || thresh > 1) return showErr("bs-err", "Match strictness must be between 0 and 1.");
+      if (isNaN(topk) || topk < 1 || topk > 20) return showErr("bs-err", "Snippets per reply must be between 1 and 20.");
+      const body = {
+        persona_name: persona,
+        persona_tone: $("bs-tone").value.trim() || "friendly",
+        system_prompt_extra: $("bs-extra").value.trim() || null,
+        fallback_message: $("bs-fallback").value.trim() || undefined,
+        rag_similarity_threshold: thresh,
+        rag_top_k: topk,
+      };
+      setBtn("bs-save", true, "Saving…");
+      try {
+        await Eth.patch(`/businesses/${bizId}/brain`, body);
+        hide("brain-settings"); show("brain-manager");   // saved → back to Brain
+      } catch (e) {
+        showErr("bs-err", e.detail || "Couldn't save your changes.");
+      } finally {
+        setBtn("bs-save", false, "Save changes");
+      }
+    };
   }
 
   async function loadDocs(bizId) {

@@ -274,7 +274,7 @@ class BusinessBrainConfig(Base, UUIDMixin, TimestampMixin):
     persona_tone: Mapped[str] = mapped_column(String(64), default="friendly", nullable=False)
     system_prompt_extra: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     rag_top_k: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
-    rag_similarity_threshold: Mapped[float] = mapped_column(Float, default=0.75, nullable=False)
+    rag_similarity_threshold: Mapped[float] = mapped_column(Float, default=0.3, nullable=False)
     max_history_messages: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
     fallback_message: Mapped[str] = mapped_column(Text, default="I don't have information about that. Please contact us directly.", nullable=False)
     handoff_message: Mapped[str] = mapped_column(Text, default="Let me connect you with a human agent.", nullable=False)

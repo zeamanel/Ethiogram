@@ -130,6 +130,7 @@
     <div class="mgr-bar">
       <button class="mgr-back" id="bm-back">‹ Back</button>
       <div class="mgr-title">Business Brain</div>
+      <button class="mgr-refresh" id="bm-settings-link" title="Settings">⚙</button>
       <button class="mgr-refresh" id="bm-refresh" title="Refresh">↻</button>
     </div>
     <div class="mgr-body">
@@ -140,6 +141,33 @@
       <div class="mgr-note">Processing (embedding) can take a few minutes — pull ↻ to refresh status.</div>
       <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:16px"><div class="sec-title">Documents</div></div>
       <div class="lcard" id="bm-list"></div>
+    </div>
+  </div>
+
+  <!-- BRAIN SETTINGS (persona, tone, fallback, RAG tuning) -->
+  <div id="brain-settings" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="bs-back">‹ Back</button>
+      <div class="mgr-title">Brain Settings</div>
+      <span style="width:18px"></span>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Tune your bot's personality and how strictly it matches your knowledge.</div>
+      <div class="field"><label for="bs-persona">Bot name (persona)</label>
+        <input id="bs-persona" type="text" maxlength="128" placeholder="e.g. Selam"></div>
+      <div class="field"><label for="bs-tone">Tone</label>
+        <input id="bs-tone" type="text" maxlength="64" placeholder="friendly, professional, warm…"></div>
+      <div class="field"><label for="bs-extra">Extra instructions <span style="color:var(--text-3)">(optional)</span></label>
+        <textarea id="bs-extra" rows="3" placeholder="e.g. Always greet in Amharic. Mention free delivery over 1000 ETB."></textarea></div>
+      <div class="field"><label for="bs-fallback">Fallback message <span style="color:var(--text-3)">(when it can't answer)</span></label>
+        <textarea id="bs-fallback" rows="2"></textarea></div>
+      <div class="field"><label for="bs-thresh">Knowledge match strictness <span style="color:var(--text-3)">(0.0–1.0)</span></label>
+        <input id="bs-thresh" type="number" min="0" max="1" step="0.05">
+        <div class="mgr-note" style="text-align:left;margin-top:6px">Lower = more results (broader). ~0.3 recommended. Higher = only very close matches.</div></div>
+      <div class="field"><label for="bs-topk">Max knowledge snippets per reply</label>
+        <input id="bs-topk" type="number" min="1" max="20"></div>
+      <div class="err-inline hidden" id="bs-err"></div>
+      <div class="wiz-actions"><button class="onb-btn" id="bs-save">Save changes</button></div>
     </div>
   </div>
 
