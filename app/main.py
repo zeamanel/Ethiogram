@@ -91,6 +91,16 @@ _static_dir = _os.path.join(_os.path.dirname(__file__), "static")
 app.mount("/app", StaticFiles(directory=_static_dir, html=True), name="miniapp")
 
 
+@app.middleware("http")
+async def _miniapp_no_cache(request, call_next):
+    # Telegram WebViews cache Mini App assets aggressively; force revalidation so
+    # a redeploy is picked up on the next open instead of serving a stale build.
+    response = await call_next(request)
+    if request.url.path.startswith("/app"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
+
+
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "version": settings.app_version}

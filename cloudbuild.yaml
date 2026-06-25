@@ -47,7 +47,7 @@ steps:
       # traffic (Telegram/OpenRouter) stays direct — cheapest + fastest.
       - --vpc-connector=${_VPC_CONNECTOR}
       - --vpc-egress=private-ranges-only
-      - --set-env-vars=ENVIRONMENT=production,GCP_PROJECT_ID=$PROJECT_ID,VERTEX_AI_LOCATION=us-central1,OPENAI_BASE_URL=https://openrouter.ai/api/v1,DEFAULT_MODEL_ID=openai/gpt-4o-mini,FALLBACK_MODEL_ID=anthropic/claude-3.5-haiku,EMERGENCY_MODEL_ID=meta-llama/llama-3.1-8b-instruct
+      - --set-env-vars=ENVIRONMENT=production,GCP_PROJECT_ID=$PROJECT_ID,VERTEX_AI_LOCATION=us-central1,BASE_URL=https://ethiogram-api-760742977917.us-central1.run.app,OPENAI_BASE_URL=https://openrouter.ai/api/v1,DEFAULT_MODEL_ID=openai/gpt-4o-mini,FALLBACK_MODEL_ID=anthropic/claude-3.5-haiku,EMERGENCY_MODEL_ID=meta-llama/llama-3.1-8b-instruct
       - --set-secrets=SECRET_KEY=ethiogram-secret-key:latest,ENCRYPTION_KEY=ethiogram-encryption-key:latest,DATABASE_URL=ethiogram-database-url:latest,REDIS_URL=ethiogram-redis-url:latest,MASTER_BOT_TOKEN=ethiogram-master-bot-token:latest,OPENAI_API_KEY=ethiogram-openai-key:latest,ANTHROPIC_API_KEY=ethiogram-anthropic-key:latest,CHAPA_SECRET_KEY=ethiogram-chapa-key:latest,WEBHOOK_SECRET_SALT=ethiogram-webhook-salt:latest,ADMIN_SECRET_HEADER=ethiogram-admin-header:latest
 
   # ── Deploy workers as Cloud Run JOBS (run-to-completion, no HTTP) ───────
