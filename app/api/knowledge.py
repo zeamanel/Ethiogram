@@ -16,7 +16,7 @@ from app.db.models import (
     KnowledgeItem,
     KnowledgeItemType,
 )
-from app.db.session import get_db
+from app.db.session import get_db, get_redis
 from app.services.rag_service import rag_service
 from app.services.storage_service import storage_service
 
@@ -220,12 +220,19 @@ async def _get_owned_item(
     return item
 
 
+async def _bust_storefront(business_id: uuid.UUID, db: AsyncSession, redis) -> None:
+    """Invalidate the public storefront cache after a catalog change."""
+    from app.api.miniapp import bust_storefront_cache  # local import avoids any cycle
+    await bust_storefront_cache(business_id, db, redis)
+
+
 @router.post("/{business_id}/items", response_model=ItemResponse, status_code=201)
 async def create_item(
     business_id: uuid.UUID,
     payload: ItemCreate,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
 ) -> ItemResponse:
     await _assert_owns_business(current_user.id, business_id, db)
     item = KnowledgeItem(
@@ -238,6 +245,7 @@ async def create_item(
     )
     db.add(item)
     await db.flush()
+    await _bust_storefront(business_id, db, redis)
     logger.info("Knowledge item created", item_id=str(item.id),
                 business_id=str(business_id), item_type=payload.item_type)
     return _item_to_response(item)
@@ -265,6 +273,7 @@ async def update_item(
     payload: ItemUpdate,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
 ) -> ItemResponse:
     await _assert_owns_business(current_user.id, business_id, db)
     item = await _get_owned_item(business_id, item_id, db)
@@ -275,6 +284,7 @@ async def update_item(
     for key, value in fields.items():
         setattr(item, key, value)
     await db.flush()
+    await _bust_storefront(business_id, db, redis)
     logger.info("Knowledge item updated", item_id=str(item.id), business_id=str(business_id))
     return _item_to_response(item)
 
@@ -285,7 +295,9 @@ async def delete_item(
     item_id: uuid.UUID,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
 ) -> None:
     await _assert_owns_business(current_user.id, business_id, db)
     item = await _get_owned_item(business_id, item_id, db)
     await db.delete(item)
+    await _bust_storefront(business_id, db, redis)

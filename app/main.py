@@ -71,7 +71,7 @@ async def generic_error_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"error": "INTERNAL_ERROR", "message": "Unexpected error"})
 
 
-from app.api import auth, bots, webhooks, admin, billing, agents, dashboard, knowledge, businesses
+from app.api import auth, bots, webhooks, admin, billing, agents, dashboard, knowledge, businesses, miniapp
 
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(bots.router, prefix=settings.api_prefix)
@@ -82,6 +82,7 @@ app.include_router(agents.router, prefix=settings.api_prefix)
 app.include_router(dashboard.router, prefix=settings.api_prefix)
 app.include_router(knowledge.router, prefix=settings.api_prefix)
 app.include_router(businesses.router, prefix=settings.api_prefix)
+app.include_router(miniapp.router, prefix=settings.api_prefix)
 
 # Telegram Mini Apps (static, same-origin). Owner console at /app/owner/.
 import os as _os
