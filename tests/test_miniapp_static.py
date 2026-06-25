@@ -57,6 +57,16 @@ async def test_brain_settings_editor_present(client):
 
 
 @pytest.mark.asyncio
+async def test_catalog_manager_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="catalog-manager"' in html and 'id="cat-form"' in html   # view + add/edit form
+    assert 'id="cat-type"' in html and 'id="cat-price"' in html         # type + price fields
+    js = (await client.get("/app/owner/app.js")).text
+    assert "openCatalog" in js and "/items" in js                       # CRUD wired
+    assert "loadItems" in js
+
+
+@pytest.mark.asyncio
 async def test_app_responses_are_no_cache(client):
     # redeploys should not be masked by Telegram's asset cache
     resp = await client.get("/app/owner/app.js")

@@ -117,6 +117,7 @@
     $("bm-back").onclick = () => { hide("brain-manager"); show("dashboard"); };
     $("bm-refresh").onclick = () => loadDocs(bizId);
     $("bm-settings-link").onclick = () => openBrainSettings(bizId);
+    $("bm-catalog-link").onclick = () => openCatalog(bizId);
     $("bm-upload").onclick = () => $("bm-file").click();
     $("bm-file").onchange = async () => {
       const file = $("bm-file").files[0];
@@ -181,6 +182,102 @@
         setBtn("bs-save", false, "Save changes");
       }
     };
+  }
+
+  // ---- Catalog manager (Phase C: structured knowledge_items) ----
+  async function openCatalog(bizId) {
+    hide("brain-manager"); show("catalog-manager");
+    let editingId = null;
+
+    const closeForm = () => {
+      hide("cat-form"); show("cat-add"); hide("cat-err");
+      editingId = null;
+      $("cat-title").value = ""; $("cat-body").value = ""; $("cat-price").value = "";
+      $("cat-type").value = "product";
+    };
+    const openForm = (item) => {
+      editingId = item ? item.id : null;
+      $("cat-type").value = item ? item.item_type : "product";
+      $("cat-title").value = item ? (item.title || "") : "";
+      $("cat-body").value = item ? (item.body || "") : "";
+      $("cat-price").value = item && item.data ? (item.data.price || "") : "";
+      hide("cat-err"); hide("cat-add"); show("cat-form");
+      $("cat-save").textContent = item ? "Update item" : "Save item";
+      $("cat-title").focus();
+    };
+
+    $("cat-back").onclick = () => { hide("catalog-manager"); show("brain-manager"); };
+    $("cat-refresh").onclick = () => loadItems(bizId);
+    $("cat-add").onclick = () => openForm(null);
+    $("cat-cancel").onclick = closeForm;
+
+    $("cat-save").onclick = async () => {
+      hide("cat-err");
+      const title = $("cat-title").value.trim();
+      if (!title) return showErr("cat-err", "Please enter a title.");
+      const price = $("cat-price").value.trim();
+      const body = {
+        item_type: $("cat-type").value,
+        title,
+        body: $("cat-body").value.trim() || null,
+        data: price ? { price } : null,
+      };
+      setBtn("cat-save", true, "Saving…");
+      try {
+        if (editingId) await Eth.patch(`/knowledge/${bizId}/items/${editingId}`, body);
+        else await Eth.post(`/knowledge/${bizId}/items`, body);
+        closeForm();
+        await loadItems(bizId);
+      } catch (e) {
+        showErr("cat-err", e.detail || "Couldn't save the item.");
+      } finally {
+        setBtn("cat-save", false, editingId ? "Update item" : "Save item");
+      }
+    };
+
+    // expose the row-edit handler to loadItems via closure
+    openCatalog._edit = openForm;
+    await loadItems(bizId);
+  }
+
+  async function loadItems(bizId) {
+    let items = [];
+    try { items = await Eth.get(`/knowledge/${bizId}/items`); } catch (e) { /* show empty */ }
+    if (!items.length) {
+      $("cat-list").innerHTML = empty("No items yet. Add a product, service or FAQ.");
+      return;
+    }
+    $("cat-list").innerHTML = items.map(it => {
+      const price = it.data && it.data.price ? ` · ${esc(it.data.price)}` : "";
+      const dim = it.is_active ? "" : ' style="opacity:.5"';
+      return `<div class="litem"${dim}>
+        <div class="lic ic-amber">${catIc(it.item_type)}</div>
+        <div class="linfo"><div class="lname">${esc(it.title)}</div>
+          <div class="lmeta">${esc(it.item_type)}${price}${it.is_active ? "" : " · hidden"}</div></div>
+        <button class="ldel" data-edit="${esc(it.id)}" title="Edit">✎</button>
+        <button class="ldel" data-del="${esc(it.id)}" title="Delete">✕</button></div>`;
+    }).join("");
+    const byId = {};
+    items.forEach(it => { byId[it.id] = it; });
+    $("cat-list").querySelectorAll("[data-edit]").forEach(btn => {
+      btn.onclick = () => openCatalog._edit(byId[btn.dataset.edit]);
+    });
+    $("cat-list").querySelectorAll("[data-del]").forEach(btn => {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        try { await Eth.del(`/knowledge/${bizId}/items/${btn.dataset.del}`); await loadItems(bizId); }
+        catch (e) { btn.disabled = false; }
+      };
+    });
+  }
+
+  function catIc(t) {
+    if (t === "faq") return "❓";
+    if (t === "policy") return "📋";
+    if (t === "service") return "🛠";
+    if (t === "menu_item") return "🍽";
+    if (t === "general") return "ℹ️";
+    return "🏷";
   }
 
   async function loadDocs(bizId) {

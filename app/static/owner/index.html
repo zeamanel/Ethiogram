@@ -130,6 +130,7 @@
     <div class="mgr-bar">
       <button class="mgr-back" id="bm-back">‹ Back</button>
       <div class="mgr-title">Business Brain</div>
+      <button class="mgr-refresh" id="bm-catalog-link" title="Catalog">🏷</button>
       <button class="mgr-refresh" id="bm-settings-link" title="Settings">⚙</button>
       <button class="mgr-refresh" id="bm-refresh" title="Refresh">↻</button>
     </div>
@@ -168,6 +169,46 @@
         <input id="bs-topk" type="number" min="1" max="20"></div>
       <div class="err-inline hidden" id="bs-err"></div>
       <div class="wiz-actions"><button class="onb-btn" id="bs-save">Save changes</button></div>
+    </div>
+  </div>
+
+  <!-- CATALOG MANAGER (structured knowledge_items: products, services, FAQs) -->
+  <div id="catalog-manager" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="cat-back">‹ Back</button>
+      <div class="mgr-title">Catalog</div>
+      <button class="mgr-refresh" id="cat-refresh" title="Refresh">↻</button>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Add products, services, FAQs or policies your bot should always know — these go straight into every reply, no file upload needed.</div>
+
+      <!-- add / edit form (hidden until "Add item") -->
+      <div id="cat-form" class="cat-form hidden">
+        <div class="field"><label for="cat-type">Type</label>
+          <select id="cat-type">
+            <option value="product">Product</option>
+            <option value="service">Service</option>
+            <option value="menu_item">Menu item</option>
+            <option value="faq">FAQ</option>
+            <option value="policy">Policy</option>
+            <option value="general">General</option>
+          </select></div>
+        <div class="field"><label for="cat-title">Title / name</label>
+          <input id="cat-title" type="text" maxlength="255" placeholder="e.g. Blue Summer Dress"></div>
+        <div class="field"><label for="cat-body">Details <span style="color:var(--text-3)">(optional)</span></label>
+          <textarea id="cat-body" rows="3" placeholder="Description, answer, terms…"></textarea></div>
+        <div class="field"><label for="cat-price">Price <span style="color:var(--text-3)">(optional)</span></label>
+          <input id="cat-price" type="text" maxlength="64" placeholder="e.g. 1200 ETB"></div>
+        <div class="err-inline hidden" id="cat-err"></div>
+        <div class="wiz-actions">
+          <button class="onb-btn" id="cat-save">Save item</button>
+          <button class="onb-btn-ghost" id="cat-cancel">Cancel</button>
+        </div>
+      </div>
+
+      <button class="onb-btn bm-upload-btn" id="cat-add">＋ Add item</button>
+      <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:16px"><div class="sec-title">Items</div></div>
+      <div class="lcard" id="cat-list"></div>
     </div>
   </div>
 
