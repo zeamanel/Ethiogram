@@ -66,6 +66,7 @@ async def test_overview_active_agents_trial(client, db, sample_user_id, sample_b
     assert len(agents) == 1
     a = agents[0]
     assert a["display_name"] == "Booker"
+    assert a["agent_id"] == str(child.agent_id)   # father id, for "deployed" marking
     assert a["category"] == "concierge"
     assert a["status"] == "trial"
     assert a["days_left"] in (9, 10)   # ~10 days, .days truncation

@@ -319,6 +319,27 @@
     if (typeof original === "number") { const n = Number(raw); return isNaN(n) ? raw : n; }
     return raw;
   }
+  // Render a child_schema-driven form into `containerId` (ids `${prefix}-${i}`),
+  // and collect it back into a child_data object. Shared by deploy + manage.
+  function renderSchemaFields(containerId, defs, data, prefix) {
+    if (!defs.length) { $(containerId).innerHTML = empty("This agent has no editable settings."); return; }
+    $(containerId).innerHTML = defs.map((d, i) => {
+      const fv = valueToField(data[d.key]);
+      const ctrl = (d.type === "multiline" || d.type === "textarea" || fv.json)
+        ? `<textarea id="${prefix}-${i}" rows="${fv.json ? 4 : 3}" placeholder="${esc(d.placeholder)}">${esc(fv.str)}</textarea>`
+        : `<input id="${prefix}-${i}" type="text" placeholder="${esc(d.placeholder)}" value="${esc(fv.str)}">`;
+      const help = d.help ? `<div class="mgr-note" style="text-align:left;margin-top:6px">${esc(d.help)}</div>` : "";
+      return `<div class="field"><label for="${prefix}-${i}">${esc(d.label)}</label>${ctrl}${help}</div>`;
+    }).join("");
+  }
+  function collectSchemaFields(defs, data, prefix) {
+    const out = Object.assign({}, data);
+    defs.forEach((d, i) => {
+      const el = $(`${prefix}-${i}`);
+      if (el) out[d.key] = fieldToValue(el.value, valueToField(data[d.key]).json, data[d.key]);
+    });
+    return out;
+  }
 
   async function openAgentManager(bizId, childId) {
     hide("dashboard"); show("agent-manager");
@@ -343,26 +364,11 @@
 
     const data = a.child_data || {};
     const defs = agentFieldDefs(a.child_schema, data);
-    if (!defs.length) {
-      $("ag-fields").innerHTML = empty("This agent has no editable settings.");
-    } else {
-      $("ag-fields").innerHTML = defs.map((d, i) => {
-        const fv = valueToField(data[d.key]);
-        const ctrl = (d.type === "multiline" || d.type === "textarea" || fv.json)
-          ? `<textarea id="agf-${i}" rows="${fv.json ? 4 : 3}" placeholder="${esc(d.placeholder)}">${esc(fv.str)}</textarea>`
-          : `<input id="agf-${i}" type="text" placeholder="${esc(d.placeholder)}" value="${esc(fv.str)}">`;
-        const help = d.help ? `<div class="mgr-note" style="text-align:left;margin-top:6px">${esc(d.help)}</div>` : "";
-        return `<div class="field"><label for="agf-${i}">${esc(d.label)}</label>${ctrl}${help}</div>`;
-      }).join("");
-    }
+    renderSchemaFields("ag-fields", defs, data, "agf");
 
     $("ag-save").onclick = async () => {
       hide("ag-err");
-      const child_data = Object.assign({}, data);
-      defs.forEach((d, i) => {
-        const el = $(`agf-${i}`);
-        if (el) child_data[d.key] = fieldToValue(el.value, valueToField(data[d.key]).json, data[d.key]);
-      });
+      const child_data = collectSchemaFields(defs, data, "agf");
       const body = {
         is_active: $("ag-active").checked,
         display_name: $("ag-name").value.trim() || null,
@@ -376,6 +382,80 @@
       } catch (e) {
         showErr("ag-err", e.detail || "Couldn't save your changes.");
         setBtn("ag-save", false, "Save changes");
+      }
+    };
+  }
+
+  // ---- Browse the marketplace and deploy an agent (start a free trial) ----
+  function openAgentsBrowse(bizId, deployedAgentIds) {
+    hide("dashboard"); show("agents-browse");
+    $("ab-back").onclick = () => { hide("agents-browse"); show("dashboard"); };
+    $("ab-refresh").onclick = () => loadBrowse(bizId, deployedAgentIds);
+    loadBrowse(bizId, deployedAgentIds);
+  }
+
+  async function loadBrowse(bizId, deployedAgentIds) {
+    $("ab-list").innerHTML = "<div class='lempty'>Loading…</div>";
+    hide("ab-err");
+    let agents = [];
+    try { agents = await Eth.get("/agents"); }
+    catch (e) { $("ab-list").innerHTML = ""; return showErr("ab-err", "Couldn't load available agents."); }
+    if (!agents.length) {
+      $("ab-list").innerHTML = empty("No agents available yet. Check back soon.");
+      return;
+    }
+    const deployed = new Set(deployedAgentIds || []);
+    $("ab-list").innerHTML = agents.map(a => {
+      const price = a.price_etg > 0 ? `${fmt(a.price_etg)} ETG` : "Free";
+      const right = deployed.has(a.id)
+        ? `<span class="lpill pl-live">Deployed</span>`
+        : `<button class="ab-deploy" data-id="${esc(a.id)}">Deploy</button>`;
+      return `<div class="litem">
+        <div class="lic ic-blue">${agentIc(a.category)}</div>
+        <div class="linfo"><div class="lname">${esc(a.name)}</div>
+          <div class="lmeta">${esc(a.tagline || a.category)} · ${price}</div></div>
+        ${right}</div>`;
+    }).join("");
+    $("ab-list").querySelectorAll(".ab-deploy").forEach(btn => {
+      btn.onclick = () => openAgentDeploy(bizId, btn.dataset.id);
+    });
+  }
+
+  async function openAgentDeploy(bizId, agentId) {
+    hide("agents-browse"); show("agent-deploy");
+    $("ad-back").onclick = () => { hide("agent-deploy"); show("agents-browse"); };
+    $("ad-fields").innerHTML = "<div class='lempty'>Loading…</div>";
+    hide("ad-err"); hide("ad-guide");
+
+    let a;
+    try { a = await Eth.get(`/agents/${agentId}`); }
+    catch (e) { $("ad-fields").innerHTML = ""; return showErr("ad-err", "Couldn't load this agent."); }
+
+    const price = a.price_etg > 0 ? `${fmt(a.price_etg)} ETG to unlock` : "Free trial";
+    $("ad-head").innerHTML = `<div class="ag-name">${esc(a.name)}</div>
+      <div class="ag-cat">${esc(a.category)} · ${price}</div>
+      <div class="mgr-note" style="text-align:left;margin-top:8px">${esc(a.tagline || "")}</div>`;
+    if (a.setup_guide) { $("ad-guide").textContent = a.setup_guide; show("ad-guide"); }
+    $("ad-name").value = "";
+
+    const defs = agentFieldDefs(a.child_schema, {});
+    renderSchemaFields("ad-fields", defs, {}, "adf");
+
+    $("ad-deploy").onclick = async () => {
+      hide("ad-err");
+      const child_data = collectSchemaFields(defs, {}, "adf");
+      setBtn("ad-deploy", true, "Deploying…");
+      try {
+        const res = await Eth.post(`/agents/${agentId}/trial`, { business_id: bizId, child_data });
+        const name = $("ad-name").value.trim();
+        if (name && res && res.child_agent_id) {
+          try { await Eth.patch(`/agents/child/${res.child_agent_id}`, { display_name: name }); } catch (e) { /* non-fatal */ }
+        }
+        hide("agent-deploy"); show("dashboard");
+        boot();   // refresh — the agent now appears under Active Agents
+      } catch (e) {
+        showErr("ad-err", e.detail || "Couldn't deploy. It may already be deployed to this business.");
+        setBtn("ad-deploy", false, "Start free trial");
       }
     };
   }
@@ -478,6 +558,7 @@
     $("agents").querySelectorAll("[data-agent]").forEach(row => {
       row.onclick = () => openAgentManager(b.id, row.dataset.agent);
     });
+    $("agents-browse-link").onclick = () => openAgentsBrowse(b.id, agents.map(a => a.agent_id));
 
     // bots — list + an always-present "Connect a bot" action (covers the case
     // where the owner skipped bot setup during onboarding).

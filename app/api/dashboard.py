@@ -72,6 +72,7 @@ class UsageBreakdown(BaseModel):
 
 class ActiveAgentSummary(BaseModel):
     id: str
+    agent_id: str                # marketplace (father) agent id — lets the UI mark it deployed
     display_name: Optional[str]
     category: str
     is_active: bool
@@ -295,6 +296,7 @@ async def _load_active_agents(
                 days_left = max(0, (exp - now).days)
         out.append(ActiveAgentSummary(
             id=str(child.id),
+            agent_id=str(child.agent_id),
             display_name=child.display_name,
             category=father.category,
             is_active=child.is_active,

@@ -114,7 +114,7 @@
 
     <div class="gap"></div>
 
-    <div class="sec-head"><div class="sec-title">Active Agents</div></div>
+    <div class="sec-head"><div class="sec-title">Active Agents</div><div class="sec-link" id="agents-browse-link" style="cursor:pointer">＋ Add agent</div></div>
     <div class="lcard" id="agents"></div>
 
     <div class="gap"></div>
@@ -240,6 +240,39 @@
       <div id="ag-secrets" class="ag-secrets hidden">🔒 Credentials configured. Update them via @ethiogramchat_bot for now.</div>
       <div class="err-inline hidden" id="ag-err"></div>
       <div class="wiz-actions"><button class="onb-btn" id="ag-save">Save changes</button></div>
+    </div>
+  </div>
+
+  <!-- BROWSE AGENTS (marketplace) -->
+  <div id="agents-browse" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="ab-back">‹ Back</button>
+      <div class="mgr-title">Add an agent</div>
+      <button class="mgr-refresh" id="ab-refresh" title="Refresh">↻</button>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Deploy a specialist to handle bookings, receipts and more. Start a free trial — no charge to try.</div>
+      <div class="err-inline hidden" id="ab-err"></div>
+      <div class="lcard" id="ab-list"></div>
+    </div>
+  </div>
+
+  <!-- DEPLOY AGENT (config + start trial) -->
+  <div id="agent-deploy" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="ad-back">‹ Back</button>
+      <div class="mgr-title">Deploy agent</div>
+      <span style="width:18px"></span>
+    </div>
+    <div class="mgr-body">
+      <div id="ad-head" class="ag-head"></div>
+      <div id="ad-guide" class="steps-note hidden"></div>
+      <div class="field"><label for="ad-name">Display name <span style="color:var(--text-3)">(optional)</span></label>
+        <input id="ad-name" type="text" maxlength="128" placeholder="e.g. Front Desk"></div>
+      <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:8px"><div class="sec-title">Configuration</div></div>
+      <div id="ad-fields"></div>
+      <div class="err-inline hidden" id="ad-err"></div>
+      <div class="wiz-actions"><button class="onb-btn" id="ad-deploy">Start free trial</button></div>
     </div>
   </div>
 

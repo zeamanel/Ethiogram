@@ -77,6 +77,16 @@ async def test_agent_manager_present(client):
 
 
 @pytest.mark.asyncio
+async def test_browse_and_deploy_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="agents-browse"' in html and 'id="agent-deploy"' in html   # both views
+    assert 'id="agents-browse-link"' in html and 'id="ad-deploy"' in html # entry + deploy button
+    js = (await client.get("/app/owner/app.js")).text
+    assert "openAgentsBrowse" in js and "openAgentDeploy" in js
+    assert '/trial' in js and 'Eth.get("/agents")' in js                  # lists marketplace + starts trial
+
+
+@pytest.mark.asyncio
 async def test_app_responses_are_no_cache(client):
     # redeploys should not be masked by Telegram's asset cache
     resp = await client.get("/app/owner/app.js")
