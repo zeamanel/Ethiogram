@@ -124,6 +124,18 @@ async def test_website_editor_present(client):
 
 
 @pytest.mark.asyncio
+async def test_admin_dashboard_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="admin"' in html and 'class="adm-tabs"' in html              # admin container + tabs
+    assert 'id="adm-biz-list"' in html and 'id="adm-user-list"' in html     # businesses + users tables
+    assert 'id="adm-system-list"' in html                                   # system tab
+    js = (await client.get("/app/owner/app.js")).text
+    assert "bootAdmin" in js and "/admin/stats" in js                       # admin boot + stats
+    assert "auth.is_admin" in js                                            # branch on admin
+    assert "/admin/businesses/" in js and "/admin/users/" in js             # suspend/delete + admin toggle
+
+
+@pytest.mark.asyncio
 async def test_app_responses_are_no_cache(client):
     # redeploys should not be masked by Telegram's asset cache
     resp = await client.get("/app/owner/app.js")

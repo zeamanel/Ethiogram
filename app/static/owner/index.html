@@ -135,6 +135,48 @@
     <div class="gap"></div>
   </div>
 
+  <!-- ADMIN DASHBOARD (shown to admins with no businesses) -->
+  <div id="admin" class="hidden">
+    <div class="greet">
+      <div class="greet-hi">Admin Console</div>
+      <div class="greet-sub" id="adm-sub">Platform overview</div>
+    </div>
+    <div class="adm-tabs">
+      <button class="adm-tab active" data-tab="overview">Overview</button>
+      <button class="adm-tab" data-tab="businesses">Businesses</button>
+      <button class="adm-tab" data-tab="users">Users</button>
+      <button class="adm-tab" data-tab="system">System</button>
+    </div>
+
+    <div id="adm-overview" class="adm-page">
+      <div class="qstats" id="adm-stats"></div>
+    </div>
+
+    <div id="adm-businesses" class="adm-page hidden">
+      <div class="adm-toolbar">
+        <input id="adm-biz-search" type="text" placeholder="Search name or owner…" autocapitalize="off">
+        <select id="adm-biz-status">
+          <option value="">All</option>
+          <option value="active">Active</option>
+          <option value="suspended">Suspended</option>
+          <option value="deleted">Deleted</option>
+        </select>
+      </div>
+      <div class="lcard" id="adm-biz-list"></div>
+    </div>
+
+    <div id="adm-users" class="adm-page hidden">
+      <div class="adm-toolbar">
+        <input id="adm-user-search" type="text" placeholder="Search email or name…" autocapitalize="off">
+      </div>
+      <div class="lcard" id="adm-user-list"></div>
+    </div>
+
+    <div id="adm-system" class="adm-page hidden">
+      <div class="lcard" id="adm-system-list"></div>
+    </div>
+  </div>
+
   <!-- BRAIN MANAGER (documents) -->
   <div id="brain-manager" class="hidden">
     <div class="mgr-bar">

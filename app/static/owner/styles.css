@@ -160,6 +160,24 @@ body {
   padding:7px 14px; border:none; border-radius:9px; cursor:pointer; flex-shrink:0; }
 .ab-deploy:disabled { opacity:.5; cursor:default; }
 
+/* admin dashboard */
+.adm-tabs { display:flex; gap:6px; padding:4px 16px 12px; overflow-x:auto; scrollbar-width:none; }
+.adm-tabs::-webkit-scrollbar { display:none; }
+.adm-tab { flex-shrink:0; background:var(--card); border:1px solid var(--line); color:var(--text-2);
+  font-size:13px; font-weight:600; padding:8px 15px; border-radius:20px; cursor:pointer; font-family:inherit; }
+.adm-tab.active { background:var(--ink); color:#F7F3EA; border-color:var(--ink); }
+.adm-page { padding-bottom:8px; }
+.adm-toolbar { display:flex; gap:8px; padding:0 16px 12px; }
+.adm-toolbar input { flex:1; min-width:0; font-size:14px; font-family:inherit; padding:10px 12px;
+  border:1px solid var(--line); border-radius:11px; background:var(--card); color:var(--text); outline:none; }
+.adm-toolbar input:focus { border-color:var(--amber); }
+.adm-toolbar select { font-size:13px; font-family:inherit; padding:10px 12px; border:1px solid var(--line);
+  border-radius:11px; background:var(--card); color:var(--text); outline:none; }
+.adm-act { background:var(--amber-soft); color:var(--amber-deep); border:none; border-radius:9px;
+  font-size:12px; font-weight:600; padding:6px 11px; cursor:pointer; flex-shrink:0; }
+.adm-act:disabled { opacity:.5; cursor:default; }
+.adm-page .lcard, .adm-page .qstats { margin-left:16px; margin-right:16px; }
+
 /* custom domain (within website editor) */
 .dom-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
 .dom-name { font-family:'JetBrains Mono',monospace; font-size:14px; font-weight:600; }

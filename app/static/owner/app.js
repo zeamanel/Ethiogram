@@ -1,6 +1,7 @@
 // Ethiogram Owner Console — loads data and renders the dashboard.
 (function () {
   const $ = (id) => document.getElementById(id);
+  let IS_ADMIN = false;
   const show = (id) => $(id).classList.remove("hidden");
   const hide = (id) => $(id).classList.add("hidden");
   const fmt = (n) => (n == null ? "—" : Number(n).toLocaleString("en-US"));
@@ -27,11 +28,13 @@
 
   async function boot() {
     Eth.initTelegram();
+    let auth;
     try {
-      await Eth.login();
+      auth = await Eth.login();
     } catch (e) {
       return fail("We couldn't verify your Telegram session. Open this from the bot's menu button.");
     }
+    IS_ADMIN = !!(auth && auth.is_admin);
     let businesses;
     try {
       businesses = await Eth.get("/dashboard/businesses");
@@ -39,7 +42,9 @@
       return fail("Couldn't load your account.");
     }
     if (!businesses || businesses.length === 0) {
-      hide("loading"); setupWizard(); show("onboarding");
+      hide("loading");
+      if (IS_ADMIN) return bootAdmin();         // admin + no businesses → admin console
+      setupWizard(); show("onboarding");
       return;
     }
     const biz = businesses[0];
@@ -977,6 +982,119 @@
     if (/account|receipt|finance/.test(c)) return "🧾";
     if (/concierge|book|appoint|calendar/.test(c)) return "📅";
     return "🤖";
+  }
+
+  // ===================== ADMIN DASHBOARD =====================
+  function admDebounce(fn, ms) {
+    let t; return () => { clearTimeout(t); t = setTimeout(fn, ms); };
+  }
+
+  async function bootAdmin() {
+    show("admin");
+    document.querySelectorAll(".adm-tab").forEach(t => t.onclick = () => switchAdminTab(t.dataset.tab));
+    $("adm-biz-search").oninput = admDebounce(loadAdminBusinesses, 300);
+    $("adm-biz-status").onchange = loadAdminBusinesses;
+    $("adm-user-search").oninput = admDebounce(loadAdminUsers, 300);
+    await loadAdminStats();
+  }
+
+  function switchAdminTab(tab) {
+    ["overview", "businesses", "users", "system"].forEach(t =>
+      $("adm-" + t).classList.toggle("hidden", t !== tab));
+    document.querySelectorAll(".adm-tab").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+    if (tab === "businesses") loadAdminBusinesses();
+    else if (tab === "users") loadAdminUsers();
+    else if (tab === "system") loadAdminSystem();
+  }
+
+  async function loadAdminStats() {
+    let s;
+    try { s = await Eth.get("/admin/stats"); } catch (e) { return; }
+    $("adm-sub").textContent = `${fmt(s.active_businesses)} active · ${fmt(s.suspended_businesses)} suspended · ${fmt(s.deleted_businesses)} deleted`;
+    $("adm-stats").innerHTML = [
+      qstat("ic-amber", "🏪", s.total_businesses, "Businesses"),
+      qstat("ic-blue", "👥", s.total_users, "Users"),
+      qstat("ic-green", "🤖", s.total_bots, "Bots"),
+      qstat("ic-amber", "🧩", s.total_agents_deployed, "Agents deployed"),
+      qstat("ic-red", "💸", s.total_etg_spent, "ETG spent"),
+      qstat("ic-green", "⛁", s.total_revenue_etg, "ETG revenue"),
+    ].join("");
+  }
+
+  async function loadAdminBusinesses() {
+    const params = new URLSearchParams();
+    const q = $("adm-biz-search").value.trim();
+    const st = $("adm-biz-status").value;
+    if (q) params.set("search", q);
+    if (st) params.set("status", st);
+    $("adm-biz-list").innerHTML = `<div class="lempty">Loading…</div>`;
+    let res;
+    try { res = await Eth.get("/admin/businesses?" + params.toString()); }
+    catch (e) { $("adm-biz-list").innerHTML = empty("Couldn't load businesses."); return; }
+    if (!res.items.length) { $("adm-biz-list").innerHTML = empty("No businesses found."); return; }
+    $("adm-biz-list").innerHTML = res.items.map(b => {
+      const pill = b.is_deleted ? `<span class="lpill pl-fail">Deleted</span>`
+        : b.is_suspended ? `<span class="lpill pl-fail">Suspended</span>`
+        : `<span class="lpill pl-live">Active</span>`;
+      const act = b.is_deleted ? ""
+        : `<button class="adm-act" data-susp="${esc(b.id)}" data-on="${b.is_suspended ? 1 : 0}">${b.is_suspended ? "Unsuspend" : "Suspend"}</button>
+           <button class="ldel" data-del="${esc(b.id)}" data-name="${esc(b.name)}" title="Delete">✕</button>`;
+      return `<div class="litem">
+        <div class="lic ic-amber">🏪</div>
+        <div class="linfo"><div class="lname">${esc(b.name)}</div>
+          <div class="lmeta">${esc(b.owner_email || "—")} · ${fmt(b.bot_count)} bots · ${fmt(b.agent_count)} agents</div></div>
+        ${pill}${act}</div>`;
+    }).join("");
+    $("adm-biz-list").querySelectorAll("[data-susp]").forEach(btn => btn.onclick = async () => {
+      btn.disabled = true;
+      try { await Eth.patch(`/admin/businesses/${btn.dataset.susp}/suspend`, { suspend: btn.dataset.on !== "1" }); await loadAdminBusinesses(); loadAdminStats(); }
+      catch (e) { btn.disabled = false; notify(e.detail || "Couldn't update."); }
+    });
+    $("adm-biz-list").querySelectorAll("[data-del]").forEach(btn => btn.onclick = async () => {
+      const ok = await confirmAction(`Permanently delete "${btn.dataset.name}" and all its data? This can't be undone.`);
+      if (!ok) return;
+      try { await Eth.del(`/admin/businesses/${btn.dataset.del}`); await loadAdminBusinesses(); loadAdminStats(); }
+      catch (e) { notify(e.detail || "Couldn't delete."); }
+    });
+  }
+
+  async function loadAdminUsers() {
+    const q = $("adm-user-search").value.trim();
+    $("adm-user-list").innerHTML = `<div class="lempty">Loading…</div>`;
+    let res;
+    try { res = await Eth.get("/admin/users" + (q ? "?search=" + encodeURIComponent(q) : "")); }
+    catch (e) { $("adm-user-list").innerHTML = empty("Couldn't load users."); return; }
+    if (!res.items.length) { $("adm-user-list").innerHTML = empty("No users found."); return; }
+    $("adm-user-list").innerHTML = res.items.map(u => {
+      const name = u.email || u.full_name || (u.telegram_id ? "TG " + u.telegram_id : "User");
+      const meta = [u.telegram_id ? "TG " + u.telegram_id : null, u.is_admin ? "Admin" : "User"].filter(Boolean).join(" · ");
+      return `<div class="litem">
+        <div class="lic ${u.is_admin ? "ic-green" : "ic-blue"}">${u.is_admin ? "🛡" : "👤"}</div>
+        <div class="linfo"><div class="lname">${esc(name)}</div><div class="lmeta">${esc(meta)}</div></div>
+        <label class="switch switch-sm"><input type="checkbox" data-admin="${esc(u.id)}" ${u.is_admin ? "checked" : ""}><span class="slider"></span></label></div>`;
+    }).join("");
+    $("adm-user-list").querySelectorAll("[data-admin]").forEach(cb => cb.onchange = async () => {
+      try { await Eth.patch(`/admin/users/${cb.dataset.admin}/admin`, { is_admin: cb.checked }); }
+      catch (e) { cb.checked = !cb.checked; notify(e.detail || "Couldn't change admin rights."); }
+    });
+  }
+
+  async function loadAdminSystem() {
+    $("adm-system-list").innerHTML = `<div class="lempty">Checking…</div>`;
+    let s;
+    try { s = await Eth.get("/admin/system/status"); }
+    catch (e) { $("adm-system-list").innerHTML = empty("Couldn't load system status."); return; }
+    const ic = (st) => (st === "ok" || st === "configured") ? "ic-green" : st === "error" ? "ic-red" : "ic-amber";
+    const sym = (st) => (st === "ok" || st === "configured") ? "✓" : st === "error" ? "✕" : "!";
+    const row = (label, st, detail) => `<div class="litem">
+      <div class="lic ${ic(st)}">${sym(st)}</div>
+      <div class="linfo"><div class="lname">${esc(label)}</div><div class="lmeta">${esc(detail || st)}</div></div></div>`;
+    $("adm-system-list").innerHTML = [
+      row("Database", s.database.status, s.database.detail),
+      row("Redis", s.redis.status, s.redis.detail),
+      row("Storage", s.storage.status, s.storage.bucket),
+      row("Workers", s.workers.status, `${(s.workers.jobs || []).join(", ")} · backlog ${fmt(s.workers.embedding_backlog)}`),
+    ].join("");
   }
 
   boot();
