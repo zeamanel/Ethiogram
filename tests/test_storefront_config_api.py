@@ -71,6 +71,33 @@ async def test_patch_theme_and_sections_persist(client, db, sample_user_id, samp
 
 
 @pytest.mark.asyncio
+async def test_logo_persists_and_shows_in_storefront(client, db, sample_user_id, sample_business_id, valid_access_token):
+    await _seed(db, sample_user_id, sample_business_id, slug="logo")
+    hdr = {"Authorization": f"Bearer {valid_access_token}"}
+    url = "https://storage.googleapis.com/ethiogram-public/logos/x.png"
+
+    resp = await client.patch(f"/api/v1/businesses/{sample_business_id}/storefront",
+                              json={"logo_url": url}, headers=hdr)
+    assert resp.status_code == 200
+    assert resp.json()["logo_url"] == url
+
+    # persisted on the Business row (not the JSONB config)
+    biz = (await db.execute(select(Business).where(Business.id == sample_business_id))).scalar_one()
+    assert biz.logo_url == url
+
+    # surfaces in the public storefront payload (store header renders it)
+    pub = (await client.get("/api/v1/miniapp/logo")).json()
+    assert pub["business"]["logo_url"] == url
+
+    # GET reflects it; clearing with "" removes it
+    assert (await client.get(f"/api/v1/businesses/{sample_business_id}/storefront",
+                             headers=hdr)).json()["logo_url"] == url
+    cleared = await client.patch(f"/api/v1/businesses/{sample_business_id}/storefront",
+                                 json={"logo_url": ""}, headers=hdr)
+    assert cleared.json()["logo_url"] is None
+
+
+@pytest.mark.asyncio
 async def test_patch_round_trips_with_public_storefront(client, db, sample_user_id, sample_business_id, valid_access_token):
     """What the owner saves is what the public storefront serves."""
     await _seed(db, sample_user_id, sample_business_id, slug="round")

@@ -637,6 +637,33 @@
     $("se-tagline").value = cfg.tagline || "";
     $("se-hours").value = cfg.hours || "";
 
+    // logo upload (sets Business.logo_url; the store header + landing use it)
+    let logoUrl = cfg.logo_url || null;
+    const renderLogo = () => {
+      const prev = $("se-logo-preview");
+      if (logoUrl) {
+        prev.innerHTML = `<img src="${esc(logoUrl)}" alt="">`;
+        $("se-logo-btn").textContent = "Replace logo";
+        $("se-logo-remove").classList.remove("hidden");
+      } else {
+        prev.innerHTML = ""; $("se-logo-btn").textContent = "Upload logo";
+        $("se-logo-remove").classList.add("hidden");
+      }
+    };
+    renderLogo();
+    $("se-logo-btn").onclick = () => $("se-logo-file").click();
+    $("se-logo-remove").onclick = () => { logoUrl = null; $("se-logo-file").value = ""; renderLogo(); };
+    $("se-logo-file").onchange = async () => {
+      const file = $("se-logo-file").files[0];
+      if (!file) return;
+      hide("se-err");
+      if (file.size > 5 * 1024 * 1024) { $("se-logo-file").value = ""; return showErr("se-err", "Logo is over the 5 MB limit."); }
+      setBtn("se-logo-btn", true, "Uploading…");
+      try { const res = await Eth.upload(`/knowledge/${bizId}/items/image`, file); logoUrl = res.image_url; }
+      catch (e) { showErr("se-err", e.detail || "Couldn't upload the logo."); }
+      finally { $("se-logo-btn").disabled = false; renderLogo(); }
+    };
+
     SF_SECTIONS = (cfg.sections || []).map(s => ({ type: s.type, label: s.label, visible: s.visible }));
     renderSfSections();
 
@@ -650,6 +677,7 @@
         },
         tagline: $("se-tagline").value.trim(),
         hours: $("se-hours").value.trim(),
+        logo_url: logoUrl,
         sections: SF_SECTIONS.map((s, i) => ({ type: s.type, visible: s.visible, order: i })),
       };
       setBtn("se-save", true, "Saving…");

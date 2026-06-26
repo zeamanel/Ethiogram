@@ -275,6 +275,7 @@ class StorefrontResponse(BaseModel):
     theme: dict
     tagline: Optional[str]
     hours: Optional[str]
+    logo_url: Optional[str]
     sections: list[dict]          # [{type, label, visible, order}] — ALL known types
     is_published: bool
     store_url: str
@@ -284,6 +285,7 @@ class StorefrontUpdate(BaseModel):
     theme: Optional[StorefrontTheme] = None
     tagline: Optional[str] = None
     hours: Optional[str] = None
+    logo_url: Optional[str] = None
     sections: Optional[list[StorefrontSection]] = None
     is_published: Optional[bool] = None
 
@@ -310,6 +312,7 @@ def _storefront_to_response(cfg: Optional[MiniAppConfig], business: Business) ->
         theme=_theme(cfg, business),
         tagline=layout.get("tagline") or business.description,
         hours=layout.get("hours"),
+        logo_url=business.logo_url,
         sections=sections,
         is_published=bool(cfg.is_published) if cfg else False,
         store_url=f"/app/store/?s={business.slug}",
@@ -368,6 +371,8 @@ async def update_storefront_config(
         layout["tagline"] = body.tagline.strip() or None
     if body.hours is not None:
         layout["hours"] = body.hours.strip() or None
+    if body.logo_url is not None:
+        business.logo_url = body.logo_url.strip() or None   # lives on Business, not the JSONB
     if body.sections is not None:
         layout["sections"] = [
             {"type": s.type, "visible": s.visible, "order": i}
