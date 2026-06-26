@@ -305,6 +305,25 @@
         <label class="switch"><input type="checkbox" id="se-published"><span class="slider"></span></label>
       </div>
 
+      <!-- shown when Published is ON: live link + how to add it to the bot -->
+      <div id="se-publish-info" class="se-publish-info hidden">
+        <div class="field" style="margin-top:0">
+          <label for="se-store-url">Your store link</label>
+          <div class="copy-row">
+            <input id="se-store-url" type="text" readonly>
+            <button class="copy-btn" id="se-copy">Copy</button>
+          </div>
+        </div>
+        <div class="steps-note">
+          <b>Add it to your bot — via @BotFather:</b><br>
+          1. Open <b>@BotFather</b> and send <code>/mybots</code><br>
+          2. Pick your bot → <b>Bot Settings</b> → <b>Menu Button</b><br>
+          3. Choose <b>Edit menu button URL</b> and paste the link above<br>
+          4. Send a button label, e.g. <code>🛍 Shop</code><br>
+          Customers tap the menu button to open your store — no install needed.
+        </div>
+      </div>
+
       <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:8px"><div class="sec-title">Theme</div></div>
       <div class="se-colors">
         <div class="se-color"><label for="se-primary">Brand</label><input type="color" id="se-primary"></div>

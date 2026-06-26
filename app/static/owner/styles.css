@@ -161,6 +161,12 @@ body {
 .ab-deploy:disabled { opacity:.5; cursor:default; }
 
 /* storefront editor */
+.se-publish-info { margin-top:10px; }
+.copy-row { display:flex; gap:8px; }
+.copy-row input { flex:1; min-width:0; }
+.copy-btn { flex-shrink:0; background:var(--amber); color:#1a1206; font-weight:600; font-size:12.5px;
+  border:none; border-radius:11px; padding:0 16px; cursor:pointer; }
+.copy-btn:hover { background:var(--amber-deep); color:#fff; }
 .se-colors { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:4px; }
 .se-color { display:flex; align-items:center; justify-content:space-between; gap:10px;
   background:var(--card); border:1px solid var(--line); border-radius:11px; padding:8px 12px; }

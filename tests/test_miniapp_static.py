@@ -100,6 +100,10 @@ async def test_storefront_editor_present(client):
     js = (await client.get("/app/owner/app.js")).text
     assert "openStorefront" in js and "/storefront" in js                    # GET/PATCH wired
     assert "SF_SECTIONS" in js                                               # reorder/toggle state
+    # publish reveals the live link + BotFather setup guide
+    assert 'id="se-publish-info"' in html and 'id="se-store-url"' in html
+    assert "BotFather" in html and "Menu Button" in html
+    assert "togglePublishInfo" in js and "clipboard" in js                   # toggle + copy wired
 
 
 @pytest.mark.asyncio

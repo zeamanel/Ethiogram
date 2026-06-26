@@ -557,6 +557,24 @@
       if (Eth.tg && Eth.tg.openLink) Eth.tg.openLink(url); else window.open(url, "_blank");
     };
     $("se-published").checked = !!cfg.is_published;
+
+    // live link + BotFather guide, revealed while Published is ON (works pre-save)
+    const fullUrl = location.origin + cfg.store_url;
+    $("se-store-url").value = fullUrl;
+    const togglePublishInfo = () => $("se-publish-info").classList.toggle("hidden", !$("se-published").checked);
+    $("se-published").onchange = togglePublishInfo;
+    togglePublishInfo();
+    $("se-copy").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(fullUrl);
+        $("se-copy").textContent = "Copied ✓";
+      } catch (e) {
+        $("se-store-url").select();
+        try { document.execCommand("copy"); $("se-copy").textContent = "Copied ✓"; } catch (e2) {}
+      }
+      setTimeout(() => { $("se-copy").textContent = "Copy"; }, 1600);
+    };
+
     setColor("se-primary", cfg.theme.primary);
     setColor("se-accent", cfg.theme.accent);
     setColor("se-bg", cfg.theme.bg);
