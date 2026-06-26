@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
-from app.db.models import Business, BusinessBrainConfig, MiniAppConfig
+from app.db.models import Business, BusinessBrainConfig, LandingPage, MiniAppConfig
 from app.db.session import get_db, get_redis
 from app.utils.text import slugify
 
@@ -381,3 +381,103 @@ async def update_storefront_config(
     await bust_storefront_cache(business_id, db, redis)
     logger.info("Storefront config updated", business_id=str(business_id))
     return _storefront_to_response(cfg, business)
+
+
+# ---------------------------------------------------------------------------
+# Website (SEO landing page) config — title, meta, hero, keywords, publish
+# ---------------------------------------------------------------------------
+
+class WebsiteResponse(BaseModel):
+    title: Optional[str]
+    meta_description: Optional[str]
+    hero_headline: Optional[str]
+    hero_subheadline: Optional[str]
+    seo_keywords: list[str]
+    og_image_url: Optional[str]
+    is_published: bool
+    website_url: str
+
+
+class WebsiteUpdate(BaseModel):
+    title: Optional[str] = None
+    meta_description: Optional[str] = None
+    hero_headline: Optional[str] = None
+    hero_subheadline: Optional[str] = None
+    seo_keywords: Optional[list[str]] = None
+    og_image_url: Optional[str] = None
+    is_published: Optional[bool] = None
+
+    @field_validator("title")
+    @classmethod
+    def _title_len(cls, v):
+        if v is not None and len(v) > 70:
+            raise ValueError("SEO title should be 70 characters or fewer")
+        return v
+
+    @field_validator("meta_description")
+    @classmethod
+    def _meta_len(cls, v):
+        if v is not None and len(v) > 160:
+            raise ValueError("Meta description should be 160 characters or fewer")
+        return v
+
+
+def _website_to_response(lp: Optional[LandingPage], business: Business) -> WebsiteResponse:
+    return WebsiteResponse(
+        title=lp.title if lp else None,
+        meta_description=lp.meta_description if lp else None,
+        hero_headline=lp.hero_headline if lp else None,
+        hero_subheadline=lp.hero_subheadline if lp else None,
+        seo_keywords=(lp.seo_keywords or []) if lp else [],
+        og_image_url=lp.og_image_url if lp else None,
+        is_published=bool(lp.is_published) if lp else False,
+        website_url=f"/biz/{business.slug}",
+    )
+
+
+@router.get("/{business_id}/website", response_model=WebsiteResponse)
+async def get_website_config(
+    business_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> WebsiteResponse:
+    business = await _get_owned_business(business_id, current_user.id, db)
+    lp = (await db.execute(
+        select(LandingPage).where(LandingPage.business_id == business_id)
+    )).scalar_one_or_none()
+    return _website_to_response(lp, business)
+
+
+@router.patch("/{business_id}/website", response_model=WebsiteResponse)
+async def update_website_config(
+    business_id: uuid.UUID,
+    body: WebsiteUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+) -> WebsiteResponse:
+    """Edit the SEO landing page (title, meta, hero, keywords, OG image, publish).
+    Upserts the LandingPage; busts the public page cache so changes show live."""
+    business = await _get_owned_business(business_id, current_user.id, db)
+    lp = (await db.execute(
+        select(LandingPage).where(LandingPage.business_id == business_id)
+    )).scalar_one_or_none()
+    if lp is None:
+        lp = LandingPage(business_id=business_id)
+        db.add(lp)
+        await db.flush()
+
+    changes = body.model_dump(exclude_unset=True)
+    publish = changes.pop("is_published", None)
+    for k, v in changes.items():
+        # blank strings clear back to NULL (page falls back to computed defaults)
+        setattr(lp, k, (v.strip() or None) if isinstance(v, str) else v)
+    if publish is not None:
+        lp.is_published = publish
+        if publish and lp.published_at is None:
+            lp.published_at = datetime.now(timezone.utc)
+
+    from app.api.miniapp import bust_storefront_cache
+    await bust_storefront_cache(business_id, db, redis)
+    logger.info("Website config updated", business_id=str(business_id), fields=list(changes.keys()))
+    return _website_to_response(lp, business)
