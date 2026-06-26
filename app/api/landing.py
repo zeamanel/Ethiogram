@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.miniapp import _build_payload
 from app.core.config import settings
 from app.core.logging import get_logger
-from app.db.models import Business, LandingPage
+from app.db.models import Business, CustomDomain, LandingPage
 from app.db.session import get_db, get_redis
 
 logger = get_logger(__name__)
@@ -68,7 +68,8 @@ def _json_ld(business: dict, content: dict, page_url: str) -> str:
 
 # ── context assembly ─────────────────────────────────────────────────────────
 
-async def _build_context(slug: str, db: AsyncSession) -> Optional[dict]:
+async def _build_context(slug: str, db: AsyncSession, *,
+                         page_url: str, site_base: str) -> Optional[dict]:
     payload = await _build_payload(slug, db)        # reuse storefront content assembly
     if payload is None:
         return None
@@ -86,7 +87,6 @@ async def _build_context(slug: str, db: AsyncSession) -> Optional[dict]:
     default_title = f"{name} — {category}" + (f" in {locality.split(',')[0]}" if locality else "")
     default_desc = business.get("tagline") or f"{name}. Order on Telegram."
 
-    page_url = f"{_base_url()}/biz/{slug}"
     return {
         "business": business,
         "content": content,
@@ -99,7 +99,7 @@ async def _build_context(slug: str, db: AsyncSession) -> Optional[dict]:
         "og_image": (lp.og_image_url if lp and lp.og_image_url else business.get("logo_url")),
         "is_published": bool(lp.is_published) if lp else False,
         "page_url": page_url,
-        "store_url": f"{_base_url()}/app/store/?s={slug}",
+        "store_url": f"{site_base}/app/store/?s={slug}",
         "bot_url": (f"https://t.me/{business['bot_username']}" if business.get("bot_username") else None),
         "json_ld": _json_ld(business, content, page_url),
     }
@@ -253,24 +253,70 @@ footer{padding:26px 0;color:var(--muted);font-size:13px;text-align:center;border
 
 # ── routes ───────────────────────────────────────────────────────────────────
 
+async def _render_landing(slug: str, db, redis, *, page_url: str, site_base: str,
+                          cache_key: str) -> Optional[str]:
+    """Render (or serve cached) HTML for a slug. None if the business is gone."""
+    cached = await redis.get(cache_key)
+    if cached:
+        return cached
+    ctx = await _build_context(slug, db, page_url=page_url, site_base=site_base)
+    if ctx is None:
+        return None
+    rendered = _TEMPLATE.render(**ctx)
+    await redis.set(cache_key, rendered, ex=_CACHE_TTL)
+    return rendered
+
+
 @router.get("/biz/{slug}", response_class=HTMLResponse)
 async def landing_page(
     slug: str,
     db: AsyncSession = Depends(get_db),
     redis=Depends(get_redis),
 ) -> HTMLResponse:
-    key = _HTML_KEY.format(slug=slug)
-    cached = await redis.get(key)
-    if cached:
-        return HTMLResponse(cached)
-
-    ctx = await _build_context(slug, db)
-    if ctx is None:
+    base = _base_url()
+    html_out = await _render_landing(
+        slug, db, redis,
+        page_url=f"{base}/biz/{slug}", site_base=base, cache_key=_HTML_KEY.format(slug=slug),
+    )
+    if html_out is None:
         return HTMLResponse(_not_found_html(slug), status_code=404)
+    return HTMLResponse(html_out)
 
-    rendered = _TEMPLATE.render(**ctx)
-    await redis.set(key, rendered, ex=_CACHE_TTL)
-    return HTMLResponse(rendered)
+
+async def _slug_for_host(host: str, db: AsyncSession) -> Optional[str]:
+    """Resolve a verified, active custom domain to its business slug."""
+    return await db.scalar(
+        select(Business.slug)
+        .join(CustomDomain, CustomDomain.business_id == Business.id)
+        .where(CustomDomain.domain == host,
+               CustomDomain.is_verified.is_(True), CustomDomain.is_active.is_(True),
+               Business.deleted_at.is_(None))
+    )
+
+
+@router.get("/", response_class=HTMLResponse)
+async def root(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+) -> HTMLResponse:
+    """On a verified custom domain, '/' serves that business's landing page.
+    On the platform host, a minimal placeholder."""
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    slug = await _slug_for_host(host, db) if host else None
+    if slug:
+        site_base = f"https://{host}"
+        html_out = await _render_landing(
+            slug, db, redis,
+            page_url=f"{site_base}/", site_base=site_base, cache_key=f"landing:host:{host}",
+        )
+        if html_out is not None:
+            return HTMLResponse(html_out)
+    return HTMLResponse(
+        "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Ethiogram</title></head>"
+        "<body style='font-family:sans-serif;text-align:center;padding:60px'>"
+        "<h1>Ethiogram</h1><p>AI commerce for Telegram.</p></body></html>"
+    )
 
 
 def _not_found_html(slug: str) -> str:

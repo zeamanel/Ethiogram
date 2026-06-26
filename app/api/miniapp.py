@@ -180,12 +180,18 @@ async def _build_payload(slug: str, db: AsyncSession) -> Optional[dict]:
 # ── cache ────────────────────────────────────────────────────────────────────
 
 async def bust_storefront_cache(business_id: uuid.UUID, db: AsyncSession, redis) -> None:
-    """Drop a business's cached storefront AND landing page so the next request
-    rebuilds them. Called from catalog/config mutations."""
+    """Drop a business's cached storefront AND landing page (incl. any custom
+    domain) so the next request rebuilds them. Called from catalog/config edits."""
     slug = await db.scalar(select(Business.slug).where(Business.id == business_id))
     if slug:
         await redis.delete(_CACHE_KEY.format(slug=slug))
         await redis.delete(f"landing:html:{slug}")
+    from app.db.models import CustomDomain
+    domains = (await db.execute(
+        select(CustomDomain.domain).where(CustomDomain.business_id == business_id)
+    )).scalars().all()
+    for d in domains:
+        await redis.delete(f"landing:host:{d}")
 
 
 # ── endpoint ─────────────────────────────────────────────────────────────────

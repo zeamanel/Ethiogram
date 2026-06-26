@@ -148,6 +148,13 @@ class Settings(BaseSettings):
     dashboard_url: str = "https://ethiogram.com/dashboard"
     mini_app_url: str = "https://ethiogram.com/app"
     biz_page_url: str = "https://ethiogram.com/biz"
+
+    # CUSTOM DOMAINS — owners point their .com here. The CNAME target is the Cloud
+    # Run domain-mapping endpoint (Google provisions the TLS cert); the gcloud
+    # command below is the per-domain edge step the platform operator runs.
+    custom_domain_target: str = "ghs.googlehosted.com"
+    cloud_run_service: str = "ethiogram-api"
+    cloud_run_region: str = "us-central1"
     wide_overlay_url: str = "https://wide.ethiogram.com"
     studio_url: str = "https://studio.ethiogram.com"
     admin_url: str = "https://admin.ethiogram.com"
