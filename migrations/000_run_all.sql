@@ -51,4 +51,7 @@
 \echo '==> 014_user_is_admin.sql'
 \i migrations/014_user_is_admin.sql
 
+\echo '==> 015_child_agents_trials_reconcile.sql'
+\i migrations/015_child_agents_trials_reconcile.sql
+
 \echo '==> All migrations applied successfully.'

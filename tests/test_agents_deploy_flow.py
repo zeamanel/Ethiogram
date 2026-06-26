@@ -95,6 +95,29 @@ async def test_deploy_twice_is_rejected(client, db, sample_user_id,
 
 
 @pytest.mark.asyncio
+async def test_trial_reuses_existing_child_agent(client, db, sample_user_id,
+                                                 sample_business_id, valid_access_token):
+    """A ChildAgent already deployed (no trial yet) must be reused, not duplicated
+    — a duplicate insert would violate uq_child_agent_business and 500."""
+    from app.db.models import ChildAgent
+    await _seed_owner_business(db, sample_user_id, sample_business_id)
+    await _seed_marketplace(db)
+    agent = (await db.execute(
+        select(Agent).where(Agent.name == "Receipt & Expense Assistant"))).scalar_one()
+    db.add(ChildAgent(id=uuid.uuid4(), agent_id=agent.id, business_id=sample_business_id,
+                      child_data={}, is_active=True))
+    await db.flush()
+
+    resp = await client.post(f"/api/v1/agents/{agent.id}/trial",
+                             json={"business_id": str(sample_business_id), "child_data": {}},
+                             headers={"Authorization": f"Bearer {valid_access_token}"})
+    assert resp.status_code == 201, resp.text   # reused, not a duplicate-key 500
+    children = (await db.execute(select(ChildAgent).where(
+        ChildAgent.business_id == sample_business_id))).scalars().all()
+    assert len(children) == 1                    # still exactly one
+
+
+@pytest.mark.asyncio
 async def test_cannot_deploy_to_unowned_business(client, db, sample_user_id, valid_access_token):
     await _seed_marketplace(db)
     other_biz = uuid.uuid4()

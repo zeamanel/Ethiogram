@@ -279,14 +279,29 @@ async def start_trial(
     if existing.scalar_one_or_none() is not None:
         raise AlreadyExistsError("AgentTrial")
 
-    child = ChildAgent(
-        agent_id=agent_id,
-        business_id=body.business_id,
-        child_data=body.child_data or {},
-        child_secrets=encrypt_child_secrets(body.child_secrets) if body.child_secrets else None,
-    )
-    db.add(child)
-    await db.flush()
+    # Reuse an existing ChildAgent for this (agent, business) if one is already
+    # deployed (e.g. a prior unlock or a retried trial) — inserting a duplicate
+    # would violate uq_child_agent_business and surface as a 500.
+    child = (await db.execute(
+        select(ChildAgent).where(
+            ChildAgent.agent_id == agent_id,
+            ChildAgent.business_id == body.business_id,
+        )
+    )).scalar_one_or_none()
+    if child is None:
+        child = ChildAgent(
+            agent_id=agent_id,
+            business_id=body.business_id,
+            child_data=body.child_data or {},
+            child_secrets=encrypt_child_secrets(body.child_secrets) if body.child_secrets else None,
+        )
+        db.add(child)
+        await db.flush()
+    else:
+        if body.child_data:
+            child.child_data = body.child_data
+        if body.child_secrets:
+            child.child_secrets = encrypt_child_secrets(body.child_secrets)
 
     expires_at = datetime.now(timezone.utc) + timedelta(days=settings.trial_duration_days)
     trial = AgentTrial(
