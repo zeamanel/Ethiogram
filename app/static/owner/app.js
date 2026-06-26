@@ -735,6 +735,73 @@
         setBtn("we-save", false, "Save changes");
       }
     };
+
+    await loadDomain(bizId);
+  }
+
+  // ---- custom domain (within the website editor) ----
+  async function loadDomain(bizId) {
+    let dom = { domain: null };
+    try { dom = await Eth.get(`/businesses/${bizId}/domain`); } catch (e) { /* show connect form */ }
+    renderDomain(bizId, dom);
+  }
+
+  function dnsRow(r) {
+    return `<div class="dns-rec">
+      <div class="dns-top"><span class="dns-type">${esc(r.type)}</span><span class="dns-purpose">${esc(r.purpose)}</span></div>
+      <div class="dns-kv"><span class="dns-k">Host</span><code>${esc(r.host)}</code><button class="dns-copy" data-c="${esc(r.host)}" title="Copy">⧉</button></div>
+      <div class="dns-kv"><span class="dns-k">Value</span><code>${esc(r.value)}</code><button class="dns-copy" data-c="${esc(r.value)}" title="Copy">⧉</button></div>
+    </div>`;
+  }
+
+  function renderDomain(bizId, dom) {
+    const el = $("dom-panel");
+    if (!dom || !dom.domain) {
+      el.innerHTML = `<div class="mgr-note" style="text-align:left;margin-top:0">Connect your own domain (e.g. <b>yourbrand.com</b>) so customers reach your site at your brand.</div>
+        <div class="field" style="margin-top:10px"><input id="dom-input" type="text" placeholder="shop.yourbrand.com" autocapitalize="off" spellcheck="false"></div>
+        <button class="onb-btn" id="dom-connect">Connect domain</button>`;
+      $("dom-connect").onclick = async () => {
+        const d = $("dom-input").value.trim();
+        if (!d) return;
+        hide("we-err"); setBtn("dom-connect", true, "Connecting…");
+        try { renderDomain(bizId, await Eth.post(`/businesses/${bizId}/domain`, { domain: d })); }
+        catch (e) { showErr("we-err", e.detail || "Couldn't add that domain."); setBtn("dom-connect", false, "Connect domain"); }
+      };
+      return;
+    }
+    const pill = dom.is_verified
+      ? `<span class="lpill pl-live">✓ Verified</span>`
+      : `<span class="lpill pl-sync">Pending DNS</span>`;
+    let html = `<div class="dom-head"><code class="dom-name">${esc(dom.domain)}</code>${pill}</div>`;
+    if (dom.is_verified) {
+      html += `<div class="mgr-note" style="text-align:left">Your site is live at <b>${esc(dom.live_url)}</b> once the certificate finishes provisioning (usually a few minutes).</div>`;
+    } else {
+      html += `<div class="mgr-note" style="text-align:left;margin-top:0">Add these records at your domain registrar, then tap Verify:</div>`;
+      html += (dom.dns_records || []).map(dnsRow).join("");
+      html += `<div class="steps-note" style="margin-top:10px">We enable HTTPS for your domain after verification — it goes live automatically, usually within an hour.</div>`;
+      html += `<button class="onb-btn" id="dom-verify" style="margin-top:10px">I've added the records — Verify</button>`;
+    }
+    html += `<button class="onb-btn-ghost" id="dom-remove" style="margin-top:8px">Remove domain</button>`;
+    el.innerHTML = html;
+
+    el.querySelectorAll(".dns-copy").forEach(b => b.onclick = () => {
+      if (navigator.clipboard) navigator.clipboard.writeText(b.dataset.c);
+      b.textContent = "✓"; setTimeout(() => { b.textContent = "⧉"; }, 1200);
+    });
+    if ($("dom-verify")) $("dom-verify").onclick = async () => {
+      hide("we-err"); setBtn("dom-verify", true, "Checking DNS…");
+      try {
+        const res = await Eth.post(`/businesses/${bizId}/domain/verify`, {});
+        if (!res.is_verified) showErr("we-err", "We couldn't find the TXT record yet. DNS changes can take a few minutes — try again shortly.");
+        renderDomain(bizId, res);
+      } catch (e) { showErr("we-err", e.detail || "Verification failed."); setBtn("dom-verify", false, "I've added the records — Verify"); }
+    };
+    $("dom-remove").onclick = async () => {
+      const ok = await confirmAction("Remove this custom domain? Your site stays available at its Ethiogram link.");
+      if (!ok) return;
+      try { await Eth.del(`/businesses/${bizId}/domain`); renderDomain(bizId, { domain: null }); }
+      catch (e) { showErr("we-err", e.detail || "Couldn't remove the domain."); }
+    };
   }
 
   async function loadDocs(bizId) {

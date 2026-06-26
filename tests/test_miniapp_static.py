@@ -118,6 +118,9 @@ async def test_website_editor_present(client):
     js = (await client.get("/app/owner/app.js")).text
     assert "openWebsite" in js and "/website" in js                        # GET/PATCH wired
     assert "seo_keywords" in js                                            # keywords serialized
+    # custom domain connect/verify within the website editor
+    assert 'id="dom-panel"' in html
+    assert "loadDomain" in js and "/domain/verify" in js and "dns_records" in js
 
 
 @pytest.mark.asyncio
