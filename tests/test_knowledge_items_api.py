@@ -8,6 +8,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
+import app.api.knowledge as knowledge_api
 from app.db.models import Business, KnowledgeItem, KnowledgeItemType, User
 
 
@@ -15,6 +16,14 @@ async def _seed(db, user_id, business_id):
     db.add(User(id=user_id))
     db.add(Business(id=business_id, owner_id=user_id, name="Biz", slug=f"b-{business_id.hex[:8]}"))
     await db.flush()
+
+
+@pytest.fixture
+def _no_gcs(monkeypatch):
+    """Stub the public GCS upload so tests don't hit a real bucket."""
+    async def _fake(data, path, content_type=None):
+        return f"https://storage.googleapis.com/ethiogram-public/{path}"
+    monkeypatch.setattr(knowledge_api.storage_service, "upload_public", _fake)
 
 
 @pytest.mark.asyncio
@@ -92,6 +101,66 @@ async def test_invalid_item_type_rejected(client, db, sample_user_id, sample_bus
     )
     assert resp.status_code == 422
     assert (await db.execute(select(KnowledgeItem))).first() is None
+
+
+@pytest.mark.asyncio
+async def test_create_item_with_category_and_image(client, db, _no_gcs, sample_user_id,
+                                                   sample_business_id, valid_access_token):
+    await _seed(db, sample_user_id, sample_business_id)
+    hdr = {"Authorization": f"Bearer {valid_access_token}"}
+
+    # 1. upload a product image → public URL
+    up = await client.post(
+        f"/api/v1/knowledge/{sample_business_id}/items/image",
+        files={"file": ("dress.png", b"\x89PNG fake bytes", "image/png")},
+        headers=hdr,
+    )
+    assert up.status_code == 201, up.text
+    image_url = up.json()["image_url"]
+    assert image_url.startswith("https://storage.googleapis.com/")
+
+    # 2. create a product carrying category + image_url in data
+    resp = await client.post(
+        f"/api/v1/knowledge/{sample_business_id}/items",
+        json={"item_type": "product", "title": "Blue Dress",
+              "data": {"price": "1200 ETB", "category": "Dresses", "image_url": image_url}},
+        headers=hdr,
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()["data"]
+    assert data["category"] == "Dresses"
+    assert data["image_url"] == image_url
+
+    # 3. it flows through to the public storefront (chips + product image)
+    pub = (await client.get(f"/api/v1/miniapp/b-{sample_business_id.hex[:8]}")).json()["content"]
+    assert pub["categories"] == ["Dresses"]
+    assert pub["products"][0]["image_url"] == image_url
+
+
+@pytest.mark.asyncio
+async def test_image_rejects_non_image(client, db, _no_gcs, sample_user_id,
+                                       sample_business_id, valid_access_token):
+    await _seed(db, sample_user_id, sample_business_id)
+    resp = await client.post(
+        f"/api/v1/knowledge/{sample_business_id}/items/image",
+        files={"file": ("malware.exe", b"MZ", "application/octet-stream")},
+        headers={"Authorization": f"Bearer {valid_access_token}"},
+    )
+    assert resp.status_code in (400, 422)
+
+
+@pytest.mark.asyncio
+async def test_image_requires_ownership(client, db, _no_gcs, sample_user_id, valid_access_token):
+    other = uuid.uuid4()
+    db.add(User(id=sample_user_id))
+    db.add(Business(id=other, owner_id=uuid.uuid4(), name="Theirs", slug="theirs-img"))
+    await db.flush()
+    resp = await client.post(
+        f"/api/v1/knowledge/{other}/items/image",
+        files={"file": ("a.png", b"x", "image/png")},
+        headers={"Authorization": f"Bearer {valid_access_token}"},
+    )
+    assert resp.status_code == 404
 
 
 @pytest.mark.asyncio

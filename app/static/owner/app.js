@@ -194,19 +194,39 @@
   async function openCatalog(bizId) {
     hide("brain-manager"); show("catalog-manager");
     let editingId = null;
+    let formData = {};       // the item's full data — preserves keys we don't render
+    let imageUrl = null;     // current image (data.image_url) for this form
+
+    const renderImage = () => {
+      const prev = $("cat-image-preview");
+      if (imageUrl) {
+        prev.innerHTML = `<img src="${esc(imageUrl)}" alt="">`;
+        $("cat-image-btn").textContent = "Replace image";
+        $("cat-image-remove").classList.remove("hidden");
+      } else {
+        prev.innerHTML = "";
+        $("cat-image-btn").textContent = "Upload image";
+        $("cat-image-remove").classList.add("hidden");
+      }
+    };
 
     const closeForm = () => {
       hide("cat-form"); show("cat-add"); hide("cat-err");
-      editingId = null;
+      editingId = null; formData = {}; imageUrl = null;
       $("cat-title").value = ""; $("cat-body").value = ""; $("cat-price").value = "";
-      $("cat-type").value = "product";
+      $("cat-category").value = ""; $("cat-type").value = "product";
+      $("cat-image-file").value = ""; renderImage();
     };
     const openForm = (item) => {
       editingId = item ? item.id : null;
+      formData = (item && item.data) ? Object.assign({}, item.data) : {};
+      imageUrl = formData.image_url || null;
       $("cat-type").value = item ? item.item_type : "product";
       $("cat-title").value = item ? (item.title || "") : "";
       $("cat-body").value = item ? (item.body || "") : "";
-      $("cat-price").value = item && item.data ? (item.data.price || "") : "";
+      $("cat-price").value = formData.price || "";
+      $("cat-category").value = formData.category || "";
+      $("cat-image-file").value = ""; renderImage();
       hide("cat-err"); hide("cat-add"); show("cat-form");
       $("cat-save").textContent = item ? "Update item" : "Save item";
       $("cat-title").focus();
@@ -217,16 +237,39 @@
     $("cat-add").onclick = () => openForm(null);
     $("cat-cancel").onclick = closeForm;
 
+    $("cat-image-btn").onclick = () => $("cat-image-file").click();
+    $("cat-image-remove").onclick = () => { imageUrl = null; $("cat-image-file").value = ""; renderImage(); };
+    $("cat-image-file").onchange = async () => {
+      const file = $("cat-image-file").files[0];
+      if (!file) return;
+      hide("cat-err");
+      if (file.size > 5 * 1024 * 1024) { $("cat-image-file").value = ""; return showErr("cat-err", "Image is over the 5 MB limit."); }
+      setBtn("cat-image-btn", true, "Uploading…");
+      try {
+        const res = await Eth.upload(`/knowledge/${bizId}/items/image`, file);
+        imageUrl = res.image_url; renderImage();
+      } catch (e) {
+        showErr("cat-err", e.detail || "Couldn't upload the image.");
+      } finally {
+        $("cat-image-btn").disabled = false; renderImage();
+      }
+    };
+
+    const setOrDel = (obj, key, val) => { if (val) obj[key] = val; else delete obj[key]; };
+
     $("cat-save").onclick = async () => {
       hide("cat-err");
       const title = $("cat-title").value.trim();
       if (!title) return showErr("cat-err", "Please enter a title.");
-      const price = $("cat-price").value.trim();
+      const data = Object.assign({}, formData);      // keep unrendered keys (e.g. duration)
+      setOrDel(data, "price", $("cat-price").value.trim());
+      setOrDel(data, "category", $("cat-category").value.trim());
+      setOrDel(data, "image_url", imageUrl);
       const body = {
         item_type: $("cat-type").value,
         title,
         body: $("cat-body").value.trim() || null,
-        data: price ? { price } : null,
+        data: Object.keys(data).length ? data : null,
       };
       setBtn("cat-save", true, "Saving…");
       try {
@@ -254,12 +297,19 @@
       return;
     }
     $("cat-list").innerHTML = items.map(it => {
-      const price = it.data && it.data.price ? ` · ${esc(it.data.price)}` : "";
+      const d = it.data || {};
+      const bits = [esc(it.item_type)];
+      if (d.category) bits.push(esc(d.category));
+      if (d.price) bits.push(esc(d.price));
+      if (!it.is_active) bits.push("hidden");
       const dim = it.is_active ? "" : ' style="opacity:.5"';
+      const icon = d.image_url
+        ? `<div class="lic cat-thumb"><img src="${esc(d.image_url)}" alt=""></div>`
+        : `<div class="lic ic-amber">${catIc(it.item_type)}</div>`;
       return `<div class="litem"${dim}>
-        <div class="lic ic-amber">${catIc(it.item_type)}</div>
+        ${icon}
         <div class="linfo"><div class="lname">${esc(it.title)}</div>
-          <div class="lmeta">${esc(it.item_type)}${price}${it.is_active ? "" : " · hidden"}</div></div>
+          <div class="lmeta">${bits.join(" · ")}</div></div>
         <button class="ldel" data-edit="${esc(it.id)}" title="Edit">✎</button>
         <button class="ldel" data-del="${esc(it.id)}" title="Delete">✕</button></div>`;
     }).join("");

@@ -185,3 +185,12 @@ body {
 .cat-form select { width:100%; font-size:15px; font-family:inherit; padding:12px 13px; border:1px solid var(--line);
   border-radius:11px; background:var(--card); color:var(--text); outline:none; }
 .cat-form select:focus { border-color:var(--amber); }
+.cat-image-row { display:flex; align-items:center; gap:10px; }
+.cat-image-row .onb-btn-ghost { margin:0; padding:9px 14px; border:1px solid var(--line); border-radius:10px; }
+.cat-image-preview { width:52px; height:52px; border-radius:10px; flex-shrink:0; overflow:hidden;
+  background:var(--surface-2); }
+.cat-image-preview:empty { display:none; }
+.cat-image-preview img { width:100%; height:100%; object-fit:cover; }
+.cat-image-remove { background:none; border:none; color:var(--red); font-size:12.5px; font-weight:600; cursor:pointer; }
+.cat-thumb { padding:0; overflow:hidden; background:var(--surface-2); }
+.cat-thumb img { width:100%; height:100%; object-fit:cover; }

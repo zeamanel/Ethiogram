@@ -64,6 +64,9 @@ async def test_catalog_manager_present(client):
     js = (await client.get("/app/owner/app.js")).text
     assert "openCatalog" in js and "/items" in js                       # CRUD wired
     assert "loadItems" in js
+    # category + image upload
+    assert 'id="cat-category"' in html and 'id="cat-image-file"' in html
+    assert "/items/image" in js and "image_url" in js                   # upload + store URL
 
 
 @pytest.mark.asyncio

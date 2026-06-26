@@ -204,6 +204,15 @@
           <textarea id="cat-body" rows="3" placeholder="Description, answer, terms…"></textarea></div>
         <div class="field"><label for="cat-price">Price <span style="color:var(--text-3)">(optional)</span></label>
           <input id="cat-price" type="text" maxlength="64" placeholder="e.g. 1200 ETB"></div>
+        <div class="field"><label for="cat-category">Category <span style="color:var(--text-3)">(optional)</span></label>
+          <input id="cat-category" type="text" maxlength="64" placeholder="e.g. Dresses — groups it in your store"></div>
+        <div class="field"><label>Image <span style="color:var(--text-3)">(optional)</span></label>
+          <input type="file" id="cat-image-file" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none">
+          <div class="cat-image-row">
+            <div class="cat-image-preview" id="cat-image-preview"></div>
+            <button type="button" class="onb-btn-ghost" id="cat-image-btn">Upload image</button>
+            <button type="button" class="cat-image-remove hidden" id="cat-image-remove">Remove</button>
+          </div></div>
         <div class="err-inline hidden" id="cat-err"></div>
         <div class="wiz-actions">
           <button class="onb-btn" id="cat-save">Save item</button>

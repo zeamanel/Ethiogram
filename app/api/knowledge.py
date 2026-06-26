@@ -152,6 +152,14 @@ async def delete_document(
 
 _ITEM_TYPES = {t.value for t in KnowledgeItemType}
 
+# Catalog images go to the PUBLIC bucket (the storefront <img> loads them directly).
+_ALLOWED_IMG_EXT = {"jpg", "jpeg", "png", "webp", "gif"}
+_MAX_IMG_BYTES = 5 * 1024 * 1024
+
+
+class ItemImageResponse(BaseModel):
+    image_url: str
+
 
 class ItemResponse(BaseModel):
     id: str
@@ -264,6 +272,36 @@ async def list_items(
         .order_by(KnowledgeItem.created_at.desc())
     )
     return [_item_to_response(i) for i in result.scalars().all()]
+
+
+@router.post("/{business_id}/items/image", response_model=ItemImageResponse, status_code=201)
+async def upload_item_image(
+    business_id: uuid.UUID,
+    current_user: CurrentUser,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> ItemImageResponse:
+    """Upload a catalog image (e.g. a product photo) to the public bucket and
+    return its URL. The owner stores that URL in the item's data.image_url; the
+    storefront then renders it. Decoupled from item create so it works for both
+    new and existing items."""
+    await _assert_owns_business(current_user.id, business_id, db)
+
+    filename = file.filename or "image"
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext not in _ALLOWED_IMG_EXT:
+        raise ValidationError(f"Unsupported image type '.{ext}'. Allowed: {sorted(_ALLOWED_IMG_EXT)}")
+
+    data = await file.read()
+    if not data:
+        raise ValidationError("Empty file")
+    if len(data) > _MAX_IMG_BYTES:
+        raise ValidationError(f"Image exceeds {_MAX_IMG_BYTES // (1024*1024)} MB limit")
+
+    path = f"items/{business_id}/{uuid.uuid4().hex}.{ext}"
+    url = await storage_service.upload_public(data, path, content_type=file.content_type)
+    logger.info("Catalog image uploaded", business_id=str(business_id), path=path, bytes=len(data))
+    return ItemImageResponse(image_url=url)
 
 
 @router.patch("/{business_id}/items/{item_id}", response_model=ItemResponse)
