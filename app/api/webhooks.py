@@ -70,6 +70,9 @@ async def telegram_webhook(
             select(Bot)
             .where(Bot.token_hash == token_hash)
             .join(Bot.business)
+            # Suspended/deleted business → no bot match → silent drop below (the
+            # bot stops responding, IO-free; no lazy load of bot.business).
+            .where(Business.is_suspended.is_(False), Business.deleted_at.is_(None))
         )
         bot = bot_result.scalar_one_or_none()
     except Exception as exc:

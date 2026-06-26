@@ -141,6 +141,7 @@ class User(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.owner, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     language_code: Mapped[str] = mapped_column(String(8), default="en", nullable=False)
     referral_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True, nullable=True, index=True)
     referred_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)

@@ -42,7 +42,10 @@ class DocumentResponse(BaseModel):
 
 async def _assert_owns_business(user_id: uuid.UUID, business_id: uuid.UUID, db: AsyncSession) -> None:
     result = await db.execute(
-        select(Business.id).where(Business.id == business_id, Business.owner_id == user_id)
+        select(Business.id).where(
+            Business.id == business_id, Business.owner_id == user_id,
+            Business.is_suspended.is_(False), Business.deleted_at.is_(None),
+        )
     )
     if result.scalar_one_or_none() is None:
         raise NotFoundError("Business", str(business_id))

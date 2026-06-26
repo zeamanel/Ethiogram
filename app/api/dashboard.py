@@ -350,7 +350,9 @@ async def list_businesses(
 ) -> list[BusinessSummary]:
     result = await db.execute(
         select(Business)
-        .where(Business.owner_id == current_user.id)
+        .where(Business.owner_id == current_user.id,
+               Business.is_suspended.is_(False),    # suspended → hidden from owner
+               Business.deleted_at.is_(None))
         .order_by(Business.created_at.desc())
     )
     businesses = result.scalars().all()
@@ -473,10 +475,14 @@ async def list_orders(
 async def _get_owned_business(
     business_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession
 ) -> Business:
+    # Suspended / soft-deleted businesses are treated as not found for owners —
+    # this is what "suspension blocks API access" means at the owner endpoints.
     result = await db.execute(
         select(Business).where(
             Business.id == business_id,
             Business.owner_id == user_id,
+            Business.is_suspended.is_(False),
+            Business.deleted_at.is_(None),
         )
     )
     biz = result.scalar_one_or_none()

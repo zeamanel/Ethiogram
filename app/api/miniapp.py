@@ -140,7 +140,11 @@ def _content(business: Business, bot: Optional[Bot], cfg: Optional[MiniAppConfig
 
 async def _build_payload(slug: str, db: AsyncSession) -> Optional[dict]:
     business = (await db.execute(
-        select(Business).where(Business.slug == slug, Business.deleted_at.is_(None))
+        select(Business).where(
+            Business.slug == slug,
+            Business.deleted_at.is_(None),
+            Business.is_suspended.is_(False),   # suspended → public store/site goes dark
+        )
     )).scalar_one_or_none()
     if business is None:
         return None

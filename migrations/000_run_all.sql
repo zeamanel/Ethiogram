@@ -48,4 +48,7 @@
 \echo '==> 013_usage_events_uuid_realignment.sql'
 \i migrations/013_usage_events_uuid_realignment.sql
 
+\echo '==> 014_user_is_admin.sql'
+\i migrations/014_user_is_admin.sql
+
 \echo '==> All migrations applied successfully.'

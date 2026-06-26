@@ -53,5 +53,17 @@ async def get_current_admin(
     return user
 
 
+async def get_current_admin_user(
+    user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    """Admin gate for the Mini App admin dashboard — a logged-in user whose
+    is_admin flag is set (or legacy role='admin'). No server secret header, so
+    the Telegram-authenticated admin can use it directly."""
+    if not (getattr(user, "is_admin", False) or user.role == UserRole.admin):
+        raise AdminRequiredError()
+    return user
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentAdmin = Annotated[User, Depends(get_current_admin)]
+CurrentAdminUser = Annotated[User, Depends(get_current_admin_user)]

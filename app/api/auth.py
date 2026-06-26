@@ -83,6 +83,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user_id: str
     role: str
+    is_admin: bool = False
 
 
 class UserResponse(BaseModel):
@@ -312,6 +313,7 @@ async def miniapp_login(
         refresh_token=refresh,
         user_id=str(user.id),
         role=user.role.value,
+        is_admin=bool(getattr(user, "is_admin", False) or user.role == UserRole.admin),
     )
 
 

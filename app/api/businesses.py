@@ -147,8 +147,12 @@ class BrainConfigUpdate(BaseModel):
 
 
 async def _get_owned_business(business_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession) -> Business:
+    # Suspended / deleted businesses are not accessible to their owner.
     result = await db.execute(
-        select(Business).where(Business.id == business_id, Business.owner_id == user_id)
+        select(Business).where(
+            Business.id == business_id, Business.owner_id == user_id,
+            Business.is_suspended.is_(False), Business.deleted_at.is_(None),
+        )
     )
     business = result.scalar_one_or_none()
     if business is None:

@@ -568,6 +568,8 @@ async def _assert_owns_business(
         select(Business.id).where(
             Business.id == business_id,
             Business.owner_id == user_id,
+            Business.is_suspended.is_(False),
+            Business.deleted_at.is_(None),
         )
     )
     if result.scalar_one_or_none() is None:
