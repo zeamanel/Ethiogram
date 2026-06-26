@@ -119,6 +119,11 @@
 
     <div class="gap"></div>
 
+    <div class="sec-head"><div class="sec-title">Website</div><div class="sec-link" id="web-customize" style="cursor:pointer">Customize →</div></div>
+    <div class="lcard" id="website-card"></div>
+
+    <div class="gap"></div>
+
     <div class="sec-head"><div class="sec-title">Active Agents</div><div class="sec-link" id="agents-browse-link" style="cursor:pointer">＋ Add agent</div></div>
     <div class="lcard" id="agents"></div>
 
@@ -352,6 +357,52 @@
 
       <div class="err-inline hidden" id="se-err"></div>
       <div class="wiz-actions"><button class="onb-btn" id="se-save">Save changes</button></div>
+    </div>
+  </div>
+
+  <!-- WEBSITE EDITOR (SEO landing page config) -->
+  <div id="website-editor" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="we-back">‹ Back</button>
+      <div class="mgr-title">Website</div>
+      <button class="mgr-refresh" id="we-view" title="View website">↗</button>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Your public, search-friendly website. Share the link or connect a domain.</div>
+
+      <div class="ag-toggle-row">
+        <div><div class="ag-toggle-label">Published</div>
+          <div class="mgr-note" style="text-align:left;margin:0">Let search engines list your site.</div></div>
+        <label class="switch"><input type="checkbox" id="we-published"><span class="slider"></span></label>
+      </div>
+
+      <div id="we-publish-info" class="se-publish-info hidden">
+        <div class="field" style="margin-top:0"><label for="we-url">Your website</label>
+          <div class="copy-row"><input id="we-url" type="text" readonly>
+            <button class="copy-btn" id="we-copy">Copy</button></div></div>
+        <div class="mgr-note" style="text-align:left">Submit this link to <b>Google Search Console</b> to get indexed faster.</div>
+      </div>
+
+      <div class="field"><label for="we-title">SEO title <span style="color:var(--text-3)">(≤70 chars)</span></label>
+        <input id="we-title" type="text" maxlength="70" placeholder="Acme — Best Shop in Addis Ababa"></div>
+      <div class="field"><label for="we-meta">Meta description <span style="color:var(--text-3)">(≤160 chars)</span></label>
+        <textarea id="we-meta" rows="2" maxlength="160" placeholder="Shows under your title in Google results."></textarea></div>
+      <div class="field"><label for="we-headline">Hero headline</label>
+        <input id="we-headline" type="text" maxlength="255" placeholder="Traditional &amp; modern fashion, delivered."></div>
+      <div class="field"><label for="we-sub">Hero subheadline <span style="color:var(--text-3)">(optional)</span></label>
+        <textarea id="we-sub" rows="2" maxlength="512" placeholder="One line about what you offer."></textarea></div>
+      <div class="field"><label for="we-keywords">Keywords <span style="color:var(--text-3)">(comma-separated)</span></label>
+        <input id="we-keywords" type="text" placeholder="addis fashion, habesha dress"></div>
+      <div class="field"><label>Social image <span style="color:var(--text-3)">(shown when shared)</span></label>
+        <input type="file" id="we-og-file" accept="image/png,image/jpeg,image/webp" style="display:none">
+        <div class="cat-image-row">
+          <div class="cat-image-preview" id="we-og-preview"></div>
+          <button type="button" class="onb-btn-ghost" id="we-og-btn">Upload image</button>
+          <button type="button" class="cat-image-remove hidden" id="we-og-remove">Remove</button>
+        </div></div>
+
+      <div class="err-inline hidden" id="we-err"></div>
+      <div class="wiz-actions"><button class="onb-btn" id="we-save">Save changes</button></div>
     </div>
   </div>
 

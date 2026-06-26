@@ -658,6 +658,85 @@
     };
   }
 
+  // ---- Website editor (SEO landing page config) ----
+  async function openWebsite(bizId) {
+    hide("dashboard"); show("website-editor");
+    $("we-back").onclick = () => { hide("website-editor"); show("dashboard"); };
+    hide("we-err");
+
+    let cfg;
+    try { cfg = await Eth.get(`/businesses/${bizId}/website`); }
+    catch (e) { return showErr("we-err", "Couldn't load your website settings."); }
+
+    const fullUrl = location.origin + cfg.website_url;
+    $("we-view").onclick = () => {
+      if (Eth.tg && Eth.tg.openLink) Eth.tg.openLink(fullUrl); else window.open(fullUrl, "_blank");
+    };
+    $("we-url").value = fullUrl;
+    const togglePub = () => $("we-publish-info").classList.toggle("hidden", !$("we-published").checked);
+    $("we-published").checked = !!cfg.is_published;
+    $("we-published").onchange = togglePub;
+    togglePub();
+    $("we-copy").onclick = async () => {
+      try { await navigator.clipboard.writeText(fullUrl); $("we-copy").textContent = "Copied ✓"; }
+      catch (e) { $("we-url").select(); try { document.execCommand("copy"); $("we-copy").textContent = "Copied ✓"; } catch (e2) {} }
+      setTimeout(() => { $("we-copy").textContent = "Copy"; }, 1600);
+    };
+
+    $("we-title").value = cfg.title || "";
+    $("we-meta").value = cfg.meta_description || "";
+    $("we-headline").value = cfg.hero_headline || "";
+    $("we-sub").value = cfg.hero_subheadline || "";
+    $("we-keywords").value = (cfg.seo_keywords || []).join(", ");
+
+    let ogUrl = cfg.og_image_url || null;
+    const renderOg = () => {
+      const prev = $("we-og-preview");
+      if (ogUrl) {
+        prev.innerHTML = `<img src="${esc(ogUrl)}" alt="">`;
+        $("we-og-btn").textContent = "Replace image";
+        $("we-og-remove").classList.remove("hidden");
+      } else {
+        prev.innerHTML = ""; $("we-og-btn").textContent = "Upload image";
+        $("we-og-remove").classList.add("hidden");
+      }
+    };
+    renderOg();
+    $("we-og-btn").onclick = () => $("we-og-file").click();
+    $("we-og-remove").onclick = () => { ogUrl = null; $("we-og-file").value = ""; renderOg(); };
+    $("we-og-file").onchange = async () => {
+      const file = $("we-og-file").files[0];
+      if (!file) return;
+      hide("we-err");
+      if (file.size > 5 * 1024 * 1024) { $("we-og-file").value = ""; return showErr("we-err", "Image is over the 5 MB limit."); }
+      setBtn("we-og-btn", true, "Uploading…");
+      try { const res = await Eth.upload(`/knowledge/${bizId}/items/image`, file); ogUrl = res.image_url; }
+      catch (e) { showErr("we-err", e.detail || "Couldn't upload the image."); }
+      finally { $("we-og-btn").disabled = false; renderOg(); }
+    };
+
+    $("we-save").onclick = async () => {
+      hide("we-err");
+      const body = {
+        is_published: $("we-published").checked,
+        title: $("we-title").value.trim(),
+        meta_description: $("we-meta").value.trim(),
+        hero_headline: $("we-headline").value.trim(),
+        hero_subheadline: $("we-sub").value.trim(),
+        seo_keywords: $("we-keywords").value.split(",").map(s => s.trim()).filter(Boolean),
+        og_image_url: ogUrl,
+      };
+      setBtn("we-save", true, "Saving…");
+      try {
+        await Eth.patch(`/businesses/${bizId}/website`, body);
+        hide("website-editor"); show("dashboard");
+      } catch (e) {
+        showErr("we-err", e.detail || "Couldn't save your website.");
+        setBtn("we-save", false, "Save changes");
+      }
+    };
+  }
+
   async function loadDocs(bizId) {
     let docs = [];
     try { docs = await Eth.get(`/knowledge/${bizId}/documents`); } catch (e) { /* show empty */ }
@@ -742,6 +821,15 @@
       <span class="lchev">›</span></div>`;
     $("sf-row").onclick = () => openStorefront(b.id);
     $("store-customize").onclick = () => openStorefront(b.id);
+
+    // website (SEO landing) entry
+    $("website-card").innerHTML = `<div class="litem" id="web-row" style="cursor:pointer">
+      <div class="lic ic-blue">🌐</div>
+      <div class="linfo"><div class="lname">Your website</div>
+        <div class="lmeta">SEO title, description &amp; publish</div></div>
+      <span class="lchev">›</span></div>`;
+    $("web-row").onclick = () => openWebsite(b.id);
+    $("web-customize").onclick = () => openWebsite(b.id);
 
     // active agents — each row opens the manage view (pause/rename/config)
     const agents = ov.active_agents || [];

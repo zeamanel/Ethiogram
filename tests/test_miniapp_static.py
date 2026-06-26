@@ -110,6 +110,17 @@ async def test_storefront_editor_present(client):
 
 
 @pytest.mark.asyncio
+async def test_website_editor_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="website-editor"' in html and 'id="we-title"' in html       # view + SEO title
+    assert 'id="we-meta"' in html and 'id="we-og-file"' in html            # meta + OG image
+    assert 'id="web-customize"' in html                                    # dashboard entry
+    js = (await client.get("/app/owner/app.js")).text
+    assert "openWebsite" in js and "/website" in js                        # GET/PATCH wired
+    assert "seo_keywords" in js                                            # keywords serialized
+
+
+@pytest.mark.asyncio
 async def test_app_responses_are_no_cache(client):
     # redeploys should not be masked by Telegram's asset cache
     resp = await client.get("/app/owner/app.js")
