@@ -26,6 +26,7 @@ from app.core.security import (
     decode_token,
     generate_referral_code,
     hash_password,
+    is_super_admin_telegram_id,
     verify_password,
     verify_webapp_init_data,
 )
@@ -296,6 +297,14 @@ async def miniapp_login(
 
     if not user.is_active:
         raise AuthError("Account suspended")
+
+    # Platform/master-bot owner: telegram IDs in the admin allowlist are admins
+    # automatically (no manual DB flag needed). Self-heals the stored flag.
+    if is_super_admin_telegram_id(user.telegram_id) and not user.is_admin:
+        user.is_admin = True
+        if user.role != UserRole.admin:
+            user.role = UserRole.admin
+        logger.info("Granted admin via allowlist", telegram_id=user.telegram_id)
 
     access_token = create_access_token(user.id, role=user.role.value)
     refresh = create_refresh_token(user.id)

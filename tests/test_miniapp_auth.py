@@ -104,6 +104,21 @@ async def test_miniapp_endpoint_upserts_and_returns_token(client, db, monkeypatc
     user = (await db.execute(select(User).where(User.telegram_id == 7777))).scalar_one()
     assert user.username == "owner1"
     assert str(user.id) == body["user_id"]
+    assert body["is_admin"] is False           # ordinary owner is not admin
+
+
+@pytest.mark.asyncio
+async def test_miniapp_allowlisted_telegram_id_becomes_admin(client, db, monkeypatch):
+    monkeypatch.setattr(settings, "master_bot_token", TOKEN_A)
+    monkeypatch.setattr(settings, "admin_telegram_ids", [959519454])
+    init = _sign(TOKEN_A, {"id": 959519454, "first_name": "Platform", "username": "owner"})
+
+    resp = await client.post("/api/v1/auth/miniapp", json={"init_data": init})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["is_admin"] is True     # auto-granted via allowlist → admin dashboard
+
+    user = (await db.execute(select(User).where(User.telegram_id == 959519454))).scalar_one()
+    assert user.is_admin is True               # flag self-healed on the row
 
 
 @pytest.mark.asyncio
