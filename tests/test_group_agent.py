@@ -101,3 +101,17 @@ async def test_seeded_community_assistant_persists_free_model(db):
     await _upsert_agent(db, profile, ca)
     row = (await db.execute(select(Agent).where(Agent.name == "Community Assistant"))).scalar_one()
     assert row.preferred_model_id == "meta-llama/llama-3.3-70b-instruct:free"
+
+
+@pytest.mark.asyncio
+async def test_agent_seeds_even_if_model_missing(db):
+    """If the model catalog row is absent, the agent is still created (visible),
+    just without the preferred model — never FK-fail and hide the agent."""
+    from app.db.models import Agent
+    from workers.seed_agents import SEED_AGENTS, _ensure_publisher, _upsert_agent
+    profile = await _ensure_publisher(db)        # NOTE: models NOT seeded
+    ca = next(s for s in SEED_AGENTS if s["name"] == "Community Assistant")
+    await _upsert_agent(db, profile, ca)
+    row = (await db.execute(select(Agent).where(Agent.name == "Community Assistant"))).scalar_one()
+    assert row.preferred_model_id is None        # gracefully dropped
+    assert row.status.value == "live"            # but live + visible

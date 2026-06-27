@@ -188,7 +188,16 @@ async def _ensure_publisher(db) -> CreatorProfile:
 
 async def _upsert_agent(db, profile: CreatorProfile, spec: dict) -> str:
     """Insert the agent, or update the existing row matched by name (idempotent)."""
+    from app.db.models import AiModel
     encrypted, key_ref = encrypt_agent_prompt(spec["system_prompt"], "seed")
+
+    # Only attach a preferred model that actually exists in the catalog — never
+    # let a missing model FK-fail (and hide) the whole agent.
+    pref = spec.get("preferred_model_id")
+    if pref is not None and await db.scalar(select(AiModel.id).where(AiModel.model_id == pref)) is None:
+        logger.warning("Preferred model not in catalog — seeding agent without it",
+                       name=spec["name"], model_id=pref)
+        pref = None
     existing = (await db.execute(
         select(Agent).where(
             Agent.creator_id == profile.id, Agent.name == spec["name"]
@@ -209,7 +218,7 @@ async def _upsert_agent(db, profile: CreatorProfile, spec: dict) -> str:
             child_schema=spec["child_schema"],
             setup_guide=spec["setup_guide"],
             price_etg=spec["price_etg"],
-            preferred_model_id=spec.get("preferred_model_id"),
+            preferred_model_id=pref,
             status=AgentStatus.live,
         )
         db.add(agent)
@@ -231,8 +240,8 @@ async def _upsert_agent(db, profile: CreatorProfile, spec: dict) -> str:
     if existing.status != AgentStatus.live:
         existing.status = AgentStatus.live
     # Seed the initial model but never clobber an admin's choice on re-seed.
-    if existing.preferred_model_id is None and spec.get("preferred_model_id"):
-        existing.preferred_model_id = spec["preferred_model_id"]
+    if existing.preferred_model_id is None and pref:
+        existing.preferred_model_id = pref
     logger.info("Updated existing agent", name=spec["name"], agent_id=str(existing.id))
     return "updated"
 
@@ -284,6 +293,10 @@ async def seed() -> dict:
         for spec in SEED_MODELS:
             if await _upsert_model(db, spec) == "created":
                 summary["models"] += 1
+        # Persist models BEFORE any agent insert: Agent.preferred_model_id FKs to
+        # ai_models, and Postgres enforces it. Without this flush a re-seed could
+        # FK-violate and roll back the whole transaction (new agent never lands).
+        await db.flush()
         profile = await _ensure_publisher(db)
         for spec in SEED_AGENTS:
             result = await _upsert_agent(db, profile, spec)
