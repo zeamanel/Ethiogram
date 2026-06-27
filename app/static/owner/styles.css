@@ -183,6 +183,9 @@ body {
 .adm-toolbar input:focus { border-color:var(--amber); }
 .adm-toolbar select { font-size:13px; font-family:inherit; padding:10px 12px; border:1px solid var(--line);
   border-radius:11px; background:var(--card); color:var(--text); outline:none; }
+.adm-model-select { flex-shrink:0; max-width:150px; font-size:12px; font-family:inherit; padding:7px 9px;
+  border:1px solid var(--line); border-radius:9px; background:var(--card); color:var(--text); outline:none; }
+.adm-model-select:focus { border-color:var(--amber); }
 .adm-act { background:var(--amber-soft); color:var(--amber-deep); border:none; border-radius:9px;
   font-size:12px; font-weight:600; padding:6px 11px; cursor:pointer; flex-shrink:0; }
 .adm-act:disabled { opacity:.5; cursor:default; }

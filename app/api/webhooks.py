@@ -437,6 +437,9 @@ async def _load_child_data(business_id: str, agent_type: str, db: AsyncSession) 
             except Exception as exc:
                 logger.error("Failed to decrypt child_secrets",
                              child_agent_id=str(child.id), error=str(exc))
+        # The father agent's admin-set model (Agent.preferred_model_id) — read
+        # fresh per message, so an admin change takes effect on the next reply.
+        data["_father_model_id"] = father.preferred_model_id
         return data
     return None
 
@@ -609,7 +612,9 @@ async def _process_message(
     logger.info("Routing message to agent", intent=intent, agent=agent.agent_name,
                 business_id=envelope.business_id, child_data=bool(child_data))
 
-    # 3. Run the agent (RAG + model failover happen inside process()).
+    # 3. Run the agent (RAG + model failover happen inside process()). The
+    # father agent's admin-set model (if any) is applied here.
+    agent_model_id = (child_data or {}).get("_father_model_id")
     try:
         result = await agent.process(
             envelope=envelope,
@@ -617,6 +622,7 @@ async def _process_message(
             brain_config=brain_config,
             child_data=child_data,
             db=db,
+            agent_model_id=agent_model_id,
         )
         logger.info("Agent returned reply", business_id=envelope.business_id,
                     agent=agent.agent_name, model_id=result.model_id,

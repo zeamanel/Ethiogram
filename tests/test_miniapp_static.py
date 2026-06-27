@@ -147,6 +147,9 @@ async def test_admin_dashboard_present(client):
     assert "bootAdmin" in js and "/admin/stats" in js                       # admin boot + stats
     assert "auth.is_admin" in js                                            # branch on admin
     assert "/admin/businesses/" in js and "/admin/users/" in js             # suspend/delete + admin toggle
+    # agents tab: set a father agent's model
+    assert 'data-tab="agents"' in html and 'id="adm-agents-list"' in html
+    assert "loadAdminAgents" in js and "/admin/agents/" in js and "/admin/models" in js
 
 
 @pytest.mark.asyncio

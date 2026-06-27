@@ -1119,12 +1119,43 @@
   }
 
   function switchAdminTab(tab) {
-    ["overview", "businesses", "users", "system"].forEach(t =>
+    ["overview", "businesses", "users", "agents", "system"].forEach(t =>
       $("adm-" + t).classList.toggle("hidden", t !== tab));
     document.querySelectorAll(".adm-tab").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
     if (tab === "businesses") loadAdminBusinesses();
     else if (tab === "users") loadAdminUsers();
+    else if (tab === "agents") loadAdminAgents();
     else if (tab === "system") loadAdminSystem();
+  }
+
+  let ADMIN_MODELS = null;
+  async function loadAdminAgents() {
+    $("adm-agents-list").innerHTML = `<div class="lempty">Loading…</div>`;
+    let agents, models;
+    try {
+      [agents, models] = await Promise.all([
+        Eth.get("/admin/agents"),
+        ADMIN_MODELS ? Promise.resolve(ADMIN_MODELS) : Eth.get("/admin/models"),
+      ]);
+    } catch (e) { $("adm-agents-list").innerHTML = empty("Couldn't load agents."); return; }
+    ADMIN_MODELS = models;
+    if (!agents.length) { $("adm-agents-list").innerHTML = empty("No marketplace agents yet."); return; }
+    const options = (cur) => `<option value="">Platform default</option>` +
+      models.map(m => `<option value="${esc(m.model_id)}"${m.model_id === cur ? " selected" : ""}>${esc(m.display_name)}</option>`).join("");
+    $("adm-agents-list").innerHTML = agents.map(a => `<div class="litem">
+      <div class="lic ic-blue">🧩</div>
+      <div class="linfo"><div class="lname">${esc(a.name)}</div>
+        <div class="lmeta">${esc(a.category)} · ${fmt(a.deployments)} deployed</div></div>
+      <select class="adm-model-select" data-agent="${esc(a.id)}">${options(a.preferred_model_id)}</select></div>`).join("");
+    $("adm-agents-list").querySelectorAll(".adm-model-select").forEach(sel => {
+      const prev = sel.value;
+      sel.onchange = async () => {
+        sel.disabled = true;
+        try { await Eth.patch(`/admin/agents/${sel.dataset.agent}/model`, { model_id: sel.value || null }); }
+        catch (e) { sel.value = prev; notify(e.detail || "Couldn't change the model."); }
+        finally { sel.disabled = false; }
+      };
+    });
   }
 
   async function loadAdminStats() {

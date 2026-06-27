@@ -160,3 +160,83 @@ async def test_system_status(client, db, admin, admin_hdr, mock_redis):
     assert body["database"]["status"] == "ok"
     assert body["redis"]["status"] in ("ok", "degraded")
     assert "embedding_backlog" in body["workers"]
+
+
+# ── agent model management ────────────────────────────────────────────────────
+
+async def _father(db, *, name="Booking Concierge", model=None):
+    from app.core.security import encrypt_agent_prompt
+    from app.db.models import Agent, AgentStatus
+    enc, kr = encrypt_agent_prompt("p", str(uuid.uuid4()))
+    a = Agent(id=uuid.uuid4(), creator_id=uuid.uuid4(), name=name, tagline="t",
+              description="d", category="Concierge", tags=[], capabilities=[],
+              encrypted_system_prompt=enc, encryption_key_ref=kr, price_etg=0,
+              status=AgentStatus.live, preferred_model_id=model)
+    db.add(a)
+    await db.flush()
+    return a
+
+
+async def _model(db, model_id="anthropic/claude-3.5-haiku"):
+    from app.db.models import AiModel, ModelProvider, ModelTier
+    db.add(AiModel(id=uuid.uuid4(), model_id=model_id, display_name="Claude 3.5 Haiku",
+                   provider=ModelProvider.anthropic, tier=ModelTier.standard, is_enabled=True))
+    await db.flush()
+
+
+@pytest.mark.asyncio
+async def test_list_models(client, db, admin, admin_hdr):
+    await _model(db, "openai/gpt-4o-mini")
+    await _model(db, "anthropic/claude-3.5-haiku")
+    res = (await client.get("/api/v1/admin/models", headers=admin_hdr)).json()
+    ids = {m["model_id"] for m in res}
+    assert {"openai/gpt-4o-mini", "anthropic/claude-3.5-haiku"} <= ids
+
+
+@pytest.mark.asyncio
+async def test_list_agents_with_model(client, db, admin, admin_hdr):
+    from app.db.models import ChildAgent
+    a = await _father(db, model="openai/gpt-4o-mini")
+    db.add(ChildAgent(id=uuid.uuid4(), agent_id=a.id, business_id=uuid.uuid4(),
+                      child_data={}, is_active=True))
+    await db.flush()
+    res = (await client.get("/api/v1/admin/agents", headers=admin_hdr)).json()
+    row = next(r for r in res if r["id"] == str(a.id))
+    assert row["preferred_model_id"] == "openai/gpt-4o-mini"
+    assert row["deployments"] == 1
+
+
+@pytest.mark.asyncio
+async def test_set_agent_model(client, db, admin, admin_hdr):
+    a = await _father(db, model=None)
+    await _model(db, "anthropic/claude-3.5-haiku")
+
+    resp = await client.patch(f"/api/v1/admin/agents/{a.id}/model",
+                              json={"model_id": "anthropic/claude-3.5-haiku"}, headers=admin_hdr)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["preferred_model_id"] == "anthropic/claude-3.5-haiku"
+    await db.refresh(a)
+    assert a.preferred_model_id == "anthropic/claude-3.5-haiku"
+
+    # clearing
+    cleared = await client.patch(f"/api/v1/admin/agents/{a.id}/model",
+                                 json={"model_id": None}, headers=admin_hdr)
+    assert cleared.json()["preferred_model_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_set_agent_model_rejects_unknown(client, db, admin, admin_hdr):
+    a = await _father(db)
+    resp = await client.patch(f"/api/v1/admin/agents/{a.id}/model",
+                              json={"model_id": "totally/made-up"}, headers=admin_hdr)
+    assert resp.status_code in (400, 422)
+
+
+@pytest.mark.asyncio
+async def test_set_agent_model_requires_admin(client, db, sample_user_id, valid_access_token):
+    db.add(User(id=sample_user_id, role=UserRole.owner, is_active=True))
+    a = await _father(db)
+    resp = await client.patch(f"/api/v1/admin/agents/{a.id}/model",
+                              json={"model_id": None},
+                              headers={"Authorization": f"Bearer {valid_access_token}"})
+    assert resp.status_code == 403

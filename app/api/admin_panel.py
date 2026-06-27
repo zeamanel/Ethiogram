@@ -18,6 +18,8 @@ from app.core.exceptions import NotFoundError, ValidationError
 from app.core.logging import get_logger
 from app.db.models import (
     AdminAuditLog,
+    Agent,
+    AiModel,
     Bot,
     Business,
     ChildAgent,
@@ -323,3 +325,92 @@ async def system_status(
         "status": "ok" if pending < 50 else "backlogged",
     }
     return SystemStatus(database=database, redis=redis_st, storage=storage, workers=workers)
+
+
+# ── agent model management (admin sets the model for a father agent) ──────────
+
+class ModelOption(BaseModel):
+    model_id: str
+    display_name: str
+    tier: str
+
+
+@router.get("/models", response_model=list[ModelOption])
+async def list_models(current_admin: CurrentAdminUser, db: AsyncSession = Depends(get_db)) -> list[ModelOption]:
+    """The model catalog admins can assign to father agents (enabled models)."""
+    rows = (await db.execute(
+        select(AiModel).where(AiModel.is_enabled.is_(True)).order_by(AiModel.display_name)
+    )).scalars().all()
+    return [ModelOption(
+        model_id=m.model_id, display_name=m.display_name,
+        tier=m.tier.value if hasattr(m.tier, "value") else str(m.tier),
+    ) for m in rows]
+
+
+class AdminAgentRow(BaseModel):
+    id: str
+    name: str
+    category: str
+    status: str
+    preferred_model_id: Optional[str]
+    deployments: int
+    total_unlocks: int
+
+
+@router.get("/agents", response_model=list[AdminAgentRow])
+async def list_agents(
+    current_admin: CurrentAdminUser,
+    search: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> list[AdminAgentRow]:
+    """All father (marketplace) agents with their current model + deployment count."""
+    deployments = (select(func.count(ChildAgent.id))
+                   .where(ChildAgent.agent_id == Agent.id).correlate(Agent).scalar_subquery())
+    stmt = select(Agent, deployments.label("dc"))
+    if search:
+        stmt = stmt.where(Agent.name.ilike(f"%{search}%"))
+    rows = (await db.execute(stmt.order_by(Agent.name))).all()
+    return [AdminAgentRow(
+        id=str(a.id), name=a.name, category=a.category,
+        status=a.status.value if hasattr(a.status, "value") else str(a.status),
+        preferred_model_id=a.preferred_model_id, deployments=dc or 0,
+        total_unlocks=a.total_unlocks or 0,
+    ) for (a, dc) in rows]
+
+
+class SetAgentModelRequest(BaseModel):
+    model_id: Optional[str] = None      # None clears it (agent falls back to platform default)
+
+
+@router.patch("/agents/{agent_id}/model", response_model=AdminAgentRow)
+async def set_agent_model(
+    agent_id: uuid.UUID,
+    body: SetAgentModelRequest,
+    current_admin: CurrentAdminUser,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> AdminAgentRow:
+    """Set (or clear) the model a father agent runs on. Takes effect on every
+    deploying business's next message — the model is read fresh per reply."""
+    agent = (await db.execute(select(Agent).where(Agent.id == agent_id))).scalar_one_or_none()
+    if agent is None:
+        raise NotFoundError("Agent", str(agent_id))
+    if body.model_id is not None:
+        ok = await db.scalar(select(AiModel.id).where(
+            AiModel.model_id == body.model_id, AiModel.is_enabled.is_(True)))
+        if ok is None:
+            raise ValidationError(f"Unknown or disabled model: {body.model_id}")
+    old = agent.preferred_model_id
+    agent.preferred_model_id = body.model_id
+    await _audit(db, current_admin, "agent.set_model", "agent", agent_id,
+                 {"model_id": old}, {"model_id": body.model_id}, request)
+    logger.info("Agent model changed", agent_id=str(agent_id),
+                old=old, new=body.model_id, admin_id=str(current_admin.id))
+    deployments = await db.scalar(
+        select(func.count(ChildAgent.id)).where(ChildAgent.agent_id == agent_id)) or 0
+    return AdminAgentRow(
+        id=str(agent.id), name=agent.name, category=agent.category,
+        status=agent.status.value if hasattr(agent.status, "value") else str(agent.status),
+        preferred_model_id=agent.preferred_model_id, deployments=deployments,
+        total_unlocks=agent.total_unlocks or 0,
+    )

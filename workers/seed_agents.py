@@ -205,14 +205,54 @@ async def _upsert_agent(db, profile: CreatorProfile, spec: dict) -> str:
     return "updated"
 
 
+# The model catalog (ai_models). Agent.preferred_model_id FKs to it, so these
+# must exist before an admin can assign a model to a father agent. model_id
+# values match what the model router/OpenRouter use.
+SEED_MODELS = [
+    {"model_id": "openai/gpt-4o-mini", "display_name": "GPT-4o mini",
+     "provider": "openai", "tier": "economy", "is_default": True},
+    {"model_id": "openai/gpt-4o", "display_name": "GPT-4o",
+     "provider": "openai", "tier": "premium"},
+    {"model_id": "anthropic/claude-3.5-haiku", "display_name": "Claude 3.5 Haiku",
+     "provider": "anthropic", "tier": "standard", "is_fallback": True},
+    {"model_id": "anthropic/claude-3.5-sonnet", "display_name": "Claude 3.5 Sonnet",
+     "provider": "anthropic", "tier": "premium"},
+    {"model_id": "google/gemini-2.0-flash-001", "display_name": "Gemini 2.0 Flash",
+     "provider": "google", "tier": "standard"},
+    {"model_id": "meta-llama/llama-3.1-8b-instruct", "display_name": "Llama 3.1 8B",
+     "provider": "meta", "tier": "economy", "is_emergency": True},
+]
+
+
+async def _upsert_model(db, spec: dict) -> str:
+    from app.db.models import AiModel, ModelProvider, ModelTier
+    existing = (await db.execute(
+        select(AiModel).where(AiModel.model_id == spec["model_id"])
+    )).scalar_one_or_none()
+    if existing is not None:
+        return "skipped"
+    db.add(AiModel(
+        model_id=spec["model_id"], display_name=spec["display_name"],
+        provider=ModelProvider(spec["provider"]), tier=ModelTier(spec["tier"]),
+        is_default=spec.get("is_default", False),
+        is_fallback=spec.get("is_fallback", False),
+        is_emergency=spec.get("is_emergency", False),
+    ))
+    logger.info("Seeded model", model_id=spec["model_id"])
+    return "created"
+
+
 async def seed() -> dict:
-    summary = {"created": 0, "updated": 0}
+    summary = {"created": 0, "updated": 0, "models": 0}
     async with get_db_context() as db:        # commits on clean exit
+        for spec in SEED_MODELS:
+            if await _upsert_model(db, spec) == "created":
+                summary["models"] += 1
         profile = await _ensure_publisher(db)
         for spec in SEED_AGENTS:
             result = await _upsert_agent(db, profile, spec)
             summary[result] += 1
-    logger.info("Agent seeding complete", **summary)
+    logger.info("Seeding complete", **summary)
     return summary
 
 
@@ -220,7 +260,8 @@ async def main() -> None:
     await connect_db()
     try:
         summary = await seed()
-        print(f"Seeded agents — created={summary['created']} updated={summary['updated']}")
+        print(f"Seeded — agents created={summary['created']} updated={summary['updated']} "
+              f"models={summary['models']}")
     finally:
         await disconnect_db()
 

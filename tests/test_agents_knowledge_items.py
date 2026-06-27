@@ -111,6 +111,34 @@ async def test_process_injects_catalog_into_system_prompt(db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_process_forwards_agent_model_id(db, monkeypatch):
+    """The admin-set father model reaches the model router via process()."""
+    conv = Conversation(id=uuid.uuid4(), business_id=uuid.uuid4(), bot_id=uuid.uuid4(),
+                        customer_platform_id="1")
+    captured = {}
+
+    async def _no_search(**k):
+        return []
+
+    async def _items(*a, **k):
+        return []
+
+    async def _fake_model(**kwargs):
+        captured["agent_model_id"] = kwargs.get("agent_model_id")
+        return "ok", {"input_tokens": 1, "output_tokens": 1}, "test-model"
+
+    monkeypatch.setattr(rag_mod.rag_service, "search", _no_search)
+    monkeypatch.setattr(rag_mod.rag_service, "get_knowledge_items", _items)
+    monkeypatch.setattr("app.services.model_router.model_router.execute_with_fallback", _fake_model)
+
+    await base_agent.process(
+        envelope=_envelope("hi"), conversation=conv, brain_config=None,
+        child_data=None, db=db, agent_model_id="anthropic/claude-3.5-haiku",
+    )
+    assert captured["agent_model_id"] == "anthropic/claude-3.5-haiku"
+
+
+@pytest.mark.asyncio
 async def test_process_without_brain_config_skips_catalog(db, monkeypatch):
     conv = Conversation(
         id=uuid.uuid4(), business_id=uuid.uuid4(), bot_id=uuid.uuid4(),

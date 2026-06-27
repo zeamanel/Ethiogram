@@ -79,3 +79,22 @@ def test_concierge_secret_fields_match_calendar_creds():
     concierge = next(s for s in SEED_AGENTS if s["name"] == "Booking Concierge")
     secret_keys = {f["key"] for f in concierge["child_schema"]["secret_fields"]}
     assert secret_keys == {"calendar_id", "credentials_json"}
+
+
+@pytest.mark.asyncio
+async def test_seed_models_is_idempotent(db):
+    from app.db.models import AiModel
+    from workers.seed_agents import SEED_MODELS, _upsert_model
+    assert await _upsert_model(db, SEED_MODELS[0]) == "created"
+    assert await _upsert_model(db, SEED_MODELS[0]) == "skipped"   # already there
+    rows = (await db.execute(select(AiModel).where(
+        AiModel.model_id == SEED_MODELS[0]["model_id"]))).scalars().all()
+    assert len(rows) == 1
+
+
+def test_seed_models_cover_router_defaults():
+    # The catalog must include the models the router uses, or admins can't pick them.
+    from workers.seed_agents import SEED_MODELS
+    ids = {m["model_id"] for m in SEED_MODELS}
+    assert {"openai/gpt-4o-mini", "anthropic/claude-3.5-haiku",
+            "meta-llama/llama-3.1-8b-instruct"} <= ids

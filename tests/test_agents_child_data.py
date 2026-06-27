@@ -33,13 +33,14 @@ def test_agent_type_for_mapping():
     assert _agent_type_for(_FakeFather(category="general qa")) == "BaseAgent"
 
 
-async def _deploy_agent(db, business_id, *, category, child_data, prompt, secrets=None):
+async def _deploy_agent(db, business_id, *, category, child_data, prompt, secrets=None,
+                        preferred_model_id=None):
     enc, key_ref = encrypt_agent_prompt(prompt, str(uuid.uuid4()))
     father = Agent(
         creator_id=uuid.uuid4(), name="A", tagline="t", description="d",
         category=category, tags=[], capabilities=[],
         encrypted_system_prompt=enc, encryption_key_ref=key_ref,
-        price_etg=100, status=AgentStatus.live,
+        price_etg=100, status=AgentStatus.live, preferred_model_id=preferred_model_id,
     )
     db.add(father)
     await db.flush()
@@ -70,6 +71,16 @@ async def test_load_child_data_returns_config_and_father_prompt(db):
 
     # A type the business hasn't deployed → None (agent uses generic behaviour).
     assert await _load_child_data(str(biz), "AccountantAgent", db) is None
+
+
+@pytest.mark.asyncio
+async def test_load_child_data_surfaces_father_model(db):
+    """The admin-set father model flows to the runtime via _father_model_id."""
+    biz = uuid.uuid4()
+    await _deploy_agent(db, biz, category="concierge", child_data={"services": "X"},
+                        prompt="p", preferred_model_id="anthropic/claude-3.5-haiku")
+    data = await _load_child_data(str(biz), "ConciergeAgent", db)
+    assert data["_father_model_id"] == "anthropic/claude-3.5-haiku"
 
 
 @pytest.mark.asyncio
