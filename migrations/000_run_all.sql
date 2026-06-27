@@ -57,4 +57,7 @@
 \echo '==> 016_drop_legacy_father_agent_id_notnull.sql'
 \i migrations/016_drop_legacy_father_agent_id_notnull.sql
 
+\echo '==> 017_business_billing_policy.sql'
+\i migrations/017_business_billing_policy.sql
+
 \echo '==> All migrations applied successfully.'

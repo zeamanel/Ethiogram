@@ -142,6 +142,9 @@ class User(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Global end-user wallet (reserved for the end-user recharge phase; per-business
+    # billing currently uses Conversation.etg_balance).
+    etg_balance: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     language_code: Mapped[str] = mapped_column(String(8), default="en", nullable=False)
     referral_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True, nullable=True, index=True)
     referred_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -224,6 +227,13 @@ class Business(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     mcp_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     suspended_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Billing policy — who pays per message, free-tier cap, and user-pays pricing.
+    billing_policy: Mapped[str] = mapped_column(String(16), default="business_pays", nullable=False)
+    per_user_monthly_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    per_user_limit_action: Mapped[str] = mapped_column(String(16), default="block", nullable=False)
+    service_price: Mapped[int] = mapped_column(Integer, default=0, nullable=False)   # ETG charged to the end-user
+    business_markup: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # ETG profit credited to the business
 
     owner: Mapped["User"] = relationship("User", back_populates="businesses")
     bots: Mapped[list["Bot"]] = relationship("Bot", back_populates="business")
@@ -353,6 +363,10 @@ class Conversation(Base, UUIDMixin, TimestampMixin):
     last_message_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     total_messages: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_etg_spent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Per-business end-user billing ledger (user_pays / free-tier cap).
+    etg_balance: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    monthly_etg_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    monthly_reset_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     child_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("child_agents.id"), nullable=True)
     context_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
@@ -633,6 +647,7 @@ class UsageEvent(Base, UUIDMixin, TimestampMixin):
     input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     etg_charged: Mapped[int] = mapped_column(Integer, nullable=False)
+    payer: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)   # business | user
     latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     __table_args__ = (

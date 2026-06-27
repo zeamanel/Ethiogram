@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
-from app.db.models import Business, BusinessBrainConfig, LandingPage, MiniAppConfig
+from app.db.models import Business, BusinessBrainConfig, Conversation, LandingPage, MiniAppConfig
 from app.db.session import get_db, get_redis
 from app.utils.text import slugify
 
@@ -490,3 +490,154 @@ async def update_website_config(
     await bust_storefront_cache(business_id, db, redis)
     logger.info("Website config updated", business_id=str(business_id), fields=list(changes.keys()))
     return _website_to_response(lp, business)
+
+
+# ---------------------------------------------------------------------------
+# Billing settings — who pays per message, per-user cap, user-pays pricing
+# ---------------------------------------------------------------------------
+
+_BILLING_POLICIES = {"business_pays", "user_pays", "both"}
+_LIMIT_ACTIONS = {"block", "user_pays"}
+
+
+class BillingResponse(BaseModel):
+    billing_policy: str
+    per_user_monthly_limit: Optional[int]
+    per_user_limit_action: str
+    service_price: int
+    business_markup: int
+
+
+class BillingUpdate(BaseModel):
+    billing_policy: Optional[str] = None
+    per_user_monthly_limit: Optional[int] = None
+    per_user_limit_action: Optional[str] = None
+    service_price: Optional[int] = None
+    business_markup: Optional[int] = None
+
+    @field_validator("billing_policy")
+    @classmethod
+    def _policy(cls, v):
+        if v is not None and v not in _BILLING_POLICIES:
+            raise ValueError(f"billing_policy must be one of {sorted(_BILLING_POLICIES)}")
+        return v
+
+    @field_validator("per_user_limit_action")
+    @classmethod
+    def _action(cls, v):
+        if v is not None and v not in _LIMIT_ACTIONS:
+            raise ValueError(f"per_user_limit_action must be one of {sorted(_LIMIT_ACTIONS)}")
+        return v
+
+    @field_validator("per_user_monthly_limit")
+    @classmethod
+    def _limit(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("per_user_monthly_limit must be >= 0")
+        return v
+
+    @field_validator("service_price", "business_markup")
+    @classmethod
+    def _non_negative(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("must be >= 0")
+        return v
+
+
+def _billing_to_response(b: Business) -> BillingResponse:
+    return BillingResponse(
+        billing_policy=b.billing_policy,
+        per_user_monthly_limit=b.per_user_monthly_limit,
+        per_user_limit_action=b.per_user_limit_action,
+        service_price=b.service_price,
+        business_markup=b.business_markup,
+    )
+
+
+@router.get("/{business_id}/billing", response_model=BillingResponse)
+async def get_billing(
+    business_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> BillingResponse:
+    business = await _get_owned_business(business_id, current_user.id, db)
+    return _billing_to_response(business)
+
+
+@router.patch("/{business_id}/billing", response_model=BillingResponse)
+async def update_billing(
+    business_id: uuid.UUID,
+    body: BillingUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> BillingResponse:
+    """Edit who pays per message, the per-user monthly cap + action, and the
+    user-pays service price / business markup."""
+    business = await _get_owned_business(business_id, current_user.id, db)
+    changes = body.model_dump(exclude_unset=True)   # None for per_user_monthly_limit clears it
+    for k, v in changes.items():
+        setattr(business, k, v)
+    logger.info("Billing updated", business_id=str(business_id), fields=list(changes.keys()))
+    return _billing_to_response(business)
+
+
+# ── per-user monthly usage ────────────────────────────────────────────────────
+
+class UserUsageRow(BaseModel):
+    conversation_id: str
+    customer_id: str
+    customer_name: Optional[str]
+    customer_username: Optional[str]
+    monthly_etg_used: int
+    etg_balance: int
+    total_etg_spent: int
+    last_message_at: Optional[str]
+
+
+class UserUsageList(BaseModel):
+    items: list[UserUsageRow]
+    total: int
+    limit: int
+    offset: int
+
+
+@router.get("/{business_id}/users/usage", response_model=UserUsageList)
+async def list_user_usage(
+    business_id: uuid.UUID,
+    current_user: CurrentUser,
+    search: Optional[str] = None,
+    limit: int = 25,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+) -> UserUsageList:
+    """Per-end-user monthly ETG usage for the business (one row per customer
+    conversation), newest spenders first. Supports search + pagination."""
+    await _get_owned_business(business_id, current_user.id, db)
+    from sqlalchemy import func as _func
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+
+    stmt = select(Conversation).where(Conversation.business_id == business_id)
+    if search:
+        like = f"%{search}%"
+        stmt = stmt.where(
+            Conversation.customer_name.ilike(like)
+            | Conversation.customer_username.ilike(like)
+            | Conversation.customer_platform_id.ilike(like)
+        )
+    total = await db.scalar(select(_func.count()).select_from(stmt.order_by(None).subquery())) or 0
+    rows = (await db.execute(
+        stmt.order_by(Conversation.monthly_etg_used.desc()).limit(limit).offset(offset)
+    )).scalars().all()
+
+    items = [UserUsageRow(
+        conversation_id=str(c.id),
+        customer_id=c.customer_platform_id,
+        customer_name=c.customer_name,
+        customer_username=c.customer_username,
+        monthly_etg_used=c.monthly_etg_used or 0,
+        etg_balance=c.etg_balance or 0,
+        total_etg_spent=c.total_etg_spent or 0,
+        last_message_at=c.last_message_at.isoformat() if c.last_message_at else None,
+    ) for c in rows]
+    return UserUsageList(items=items, total=total, limit=limit, offset=offset)
