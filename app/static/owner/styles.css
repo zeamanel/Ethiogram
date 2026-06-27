@@ -164,6 +164,11 @@ body {
 .bl-select { width:100%; font-size:15px; font-family:inherit; padding:12px 13px; border:1px solid var(--line);
   border-radius:11px; background:var(--card); color:var(--text); outline:none; }
 .bl-select:focus { border-color:var(--amber); }
+.bl-credit { background:var(--card); border:1px solid var(--amber); border-radius:13px; padding:13px 14px; margin-bottom:10px; }
+.bl-credit-name { font-size:13px; font-weight:600; margin-bottom:8px; }
+.bl-credit .copy-row input { font-size:15px; font-family:inherit; padding:10px 12px; border:1px solid var(--line);
+  border-radius:11px; background:var(--surface); color:var(--text); outline:none; }
+.bl-credit .copy-row input:focus { border-color:var(--amber); }
 
 /* admin dashboard */
 .adm-tabs { display:flex; gap:6px; padding:4px 16px 12px; overflow-x:auto; scrollbar-width:none; }

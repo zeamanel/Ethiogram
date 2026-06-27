@@ -495,7 +495,17 @@
       <div class="wiz-actions"><button class="onb-btn" id="bl-save">Save changes</button></div>
 
       <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:18px"><div class="sec-title">Per-customer usage · this month</div></div>
+      <div class="mgr-note" style="text-align:left;margin-top:0;margin-bottom:8px">Top up a customer's balance after they pay you (Telebirr, cash, etc.).</div>
       <div class="adm-toolbar" style="padding:0 0 10px"><input id="bl-usage-search" type="text" placeholder="Search customer…" autocapitalize="off"></div>
+      <div id="bl-credit" class="bl-credit hidden">
+        <div class="bl-credit-name" id="bl-credit-name"></div>
+        <div class="copy-row">
+          <input id="bl-credit-amount" type="number" min="1" placeholder="ETG to add">
+          <button class="copy-btn" id="bl-credit-save">Add</button>
+        </div>
+        <div class="err-inline hidden" id="bl-credit-err"></div>
+        <button class="onb-btn-ghost" id="bl-credit-cancel" style="margin-top:4px">Cancel</button>
+      </div>
       <div class="lcard" id="bl-usage-list"></div>
     </div>
   </div>

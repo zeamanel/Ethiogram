@@ -133,6 +133,8 @@ async def test_billing_editor_present(client):
     assert 'id="billing-customize"' in html                                 # dashboard entry
     js = (await client.get("/app/owner/app.js")).text
     assert "openBilling" in js and "/billing" in js and "/users/usage" in js
+    # owner-managed customer credit (end-user recharge v1)
+    assert 'id="bl-credit"' in html and "openCredit" in js and "/credit" in js
 
 
 @pytest.mark.asyncio

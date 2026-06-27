@@ -885,13 +885,39 @@
     catch (e) { $("bl-usage-list").innerHTML = empty("Couldn't load usage."); return; }
     if (!res.items.length) { $("bl-usage-list").innerHTML = empty("No customer activity yet."); return; }
     $("bl-usage-list").innerHTML = res.items.map(u => {
-      const meta = `${fmt(u.monthly_etg_used)} ETG this month` + (u.etg_balance ? ` · bal ${fmt(u.etg_balance)}` : "");
+      const name = u.customer_name || u.customer_id;
+      const meta = `${fmt(u.monthly_etg_used)} ETG this month · bal ${fmt(u.etg_balance)}`;
       return `<div class="litem">
         <div class="lic ic-blue">👤</div>
-        <div class="linfo"><div class="lname">${esc(u.customer_name || u.customer_id)}</div>
+        <div class="linfo"><div class="lname">${esc(name)}</div>
           <div class="lmeta">${meta}</div></div>
-        <div class="lcount">${fmt(u.total_etg_spent)}</div></div>`;
+        <button class="adm-act" data-credit="${esc(u.conversation_id)}" data-name="${esc(name)}">＋ Credit</button></div>`;
     }).join("");
+    $("bl-usage-list").querySelectorAll("[data-credit]").forEach(btn =>
+      btn.onclick = () => openCredit(bizId, btn.dataset.credit, btn.dataset.name));
+  }
+
+  function openCredit(bizId, convId, name) {
+    $("bl-credit-name").textContent = "Add credit · " + name;
+    $("bl-credit-amount").value = "";
+    hide("bl-credit-err"); show("bl-credit");
+    try { $("bl-credit-amount").focus(); } catch (e) {}
+    $("bl-credit-cancel").onclick = () => hide("bl-credit");
+    $("bl-credit-save").onclick = async () => {
+      hide("bl-credit-err");
+      const amt = parseInt($("bl-credit-amount").value, 10);
+      if (!amt || amt <= 0) { showErr("bl-credit-err", "Enter an amount greater than 0."); return; }
+      $("bl-credit-save").disabled = true;
+      try {
+        await Eth.post(`/businesses/${bizId}/users/${convId}/credit`, { amount: amt });
+        hide("bl-credit");
+        await loadBillingUsage(bizId);
+      } catch (e) {
+        showErr("bl-credit-err", e.detail || "Couldn't add credit.");
+      } finally {
+        $("bl-credit-save").disabled = false;
+      }
+    };
   }
 
   async function loadDocs(bizId) {
