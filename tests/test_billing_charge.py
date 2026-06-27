@@ -157,6 +157,17 @@ async def test_charge_user_pays_credits_markup(db, mock_redis):
 
 
 @pytest.mark.asyncio
+async def test_free_model_costs_nothing(db, mock_redis):
+    biz, bot, conv = await _setup(db, wallet_balance=1000)
+    cost = await _charge_etg(biz, conv, str(bot.id), "meta-llama/llama-3.3-70b-instruct:free",
+                             {"input_tokens": 5000, "output_tokens": 5000}, "business", mock_redis, db)
+    assert cost == 0                              # free model → no ETG
+    wallet = (await db.execute(select(TokenWallet).where(TokenWallet.business_id == biz.id))).scalar_one()
+    assert wallet.balance == 1000                # business wallet untouched
+    assert conv.monthly_etg_used == 0
+
+
+@pytest.mark.asyncio
 async def test_charge_both_debits_business_and_user(db, mock_redis):
     biz, bot, conv = await _setup(db, policy="both", price=5, markup=2)
     cost = await _charge_etg(biz, conv, str(bot.id), "gpt", {"input_tokens": 0, "output_tokens": 0},

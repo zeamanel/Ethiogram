@@ -175,6 +175,18 @@ async def telegram_webhook(
     business = await db.get(Business, bot.business_id)
     business_pays_cost = (business is None) or business.billing_policy in ("business_pays", "both")
 
+    # Group handling: a business enables group support by deploying the Community
+    # Assistant. In a group we only respond when addressed (mention/reply), and
+    # we route to that deployed agent (runs on its cheap/free model). If not
+    # addressed or not deployed, ignore the message entirely (no cost).
+    group_data = None
+    if envelope.chat_type in ("group", "supergroup"):
+        if not _is_addressed(envelope, bot):
+            return JSONResponse({"ok": True})
+        group_data = await _load_child_data(str(bot.business_id), "GroupAgent", db)
+        if group_data is None:
+            return JSONResponse({"ok": True})
+
     # 6. Balance check (Redis-cached). Only gates when the BUSINESS pays the
     # platform cost; in user_pays the business wallet isn't used for messages.
     balance = await _get_balance(str(bot.business_id), redis, db)
@@ -225,7 +237,7 @@ async def telegram_webhook(
     # 10. Build response: classify intent → route to the right agent
     brain_config = await _get_brain_config(str(bot.business_id), db)
     response_text, tokens_used, model_id = await _process_message(
-        envelope, conversation, brain_config, db, raw_token
+        envelope, conversation, brain_config, db, raw_token, group_child_data=group_data
     )
     logger.info(
         "Reply generated",
@@ -382,6 +394,7 @@ async def _get_brain_config(
 # by keyword on its category / tags / capabilities.
 _ACCOUNTANT_KEYWORDS = ("account", "receipt", "expense", "finance", "invoice", "bookkeep")
 _CONCIERGE_KEYWORDS = ("concierge", "booking", "appointment", "schedule", "reserv", "calendar")
+_GROUP_KEYWORDS = ("group", "community", "moderation", "channel")
 
 
 def _agent_type_for(agent: Agent) -> str:
@@ -395,7 +408,25 @@ def _agent_type_for(agent: Agent) -> str:
         return "AccountantAgent"
     if any(k in hay for k in _CONCIERGE_KEYWORDS):
         return "ConciergeAgent"
+    if any(k in hay for k in _GROUP_KEYWORDS):
+        return "GroupAgent"
     return "BaseAgent"
+
+
+def _is_addressed(envelope, bot) -> bool:
+    """True if a group message is aimed at the bot — @mentions it or replies to
+    one of its messages. (With Telegram privacy mode ON, the bot only receives
+    these anyway; this stays correct if the owner turns privacy mode off.)"""
+    raw = envelope.raw or {}
+    msg = raw.get("message") or {}
+    username = (bot.bot_username or "").lower()
+    if not username:
+        return False
+    reply = (msg.get("reply_to_message") or {}).get("from") or {}
+    if reply.get("is_bot") and (reply.get("username") or "").lower() == username:
+        return True
+    text = (msg.get("text") or msg.get("caption") or "").lower()
+    return f"@{username}" in text
 
 
 async def _load_child_data(business_id: str, agent_type: str, db: AsyncSession) -> dict | None:
@@ -569,6 +600,7 @@ async def _process_message(
     brain_config: BusinessBrainConfig | None,
     db: AsyncSession,
     raw_token: str | None = None,
+    group_child_data: dict | None = None,
 ) -> tuple[str, dict, str]:
     """
     Classify the message intent, route it to the right agent, and run it.
@@ -596,18 +628,25 @@ async def _process_message(
     if raw_token:
         envelope.raw["_bot_token"] = raw_token
 
-    # 1. Classify intent → 2. select the agent instance for it.
-    intent = intent_router.classify(envelope)
-    agent = intent_router.select_agent(intent)
+    if group_child_data is not None:
+        # Group message → the deployed Community Assistant (cheap/free model).
+        from app.agents.router import group_agent
+        intent = "group"
+        agent = group_agent
+        child_data = group_child_data
+    else:
+        # 1. Classify intent → 2. select the agent instance for it.
+        intent = intent_router.classify(envelope)
+        agent = intent_router.select_agent(intent)
 
-    # 2b. Load the business's deployed config for this agent type (ChildAgent),
-    # so specialists answer with the owner's real services/hours/timezone and
-    # the father agent's prompt instead of generic defaults.
-    child_data = None
-    if conversation is not None and db is not None:
-        child_data = await _load_child_data(
-            str(conversation.business_id), type(agent).__name__, db
-        )
+        # 2b. Load the business's deployed config for this agent type (ChildAgent),
+        # so specialists answer with the owner's real services/hours/timezone and
+        # the father agent's prompt instead of generic defaults.
+        child_data = None
+        if conversation is not None and db is not None:
+            child_data = await _load_child_data(
+                str(conversation.business_id), type(agent).__name__, db
+            )
 
     logger.info("Routing message to agent", intent=intent, agent=agent.agent_name,
                 business_id=envelope.business_id, child_data=bool(child_data))
@@ -757,7 +796,12 @@ async def _charge_etg(
         return 0
     input_t = tokens.get("input_tokens", 0)
     output_t = tokens.get("output_tokens", 0)
-    cost = max(1, (input_t // 1000) + (output_t // 1000) * 2 + _ETG_COST_BASE_REPLY)
+    # Replies on a free OpenRouter model (':free') cost us nothing, so they cost
+    # the business nothing either — this is what makes a busy group free.
+    if (model_id or "").endswith(":free"):
+        cost = 0
+    else:
+        cost = max(1, (input_t // 1000) + (output_t // 1000) * 2 + _ETG_COST_BASE_REPLY)
     business_id = str(business.id)
     conversation_id = str(conversation.id)
 

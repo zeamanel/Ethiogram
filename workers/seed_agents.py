@@ -130,6 +130,34 @@ SEED_AGENTS = [
         ),
         "price_etg": 0,
     },
+    {
+        "name": "Community Assistant",
+        "tagline": "Answers questions in your Telegram group — for free.",
+        "description": (
+            "Add your bot to a group and this agent answers from your Business "
+            "Brain whenever someone @mentions it or replies to it. It stays quiet "
+            "otherwise, so it never spams the chat, and it runs on a free model "
+            "so a busy group costs you nothing."
+        ),
+        "category": "Group & Community",
+        "tags": ["group", "community", "telegram group"],
+        "capabilities": ["group Q&A", "community support"],
+        "system_prompt": (
+            "You are a helpful community assistant in this business's Telegram "
+            "group. Answer members' questions about the business clearly and "
+            "briefly using what you know. If a question isn't about the business "
+            "or you're unsure, say so politely and suggest contacting the team."
+        ),
+        "child_schema": None,   # answers from the Business Brain; no per-group config
+        "setup_guide": (
+            "1. Add your bot to your Telegram group. 2. In the group, @mention the "
+            "bot or reply to its messages — it answers from your Business Brain. "
+            "It only responds when addressed, so it won't spam the group. (Keep "
+            "Telegram privacy mode ON — the default — and it just works.)"
+        ),
+        "price_etg": 0,
+        "preferred_model_id": "meta-llama/llama-3.3-70b-instruct:free",
+    },
 ]
 
 
@@ -181,6 +209,7 @@ async def _upsert_agent(db, profile: CreatorProfile, spec: dict) -> str:
             child_schema=spec["child_schema"],
             setup_guide=spec["setup_guide"],
             price_etg=spec["price_etg"],
+            preferred_model_id=spec.get("preferred_model_id"),
             status=AgentStatus.live,
         )
         db.add(agent)
@@ -201,6 +230,9 @@ async def _upsert_agent(db, profile: CreatorProfile, spec: dict) -> str:
     existing.price_etg = spec["price_etg"]
     if existing.status != AgentStatus.live:
         existing.status = AgentStatus.live
+    # Seed the initial model but never clobber an admin's choice on re-seed.
+    if existing.preferred_model_id is None and spec.get("preferred_model_id"):
+        existing.preferred_model_id = spec["preferred_model_id"]
     logger.info("Updated existing agent", name=spec["name"], agent_id=str(existing.id))
     return "updated"
 
@@ -221,6 +253,10 @@ SEED_MODELS = [
      "provider": "google", "tier": "standard"},
     {"model_id": "meta-llama/llama-3.1-8b-instruct", "display_name": "Llama 3.1 8B",
      "provider": "meta", "tier": "economy", "is_emergency": True},
+    # Free OpenRouter model (':free' tier) — used by the high-volume Community
+    # Assistant so group chatter is effectively free.
+    {"model_id": "meta-llama/llama-3.3-70b-instruct:free", "display_name": "Llama 3.3 70B (free)",
+     "provider": "meta", "tier": "economy"},
 ]
 
 

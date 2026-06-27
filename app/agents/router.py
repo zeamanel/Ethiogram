@@ -7,6 +7,7 @@ from typing import Optional
 from app.agents.accountant import accountant_agent
 from app.agents.base import BaseAgent, base_agent
 from app.agents.concierge import concierge_agent
+from app.agents.group import group_agent
 from app.core.logging import get_logger
 from app.services.telegram_service import MessageEnvelope
 
@@ -66,6 +67,7 @@ _AGENT_REGISTRY: dict[str, BaseAgent] = {
     "BaseAgent": base_agent,
     "AccountantAgent": accountant_agent,
     "ConciergeAgent": concierge_agent,
+    "GroupAgent": group_agent,
 }
 
 # Which specialist agent handles which intent. Unmapped intents use BaseAgent.

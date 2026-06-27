@@ -39,6 +39,7 @@ class MessageEnvelope:
     message_id: int
     timestamp: datetime
     raw: dict = field(repr=False)         # original update payload
+    chat_type: str = "private"            # private | group | supergroup | channel
 
 
 class TelegramService:
@@ -267,10 +268,16 @@ class TelegramService:
 
         chat = message.get("chat", {})
         chat_id = str(chat.get("id", ""))
+        chat_type = chat.get("type", "private")
         message_id: int = message.get("message_id", 0)
 
-        # Resolve customer identity
-        customer_id = str(sender.get("id", chat_id))
+        # Resolve the conversation identity. In a group/supergroup the bot serves
+        # the GROUP (replies go to the group, one conversation per group), so the
+        # chat id is the identity. In private chats the chat id == the user id.
+        if chat_type in ("group", "supergroup"):
+            customer_id = chat_id
+        else:
+            customer_id = str(sender.get("id", chat_id))
         first = sender.get("first_name", "")
         last = sender.get("last_name", "")
         customer_name = f"{first} {last}".strip() or None
@@ -305,6 +312,7 @@ class TelegramService:
             message_id=message_id,
             timestamp=timestamp,
             raw=body,
+            chat_type=chat_type,
         )
 
     def _extract_media(self, message: dict) -> tuple[Optional[str], Optional[str], Optional[str]]:
