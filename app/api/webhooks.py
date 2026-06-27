@@ -195,6 +195,12 @@ async def telegram_webhook(
     if language != conversation.detected_language:
         conversation.detected_language = language
 
+    # 9b0. /balance command — let the customer check their balance for free.
+    if business is not None and (envelope.text or "").strip().lower() in ("/balance", "balance"):
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id, _balance_message(business, conversation))
+        return JSONResponse({"ok": True})
+
     # 9c. Per-user billing precheck — decide who pays this message and enforce
     # the free-tier cap / user balance before spending on a model call.
     payer = "business"
@@ -203,8 +209,7 @@ async def telegram_webhook(
         payer, block = _decide_payer(business, conversation)
         if block == "recharge":
             await telegram_service.send_message(
-                raw_token, envelope.customer_id,
-                "You've run out of balance for this service. Please top up to continue.")
+                raw_token, envelope.customer_id, _recharge_message(business, conversation))
             return JSONResponse({"ok": True})
         if block == "limit":
             await telegram_service.send_message(
@@ -705,6 +710,27 @@ def _decide_payer(business, conversation) -> tuple[str, "str | None"]:
             return ("user", None) if bal >= price else ("user", "recharge")
         return ("business", "limit")                          # block
     return ("business", None)
+
+
+def _balance_message(business, conversation) -> str:
+    """Customer-facing balance summary (for /balance)."""
+    if business.billing_policy not in ("user_pays", "both"):
+        return "Good news — this business covers the cost of your messages. No balance needed. 🎉"
+    bal = conversation.etg_balance or 0
+    price = business.service_price or 0
+    line = f"Your balance: {bal} ETG."
+    if price:
+        line += f" Each reply costs {price} ETG."
+    return line + " To top up, contact this business and they'll add credit to your balance."
+
+
+def _recharge_message(business, conversation) -> str:
+    bal = conversation.etg_balance or 0
+    price = business.service_price or 0
+    return (f"You're out of balance for this service (you have {bal} ETG"
+            + (f", each reply costs {price} ETG" if price else "")
+            + "). Please contact this business to top up, then send your message again. "
+              "Type /balance any time to check.")
 
 
 async def _charge_etg(

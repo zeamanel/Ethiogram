@@ -6,7 +6,13 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from app.api.webhooks import _apply_monthly_reset, _charge_etg, _decide_payer
+from app.api.webhooks import (
+    _apply_monthly_reset,
+    _balance_message,
+    _charge_etg,
+    _decide_payer,
+    _recharge_message,
+)
 from app.db.models import (
     Bot,
     BotStatus,
@@ -71,6 +77,23 @@ def test_both_requires_user_balance():
     biz = _Biz(policy="both", price=5)
     assert _decide_payer(biz, _Conv(bal=5)) == ("both", None)
     assert _decide_payer(biz, _Conv(bal=1)) == ("both", "recharge")
+
+
+# ── customer-facing balance / recharge messages ──────────────────────────────
+
+def test_balance_message_business_pays():
+    msg = _balance_message(_Biz(policy="business_pays"), _Conv(bal=0))
+    assert "covers the cost" in msg and "ETG" not in msg.split("covers")[0]
+
+
+def test_balance_message_user_pays_shows_balance_and_price():
+    msg = _balance_message(_Biz(policy="user_pays", price=5), _Conv(bal=40))
+    assert "40 ETG" in msg and "5 ETG" in msg and "top up" in msg.lower()
+
+
+def test_recharge_message_mentions_balance_and_command():
+    msg = _recharge_message(_Biz(policy="user_pays", price=5), _Conv(bal=2))
+    assert "2 ETG" in msg and "/balance" in msg
 
 
 # ── _apply_monthly_reset ──────────────────────────────────────────────────────

@@ -89,6 +89,51 @@ async def test_user_usage_list(client, db, sample_user_id, sample_business_id, v
 
 
 @pytest.mark.asyncio
+async def test_credit_customer(client, db, sample_user_id, sample_business_id, valid_access_token):
+    await _seed(db, sample_user_id, sample_business_id)
+    bot = Bot(id=uuid.uuid4(), business_id=sample_business_id, encrypted_token="x",
+              token_hash=uuid.uuid4().hex, status=BotStatus.active)
+    db.add(bot)
+    conv = Conversation(id=uuid.uuid4(), business_id=sample_business_id, bot_id=bot.id,
+                        customer_platform_id="tg-9", customer_name="Hana", etg_balance=10)
+    db.add(conv)
+    await db.flush()
+    hdr = {"Authorization": f"Bearer {valid_access_token}"}
+
+    r1 = await client.post(f"/api/v1/businesses/{sample_business_id}/users/{conv.id}/credit",
+                           json={"amount": 50, "note": "telebirr"}, headers=hdr)
+    assert r1.status_code == 200, r1.text
+    assert r1.json()["etg_balance"] == 60 and r1.json()["customer_name"] == "Hana"
+
+    # accumulates
+    r2 = await client.post(f"/api/v1/businesses/{sample_business_id}/users/{conv.id}/credit",
+                           json={"amount": 40}, headers=hdr)
+    assert r2.json()["etg_balance"] == 100
+
+    # non-positive rejected
+    bad = await client.post(f"/api/v1/businesses/{sample_business_id}/users/{conv.id}/credit",
+                            json={"amount": 0}, headers=hdr)
+    assert bad.status_code == 422
+
+    # unknown conversation
+    miss = await client.post(f"/api/v1/businesses/{sample_business_id}/users/{uuid.uuid4()}/credit",
+                             json={"amount": 5}, headers=hdr)
+    assert miss.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_credit_requires_ownership(client, db, sample_user_id, valid_access_token):
+    other = uuid.uuid4()
+    db.add(User(id=sample_user_id, role=UserRole.owner, is_active=True))
+    db.add(Business(id=other, owner_id=uuid.uuid4(), name="Theirs", slug="theirs-credit"))
+    await db.flush()
+    resp = await client.post(f"/api/v1/businesses/{other}/users/{uuid.uuid4()}/credit",
+                             json={"amount": 5},
+                             headers={"Authorization": f"Bearer {valid_access_token}"})
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_billing_requires_ownership(client, db, sample_user_id, valid_access_token):
     other = uuid.uuid4()
     db.add(User(id=sample_user_id, role=UserRole.owner, is_active=True))

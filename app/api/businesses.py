@@ -641,3 +641,55 @@ async def list_user_usage(
         last_message_at=c.last_message_at.isoformat() if c.last_message_at else None,
     ) for c in rows]
     return UserUsageList(items=items, total=total, limit=limit, offset=offset)
+
+
+# ── owner-granted customer credit (v1 end-user recharge) ──────────────────────
+# Real payment-gateway top-ups come later; for now the owner settles payment
+# (Telebirr/cash) and credits the customer's per-business balance directly.
+
+class CreditRequest(BaseModel):
+    amount: int
+    note: Optional[str] = None
+
+    @field_validator("amount")
+    @classmethod
+    def _amount(cls, v):
+        if v <= 0:
+            raise ValueError("amount must be greater than 0")
+        if v > 1_000_000:
+            raise ValueError("amount too large")
+        return v
+
+
+class CreditResponse(BaseModel):
+    conversation_id: str
+    customer_name: Optional[str]
+    etg_balance: int
+
+
+@router.post("/{business_id}/users/{conversation_id}/credit", response_model=CreditResponse)
+async def credit_customer(
+    business_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+    body: CreditRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> CreditResponse:
+    """Add ETG to a customer's per-business balance (owner-managed recharge)."""
+    await _get_owned_business(business_id, current_user.id, db)
+    conv = (await db.execute(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.business_id == business_id,
+        )
+    )).scalar_one_or_none()
+    if conv is None:
+        raise NotFoundError("Conversation", str(conversation_id))
+    conv.etg_balance = (conv.etg_balance or 0) + body.amount
+    logger.info("Customer credited", business_id=str(business_id),
+                conversation_id=str(conversation_id), amount=body.amount,
+                balance=conv.etg_balance, note=body.note)
+    return CreditResponse(
+        conversation_id=str(conv.id), customer_name=conv.customer_name,
+        etg_balance=conv.etg_balance,
+    )
