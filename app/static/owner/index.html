@@ -124,6 +124,11 @@
 
     <div class="gap"></div>
 
+    <div class="sec-head"><div class="sec-title">Billing</div><div class="sec-link" id="billing-customize" style="cursor:pointer">Manage →</div></div>
+    <div class="lcard" id="billing-card"></div>
+
+    <div class="gap"></div>
+
     <div class="sec-head"><div class="sec-title">Active Agents</div><div class="sec-link" id="agents-browse-link" style="cursor:pointer">＋ Add agent</div></div>
     <div class="lcard" id="agents"></div>
 
@@ -456,6 +461,42 @@
 
       <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:18px"><div class="sec-title">Custom domain</div></div>
       <div id="dom-panel"></div>
+    </div>
+  </div>
+
+  <!-- BILLING EDITOR (who pays, free cap, pricing + per-customer usage) -->
+  <div id="billing-editor" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="bl-back">‹ Back</button>
+      <div class="mgr-title">Billing</div>
+      <span style="width:18px"></span>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Choose who pays for each message, set a free monthly cap per customer, and your customer-pays pricing.</div>
+
+      <div class="field"><label for="bl-policy">Who pays per message</label>
+        <select id="bl-policy" class="bl-select">
+          <option value="business_pays">Business pays (default)</option>
+          <option value="user_pays">Customer pays</option>
+          <option value="both">Both</option>
+        </select></div>
+      <div class="field"><label for="bl-limit">Free monthly limit per customer <span style="color:var(--text-3)">(ETG · blank = unlimited)</span></label>
+        <input id="bl-limit" type="number" min="0" placeholder="e.g. 100"></div>
+      <div class="field"><label for="bl-action">When the free limit is reached</label>
+        <select id="bl-action" class="bl-select">
+          <option value="block">Block until next month</option>
+          <option value="user_pays">Switch to customer-pays</option>
+        </select></div>
+      <div class="field"><label for="bl-price">Service price charged to customer <span style="color:var(--text-3)">(ETG)</span></label>
+        <input id="bl-price" type="number" min="0" placeholder="0"></div>
+      <div class="field"><label for="bl-markup">Your markup per message <span style="color:var(--text-3)">(ETG profit)</span></label>
+        <input id="bl-markup" type="number" min="0" placeholder="0"></div>
+      <div class="err-inline hidden" id="bl-err"></div>
+      <div class="wiz-actions"><button class="onb-btn" id="bl-save">Save changes</button></div>
+
+      <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:18px"><div class="sec-title">Per-customer usage · this month</div></div>
+      <div class="adm-toolbar" style="padding:0 0 10px"><input id="bl-usage-search" type="text" placeholder="Search customer…" autocapitalize="off"></div>
+      <div class="lcard" id="bl-usage-list"></div>
     </div>
   </div>
 

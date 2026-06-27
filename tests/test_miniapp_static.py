@@ -126,6 +126,16 @@ async def test_website_editor_present(client):
 
 
 @pytest.mark.asyncio
+async def test_billing_editor_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="billing-editor"' in html and 'id="bl-policy"' in html       # editor + policy
+    assert 'id="bl-limit"' in html and 'id="bl-usage-list"' in html         # cap + usage table
+    assert 'id="billing-customize"' in html                                 # dashboard entry
+    js = (await client.get("/app/owner/app.js")).text
+    assert "openBilling" in js and "/billing" in js and "/users/usage" in js
+
+
+@pytest.mark.asyncio
 async def test_admin_dashboard_present(client):
     html = (await client.get("/app/owner/")).text
     assert 'id="admin"' in html and 'class="adm-tabs"' in html              # admin container + tabs

@@ -837,6 +837,63 @@
     };
   }
 
+  // ---- Billing editor (who pays, free cap, pricing + per-customer usage) ----
+  async function openBilling(bizId) {
+    hide("dashboard"); show("billing-editor");
+    $("bl-back").onclick = () => { hide("billing-editor"); show("dashboard"); };
+    hide("bl-err");
+
+    let cfg;
+    try { cfg = await Eth.get(`/businesses/${bizId}/billing`); }
+    catch (e) { return showErr("bl-err", "Couldn't load billing settings."); }
+
+    $("bl-policy").value = cfg.billing_policy;
+    $("bl-limit").value = cfg.per_user_monthly_limit == null ? "" : cfg.per_user_monthly_limit;
+    $("bl-action").value = cfg.per_user_limit_action;
+    $("bl-price").value = cfg.service_price;
+    $("bl-markup").value = cfg.business_markup;
+
+    $("bl-save").onclick = async () => {
+      hide("bl-err");
+      const limStr = $("bl-limit").value.trim();
+      const body = {
+        billing_policy: $("bl-policy").value,
+        per_user_monthly_limit: limStr === "" ? null : Math.max(0, parseInt(limStr, 10) || 0),
+        per_user_limit_action: $("bl-action").value,
+        service_price: Math.max(0, parseInt($("bl-price").value || "0", 10) || 0),
+        business_markup: Math.max(0, parseInt($("bl-markup").value || "0", 10) || 0),
+      };
+      setBtn("bl-save", true, "Saving…");
+      try {
+        await Eth.patch(`/businesses/${bizId}/billing`, body);
+        hide("billing-editor"); show("dashboard");
+      } catch (e) {
+        showErr("bl-err", e.detail || "Couldn't save billing settings.");
+        setBtn("bl-save", false, "Save changes");
+      }
+    };
+
+    $("bl-usage-search").oninput = admDebounce(() => loadBillingUsage(bizId), 300);
+    await loadBillingUsage(bizId);
+  }
+
+  async function loadBillingUsage(bizId) {
+    const q = $("bl-usage-search").value.trim();
+    $("bl-usage-list").innerHTML = `<div class="lempty">Loading…</div>`;
+    let res;
+    try { res = await Eth.get(`/businesses/${bizId}/users/usage` + (q ? "?search=" + encodeURIComponent(q) : "")); }
+    catch (e) { $("bl-usage-list").innerHTML = empty("Couldn't load usage."); return; }
+    if (!res.items.length) { $("bl-usage-list").innerHTML = empty("No customer activity yet."); return; }
+    $("bl-usage-list").innerHTML = res.items.map(u => {
+      const meta = `${fmt(u.monthly_etg_used)} ETG this month` + (u.etg_balance ? ` · bal ${fmt(u.etg_balance)}` : "");
+      return `<div class="litem">
+        <div class="lic ic-blue">👤</div>
+        <div class="linfo"><div class="lname">${esc(u.customer_name || u.customer_id)}</div>
+          <div class="lmeta">${meta}</div></div>
+        <div class="lcount">${fmt(u.total_etg_spent)}</div></div>`;
+    }).join("");
+  }
+
   async function loadDocs(bizId) {
     let docs = [];
     try { docs = await Eth.get(`/knowledge/${bizId}/documents`); } catch (e) { /* show empty */ }
@@ -930,6 +987,15 @@
       <span class="lchev">›</span></div>`;
     $("web-row").onclick = () => openWebsite(b.id);
     $("web-customize").onclick = () => openWebsite(b.id);
+
+    // billing entry
+    $("billing-card").innerHTML = `<div class="litem" id="bl-row" style="cursor:pointer">
+      <div class="lic ic-green">💳</div>
+      <div class="linfo"><div class="lname">Billing &amp; limits</div>
+        <div class="lmeta">Who pays · free cap · pricing</div></div>
+      <span class="lchev">›</span></div>`;
+    $("bl-row").onclick = () => openBilling(b.id);
+    $("billing-customize").onclick = () => openBilling(b.id);
 
     // active agents — each row opens the manage view (pause/rename/config)
     const agents = ov.active_agents || [];

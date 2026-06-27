@@ -160,6 +160,11 @@ body {
   padding:7px 14px; border:none; border-radius:9px; cursor:pointer; flex-shrink:0; }
 .ab-deploy:disabled { opacity:.5; cursor:default; }
 
+/* billing editor */
+.bl-select { width:100%; font-size:15px; font-family:inherit; padding:12px 13px; border:1px solid var(--line);
+  border-radius:11px; background:var(--card); color:var(--text); outline:none; }
+.bl-select:focus { border-color:var(--amber); }
+
 /* admin dashboard */
 .adm-tabs { display:flex; gap:6px; padding:4px 16px 12px; overflow-x:auto; scrollbar-width:none; }
 .adm-tabs::-webkit-scrollbar { display:none; }
