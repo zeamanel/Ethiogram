@@ -24,6 +24,7 @@ async def test_owner_assets_served(client):
     tg = await client.get("/app/shared/tg.js")
     assert tg.status_code == 200
     assert "/api/v1/auth/miniapp" in tg.text  # owner auth path
+    assert "Something went wrong" in tg.text  # friendly message on 5xx
 
 
 @pytest.mark.asyncio

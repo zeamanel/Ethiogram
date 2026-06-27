@@ -54,4 +54,7 @@
 \echo '==> 015_child_agents_trials_reconcile.sql'
 \i migrations/015_child_agents_trials_reconcile.sql
 
+\echo '==> 016_drop_legacy_father_agent_id_notnull.sql'
+\i migrations/016_drop_legacy_father_agent_id_notnull.sql
+
 \echo '==> All migrations applied successfully.'

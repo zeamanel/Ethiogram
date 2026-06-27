@@ -4,6 +4,14 @@
 (function (global) {
   const tg = global.Telegram && global.Telegram.WebApp ? global.Telegram.WebApp : null;
 
+  // Server (5xx) errors are not actionable by the user and our generic body
+  // ("Unexpected error") reads as scary — show a friendly retry message. 4xx
+  // detail (validation, "already deployed", etc.) is meaningful, so keep it.
+  function _failDetail(status, data) {
+    if (status >= 500) return "Something went wrong. Please try again.";
+    return (data && (data.message || data.detail)) || ("Error " + status);
+  }
+
   const Eth = {
     tg,
     token: null,
@@ -52,7 +60,8 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const err = new Error("POST " + path + " -> " + res.status);
-        err.detail = (data && (data.message || data.detail)) || ("Error " + res.status);
+        err.status = res.status;
+        err.detail = _failDetail(res.status, data);
         throw err;
       }
       return data;
@@ -70,7 +79,8 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const err = new Error("upload " + path + " -> " + res.status);
-        err.detail = (data && (data.message || data.detail)) || ("Error " + res.status);
+        err.status = res.status;
+        err.detail = _failDetail(res.status, data);
         throw err;
       }
       return data;
@@ -86,7 +96,8 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const err = new Error("PATCH " + path + " -> " + res.status);
-        err.detail = (data && (data.message || data.detail)) || ("Error " + res.status);
+        err.status = res.status;
+        err.detail = _failDetail(res.status, data);
         throw err;
       }
       return data;
