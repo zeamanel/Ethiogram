@@ -2,6 +2,7 @@
 import hmac
 import json
 import secrets as _secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, Request
@@ -170,10 +171,15 @@ async def telegram_webhook(
 
     logger.info("Processing update", bot_id=str(bot.id), status=bot.status.value)
 
-    # 6. Balance check (Redis-cached)
+    # Load the business's billing policy (who pays per message).
+    business = await db.get(Business, bot.business_id)
+    business_pays_cost = (business is None) or business.billing_policy in ("business_pays", "both")
+
+    # 6. Balance check (Redis-cached). Only gates when the BUSINESS pays the
+    # platform cost; in user_pays the business wallet isn't used for messages.
     balance = await _get_balance(str(bot.business_id), redis, db)
     logger.info("Balance checked", business_id=str(bot.business_id), balance=balance)
-    if balance <= 0:
+    if business_pays_cost and balance <= 0:
         logger.info("Zero balance: not processing", business_id=str(bot.business_id), balance=balance)
         await _handle_zero_balance(bot, raw_token, envelope, db, redis)
         return JSONResponse({"ok": True})
@@ -188,6 +194,23 @@ async def telegram_webhook(
     language = _detect_language(envelope.text or "")
     if language != conversation.detected_language:
         conversation.detected_language = language
+
+    # 9c. Per-user billing precheck — decide who pays this message and enforce
+    # the free-tier cap / user balance before spending on a model call.
+    payer = "business"
+    if business is not None:
+        _apply_monthly_reset(conversation, datetime.now(timezone.utc))
+        payer, block = _decide_payer(business, conversation)
+        if block == "recharge":
+            await telegram_service.send_message(
+                raw_token, envelope.customer_id,
+                "You've run out of balance for this service. Please top up to continue.")
+            return JSONResponse({"ok": True})
+        if block == "limit":
+            await telegram_service.send_message(
+                raw_token, envelope.customer_id,
+                "You've reached this month's free message limit. Please try again next month.")
+            return JSONResponse({"ok": True})
 
     # 9b. Booking sub-flow (Concierge with a configured calendar): present real
     # slots on booking intent, or confirm a tapped slot. Handles its own reply.
@@ -233,16 +256,15 @@ async def telegram_webhook(
         bot.total_messages_processed += 1
         bot.last_message_at = datetime.now(timezone.utc)
 
-        # 13. Meter ETG usage
+        # 13. Meter ETG usage per the billing policy (business/user/both pay).
         etg_charged = await _charge_etg(
-            str(bot.business_id), str(bot.id), str(conversation.id),
-            model_id, tokens_used, balance, redis, db
+            business, conversation, str(bot.id), model_id, tokens_used, payer, redis, db
         )
         conversation.total_etg_spent += etg_charged
         bot.total_etg_consumed += etg_charged
 
-        # 14. Post-charge alert checks
-        new_balance = balance - etg_charged
+        # 14. Post-charge alert checks (re-read the actual business balance)
+        new_balance = await _get_balance(str(bot.business_id), redis, db)
         await _check_wallet_alerts(str(bot.business_id), new_balance, bot, redis, db)
     except Exception as exc:
         await db.rollback()
@@ -655,67 +677,102 @@ async def _save_messages(
     db.add(assistant_msg)
 
 
+def _apply_monthly_reset(conversation, now) -> None:
+    """Roll the per-user free-tier counter at the start of each calendar month."""
+    r = conversation.monthly_reset_at
+    if r is None or (r.year, r.month) != (now.year, now.month):
+        conversation.monthly_etg_used = 0
+        conversation.monthly_reset_at = now
+
+
+def _decide_payer(business, conversation) -> tuple[str, "str | None"]:
+    """Return (payer, block_reason). payer ∈ {business,user,both}. A non-None
+    block_reason ('recharge' | 'limit') means the message must not be processed."""
+    policy = business.billing_policy
+    price = business.service_price or 0
+    bal = conversation.etg_balance or 0
+
+    if policy == "user_pays":
+        return ("user", None) if bal >= price else ("user", "recharge")
+    if policy == "both":
+        return ("both", None) if bal >= price else ("both", "recharge")
+
+    # business_pays — enforce the optional free-tier monthly cap per user.
+    limit = business.per_user_monthly_limit
+    used = conversation.monthly_etg_used or 0
+    if limit is not None and used >= limit:
+        if business.per_user_limit_action == "user_pays":     # switch this user to user-pays
+            return ("user", None) if bal >= price else ("user", "recharge")
+        return ("business", "limit")                          # block
+    return ("business", None)
+
+
 async def _charge_etg(
-    business_id: str,
+    business,
+    conversation,
     bot_id: str,
-    conversation_id: str,
     model_id: str,
     tokens: dict,
-    current_balance: int,
+    payer: str,
     redis,
     db: AsyncSession,
 ) -> int:
-    """Deduct ETG from wallet and write immutable usage records."""
+    """Meter ETG per the billing policy and write immutable usage records.
+    Returns the platform cost (for stats). Business pays the cost; when the user
+    pays, their per-business balance is debited the service price and the
+    business wallet is credited the markup."""
+    if business is None:
+        return 0
     input_t = tokens.get("input_tokens", 0)
     output_t = tokens.get("output_tokens", 0)
-    etg = max(1, (input_t // 1000) + (output_t // 1000) * 2 + _ETG_COST_BASE_REPLY)
+    cost = max(1, (input_t // 1000) + (output_t // 1000) * 2 + _ETG_COST_BASE_REPLY)
+    business_id = str(business.id)
+    conversation_id = str(conversation.id)
 
-    result = await db.execute(
-        select(TokenWallet).where(TokenWallet.business_id == business_id)
-    )
-    wallet = result.scalar_one_or_none()
-    if wallet is None:
-        return 0
+    wallet = (await db.execute(
+        select(TokenWallet).where(TokenWallet.business_id == business.id)
+    )).scalar_one_or_none()
 
-    balance_before = wallet.balance
-    wallet.balance = max(0, wallet.balance - etg)
-    wallet.lifetime_spent += etg
-    wallet.current_month_spend += etg
+    # Free-tier counter: only business-subsidised usage counts toward the cap.
+    if payer in ("business", "both"):
+        conversation.monthly_etg_used = (conversation.monthly_etg_used or 0) + cost
 
-    tx = EtgTransaction(
-        wallet_id=wallet.id,
-        amount=-etg,
-        balance_before=balance_before,
-        balance_after=wallet.balance,
-        transaction_type="usage",
-        description=f"AI reply ({model_id})",
-        reference_type="conversation",
-        reference_id=conversation_id,
-    )
-    db.add(tx)
+    # Business pays the platform cost.
+    if payer in ("business", "both") and wallet is not None:
+        before = wallet.balance
+        wallet.balance = max(0, wallet.balance - cost)
+        wallet.lifetime_spent += cost
+        wallet.current_month_spend += cost
+        db.add(EtgTransaction(
+            wallet_id=wallet.id, amount=-cost, balance_before=before, balance_after=wallet.balance,
+            transaction_type="usage", description=f"AI reply ({model_id})",
+            reference_type="conversation", reference_id=conversation_id,
+        ))
 
-    usage = UsageEvent(
-        business_id=business_id,
-        bot_id=bot_id,
-        conversation_id=conversation_id,
-        action_type="ai_reply",
-        model_id=model_id,
-        input_tokens=input_t,
-        output_tokens=output_t,
-        etg_charged=etg,
-    )
-    db.add(usage)
+    # User pays the service price; the business earns the markup as profit.
+    if payer in ("user", "both"):
+        conversation.etg_balance = (conversation.etg_balance or 0) - (business.service_price or 0)
+        if wallet is not None and business.business_markup:
+            before = wallet.balance
+            wallet.balance += business.business_markup
+            db.add(EtgTransaction(
+                wallet_id=wallet.id, amount=business.business_markup,
+                balance_before=before, balance_after=wallet.balance,
+                transaction_type="markup", description="User-paid message markup",
+                reference_type="conversation", reference_id=conversation_id,
+            ))
 
-    # Bust cache
-    await redis.setex(f"wallet:balance:{business_id}", 60, wallet.balance)
+    db.add(UsageEvent(
+        business_id=business.id, bot_id=uuid.UUID(bot_id), conversation_id=conversation.id,
+        action_type="ai_reply", model_id=model_id,
+        input_tokens=input_t, output_tokens=output_t, etg_charged=cost, payer=payer,
+    ))
 
-    logger.etg_charged(
-        amount=etg,
-        action_type="ai_reply",
-        business_id=business_id,
-        balance_after=wallet.balance,
-    )
-    return etg
+    if wallet is not None:
+        await redis.setex(f"wallet:balance:{business_id}", 60, wallet.balance)
+    logger.etg_charged(amount=cost, action_type="ai_reply", business_id=business_id,
+                       balance_after=(wallet.balance if wallet else 0))
+    return cost
 
 
 async def _check_wallet_alerts(
