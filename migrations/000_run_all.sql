@@ -60,4 +60,7 @@
 \echo '==> 017_business_billing_policy.sql'
 \i migrations/017_business_billing_policy.sql
 
+\echo '==> 018_landing_pages_drop_legacy_notnull.sql'
+\i migrations/018_landing_pages_drop_legacy_notnull.sql
+
 \echo '==> All migrations applied successfully.'

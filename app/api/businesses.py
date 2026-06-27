@@ -471,10 +471,9 @@ async def update_website_config(
     lp = (await db.execute(
         select(LandingPage).where(LandingPage.business_id == business_id)
     )).scalar_one_or_none()
-    if lp is None:
+    new = lp is None
+    if new:
         lp = LandingPage(business_id=business_id)
-        db.add(lp)
-        await db.flush()
 
     changes = body.model_dump(exclude_unset=True)
     publish = changes.pop("is_published", None)
@@ -485,6 +484,10 @@ async def update_website_config(
         lp.is_published = publish
         if publish and lp.published_at is None:
             lp.published_at = datetime.now(timezone.utc)
+
+    if new:
+        db.add(lp)          # add AFTER fields are set, so the INSERT carries them
+    await db.flush()
 
     from app.api.miniapp import bust_storefront_cache
     await bust_storefront_cache(business_id, db, redis)
