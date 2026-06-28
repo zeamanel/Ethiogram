@@ -34,8 +34,9 @@ _SUPPORT = "💬 Need help? Contact @ethiogram_support — we usually reply with
 _HELP = ("Ethiogram lets you run an AI business bot on Telegram.\n\n"
          "• 🚀 Dashboard — manage your business, catalog & storefront\n"
          "• 🤖 Bot Gallery — discover other businesses\n"
-         "• 🛍 View Store — your public storefront\n\n"
-         "Commands: /start  /help  /gallery  /dashboard")
+         "• 🛍 View Store — your public storefront\n"
+         "• 👤 My Account — balance, invite link & your businesses\n\n"
+         "Commands: /start  /help  /gallery  /dashboard  /account  /privacy")
 
 
 def _base() -> str:
@@ -59,7 +60,9 @@ def _main_menu(is_admin: bool) -> dict:
          {"text": "📊 My Businesses", "web_app": {"url": f"{base}/app/owner/"}}],
         [{"text": "🤖 Bot Gallery", "web_app": {"url": f"{base}/app/gallery/"}},
          {"text": "🛍 View Store"}],
-        [{"text": "💬 Support"}, {"text": "❓ Help"}],
+        [{"text": "👤 My Account", "web_app": {"url": f"{base}/app/account/"}},
+         {"text": "💬 Support"}],
+        [{"text": "🔐 Privacy"}, {"text": "❓ Help"}],
     ]
     if is_admin:
         rows.append([{"text": "⚙️ Admin Console", "web_app": {"url": f"{base}/app/owner/"}}])
@@ -131,6 +134,20 @@ async def handle_platform_update(envelope, db: AsyncSession, redis) -> None:
         await telegram_service.send_message(
             token, chat, "🤖 Discover businesses on Ethiogram:",
             reply_markup=_open_button("Open Bot Gallery", "/app/gallery/"))
+        return
+    if low == "/account" or text in ("👤 My Account", "👤 Account"):
+        await telegram_service.send_message(
+            token, chat, "👤 Your Ethiogram account — balance, invite link & businesses:",
+            reply_markup=_open_button("Open My Account", "/app/account/"))
+        return
+    if low == "/privacy" or text == "🔐 Privacy":
+        await telegram_service.send_message(
+            token, chat,
+            "🔐 Your privacy matters. Read how we handle your data:",
+            reply_markup={"inline_keyboard": [[
+                {"text": "Privacy Policy", "url": f"{_base()}/app/legal/privacy.html"},
+                {"text": "Terms", "url": f"{_base()}/app/legal/terms.html"},
+            ]]})
         return
     if low == "/dashboard" or text in ("🚀 Open Dashboard", "🚀 Dashboard", "📊 My Businesses", "⚙️ Admin Console"):
         await telegram_service.send_message(

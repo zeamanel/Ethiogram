@@ -85,6 +85,27 @@ async def test_gallery_command_opens_webapp(db, mock_redis, sent):
 
 
 @pytest.mark.asyncio
+async def test_account_command_opens_webapp(db, mock_redis, sent):
+    await pm.handle_platform_update(_env(661, "/account"), db, mock_redis)
+    url = sent[-1]["reply_markup"]["inline_keyboard"][0][0]["web_app"]["url"]
+    assert url.endswith("/app/account/")
+
+
+@pytest.mark.asyncio
+async def test_privacy_command_links_policy(db, mock_redis, sent):
+    await pm.handle_platform_update(_env(662, "/privacy"), db, mock_redis)
+    urls = [b["url"] for b in sent[-1]["reply_markup"]["inline_keyboard"][0]]
+    assert any(u.endswith("/app/legal/privacy.html") for u in urls)
+
+
+@pytest.mark.asyncio
+async def test_menu_includes_account_and_privacy(db, mock_redis, sent):
+    await pm.handle_platform_update(_env(663, "🇬🇧 English"), db, mock_redis)
+    labels = _kb_text(sent[-1]["reply_markup"])
+    assert "👤 My Account" in labels and "🔐 Privacy" in labels
+
+
+@pytest.mark.asyncio
 async def test_view_store_uses_owner_business(db, mock_redis, sent):
     uid = uuid.uuid4()
     db.add(User(id=uid, telegram_id=777, role=UserRole.owner, is_active=True))
