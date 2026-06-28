@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.models import (
     Agent,
+    AiModel,
     AlertType,
     Bot,
     BotStatus,
@@ -45,9 +46,53 @@ logger = get_logger(__name__)
 
 router = APIRouter(tags=["webhooks"])
 
-# ETG costs (fallback if Redis/DB pricing unavailable)
-_ETG_COST_BASE_REPLY = 2
-_ETG_COST_RAG_SEARCH = 1
+# Fallback per-1k-token ETG prices when a model isn't in the AiModel catalog
+# (matches the AiModel column defaults). Real charging reads each model's own
+# etg_cost_per_1k_input / etg_cost_per_1k_output so cheap and expensive models
+# cost proportionally — not a flat constant.
+_DEFAULT_ETG_PER_1K_INPUT = 1
+_DEFAULT_ETG_PER_1K_OUTPUT = 2
+
+
+def _ceil_div(a: int, b: int) -> int:
+    return -(-a // b)
+
+
+async def _model_price(db: AsyncSession, redis, model_id: str | None) -> tuple[int, int]:
+    """(etg_per_1k_input, etg_per_1k_output) for a model, cached in Redis for
+    5 min. Falls back to the column defaults when the model isn't catalogued."""
+    default = (_DEFAULT_ETG_PER_1K_INPUT, _DEFAULT_ETG_PER_1K_OUTPUT)
+    if not model_id:
+        return default
+    key = f"modelprice:{model_id}"
+    try:
+        cached = await redis.get(key)
+        if cached:
+            i, o = str(cached).split(",")
+            return (int(i), int(o))
+    except Exception:
+        pass
+    row = (await db.execute(
+        select(AiModel.etg_cost_per_1k_input, AiModel.etg_cost_per_1k_output)
+        .where(AiModel.model_id == model_id)
+    )).first()
+    price = (row[0], row[1]) if row else default
+    try:
+        await redis.setex(key, 300, f"{price[0]},{price[1]}")
+    except Exception:
+        pass
+    return price
+
+
+async def _reply_cost(db: AsyncSession, redis, model_id: str | None,
+                      input_t: int, output_t: int) -> int:
+    """ETG charged for one reply, grounded in the model's real per-1k price.
+    Free OpenRouter models (':free') are zero-rated. Paid replies cost at least 1."""
+    if (model_id or "").endswith(":free"):
+        return 0
+    in_per_1k, out_per_1k = await _model_price(db, redis, model_id)
+    cost = _ceil_div(input_t * in_per_1k, 1000) + _ceil_div(output_t * out_per_1k, 1000)
+    return max(1, cost)
 
 # Wallet alert thresholds
 _THRESHOLD_LOW = 500
@@ -1106,12 +1151,9 @@ async def _charge_etg(
         return 0
     input_t = tokens.get("input_tokens", 0)
     output_t = tokens.get("output_tokens", 0)
-    # Replies on a free OpenRouter model (':free') cost us nothing, so they cost
-    # the business nothing either — this is what makes a busy group free.
-    if (model_id or "").endswith(":free"):
-        cost = 0
-    else:
-        cost = max(1, (input_t // 1000) + (output_t // 1000) * 2 + _ETG_COST_BASE_REPLY)
+    # Grounded in the model's real per-1k price (':free' models stay zero-rated —
+    # this is what makes a busy group free).
+    cost = await _reply_cost(db, redis, model_id, input_t, output_t)
     business_id = str(business.id)
     conversation_id = str(conversation.id)
 

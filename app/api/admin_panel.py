@@ -9,7 +9,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -345,6 +345,92 @@ async def list_models(current_admin: CurrentAdminUser, db: AsyncSession = Depend
         model_id=m.model_id, display_name=m.display_name,
         tier=m.tier.value if hasattr(m.tier, "value") else str(m.tier),
     ) for m in rows]
+
+
+# ── model pricing (ground per-message ETG cost in real model cost) ───────────
+
+class ModelPricingRow(BaseModel):
+    model_id: str
+    display_name: str
+    provider: str
+    tier: str
+    etg_cost_per_1k_input: int
+    etg_cost_per_1k_output: int
+    is_enabled: bool
+
+
+def _pricing_row(m: AiModel) -> "ModelPricingRow":
+    return ModelPricingRow(
+        model_id=m.model_id, display_name=m.display_name,
+        provider=m.provider.value if hasattr(m.provider, "value") else str(m.provider),
+        tier=m.tier.value if hasattr(m.tier, "value") else str(m.tier),
+        etg_cost_per_1k_input=m.etg_cost_per_1k_input,
+        etg_cost_per_1k_output=m.etg_cost_per_1k_output,
+        is_enabled=m.is_enabled,
+    )
+
+
+@router.get("/models/pricing", response_model=list[ModelPricingRow])
+async def list_model_pricing(
+    current_admin: CurrentAdminUser, db: AsyncSession = Depends(get_db),
+) -> list[ModelPricingRow]:
+    """Every model with its per-1k ETG price — the catalog the platform charges
+    on. (All models, not just enabled, so admins can price before enabling.)"""
+    rows = (await db.execute(select(AiModel).order_by(AiModel.display_name))).scalars().all()
+    return [_pricing_row(m) for m in rows]
+
+
+class SetModelPricingRequest(BaseModel):
+    # model_id lives in the body (not the path) because it contains a "/"
+    # e.g. "openai/gpt-4o-mini", which can't be a single path segment.
+    model_id: str
+    etg_cost_per_1k_input: Optional[int] = None
+    etg_cost_per_1k_output: Optional[int] = None
+    is_enabled: Optional[bool] = None
+
+    @field_validator("etg_cost_per_1k_input", "etg_cost_per_1k_output")
+    @classmethod
+    def _nonneg(cls, v):
+        if v is not None and not (0 <= v <= 100_000):
+            raise ValueError("price per 1k tokens must be between 0 and 100000")
+        return v
+
+
+@router.patch("/models/pricing", response_model=ModelPricingRow)
+async def set_model_pricing(
+    body: SetModelPricingRequest,
+    current_admin: CurrentAdminUser,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+) -> ModelPricingRow:
+    """Set a model's per-1k ETG price (and/or enable it). Takes effect on the
+    next reply — the webhook reads pricing fresh (cached 5 min); this busts that
+    cache so a change applies immediately."""
+    model_id = body.model_id
+    m = (await db.execute(
+        select(AiModel).where(AiModel.model_id == model_id)
+    )).scalar_one_or_none()
+    if m is None:
+        raise NotFoundError("AiModel", model_id)
+
+    old = {"in": m.etg_cost_per_1k_input, "out": m.etg_cost_per_1k_output, "enabled": m.is_enabled}
+    if body.etg_cost_per_1k_input is not None:
+        m.etg_cost_per_1k_input = body.etg_cost_per_1k_input
+    if body.etg_cost_per_1k_output is not None:
+        m.etg_cost_per_1k_output = body.etg_cost_per_1k_output
+    if body.is_enabled is not None:
+        m.is_enabled = body.is_enabled
+    await db.flush()
+    try:
+        await redis.delete(f"modelprice:{model_id}")   # webhook picks up new price next reply
+    except Exception:
+        pass
+    await _audit(db, current_admin, "model.set_pricing", "ai_model", model_id,
+                 old, {"in": m.etg_cost_per_1k_input, "out": m.etg_cost_per_1k_output,
+                       "enabled": m.is_enabled}, request)
+    logger.info("Model pricing changed", model_id=model_id, admin_id=str(current_admin.id))
+    return _pricing_row(m)
 
 
 class AdminAgentRow(BaseModel):
