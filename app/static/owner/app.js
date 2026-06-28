@@ -735,6 +735,33 @@
     $("se-hours").value = cfg.hours || "";
     $("se-vibe").value = cfg.ui_child_prompt || "";
 
+    // AI generation — "Generate page" (theme) / "Generate content" (copy).
+    // Applies suggestions to the editor fields; the owner reviews and Saves.
+    async function runGenerate(kind, btnId) {
+      const btn = $(btnId), note = $("se-ai-note"), label = btn.textContent;
+      btn.disabled = true; btn.textContent = "Generating…"; note.classList.add("hidden");
+      try {
+        const vibe = $("se-vibe").value.trim();
+        const res = await Eth.post(`/businesses/${bizId}/storefront/generate`,
+          { kind, vibe: vibe || null });
+        const t = res.theme || {};
+        setColor("se-primary", t.primary); setColor("se-accent", t.accent);
+        setColor("se-bg", t.bg); setColor("se-text", t.text);
+        setSelect("se-font-heading", t.font_heading); setSelect("se-font-body", t.font_body);
+        if (res.tagline) $("se-tagline").value = res.tagline;
+        if (res.hours) $("se-hours").value = res.hours;
+        note.textContent = res.source === "ai"
+          ? "✨ Generated — review and tap Save to apply."
+          : "Used a starter suggestion (AI was busy) — tweak and Save.";
+        note.classList.remove("hidden");
+      } catch (e) {
+        note.textContent = e.detail || "Couldn't generate — please try again.";
+        note.classList.remove("hidden");
+      } finally { btn.disabled = false; btn.textContent = label; }
+    }
+    $("se-gen-page").onclick = () => runGenerate("page", "se-gen-page");
+    $("se-gen-content").onclick = () => runGenerate("content", "se-gen-content");
+
     // logo upload (sets Business.logo_url; the store header + landing use it)
     let logoUrl = cfg.logo_url || null;
     const renderLogo = () => {

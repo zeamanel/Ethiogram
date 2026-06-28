@@ -193,6 +193,12 @@ body {
   border-radius:11px; background:var(--card); color:var(--text); outline:none; }
 .bl-select:focus { border-color:var(--amber); }
 .se-fonts { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.se-ai-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+.se-ai-btn { padding:10px; border:1px solid var(--amber); border-radius:11px;
+  background:var(--amber-soft); color:var(--amber-deep); font-weight:600; font-size:13px;
+  cursor:pointer; }
+.se-ai-btn:disabled { opacity:.6; cursor:default; }
+.se-ai-note { color:var(--text-2); }
 .bl-credit { background:var(--card); border:1px solid var(--amber); border-radius:13px; padding:13px 14px; margin-bottom:10px; }
 .bl-credit-name { font-size:13px; font-weight:600; margin-bottom:8px; }
 .bl-credit .copy-row input { font-size:15px; font-family:inherit; padding:10px 12px; border:1px solid var(--line);

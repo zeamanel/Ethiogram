@@ -69,6 +69,16 @@ async def test_business_switcher_present(client):
 
 
 @pytest.mark.asyncio
+async def test_storefront_ai_buttons_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="se-gen-page"' in html and 'id="se-gen-content"' in html
+    assert "Generate page" in html and "Generate content" in html
+    js = (await client.get("/app/owner/app.js")).text
+    assert "/storefront/generate" in js and "runGenerate" in js
+    assert 'runGenerate("page"' in js and 'runGenerate("content"' in js
+
+
+@pytest.mark.asyncio
 async def test_appointments_section_present(client):
     html = (await client.get("/app/owner/")).text
     assert 'id="appointments"' in html and "Upcoming Appointments" in html
