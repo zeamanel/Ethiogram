@@ -66,4 +66,7 @@
 \echo '==> 019_mini_app_fonts.sql'
 \i migrations/019_mini_app_fonts.sql
 
+\echo '==> 020_bookings.sql'
+\i migrations/020_bookings.sql
+
 \echo '==> All migrations applied successfully.'

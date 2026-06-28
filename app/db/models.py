@@ -245,6 +245,7 @@ class Business(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     wallet: Mapped[Optional["TokenWallet"]] = relationship("TokenWallet", back_populates="business", uselist=False)
     payment_integrations: Mapped[list["PaymentIntegration"]] = relationship("PaymentIntegration", back_populates="business")
     orders: Mapped[list["Order"]] = relationship("Order", back_populates="business")
+    bookings: Mapped[list["Booking"]] = relationship("Booking", back_populates="business")
     mini_app_config: Mapped[Optional["MiniAppConfig"]] = relationship("MiniAppConfig", back_populates="business", uselist=False)
     landing_page: Mapped[Optional["LandingPage"]] = relationship("LandingPage", back_populates="business", uselist=False)
     mcp_listing: Mapped[Optional["McpListing"]] = relationship("McpListing", back_populates="business", uselist=False)
@@ -757,6 +758,42 @@ class Order(Base, UUIDMixin, TimestampMixin):
     conversation_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=True)
 
     business: Mapped["Business"] = relationship("Business", back_populates="orders")
+
+
+# Booking lifecycle (stored as a plain string like billing_policy — avoids a
+# Postgres enum type and the SQLite enum quirks in tests).
+BOOKING_STATUSES = ("confirmed", "cancelled", "completed", "no_show")
+
+
+class Booking(Base, UUIDMixin, TimestampMixin):
+    """A native appointment record. Owned by Ethiogram (not just a calendar
+    event) so the owner dashboard, reminders, and reschedule/cancel can work
+    without the business wiring Google Calendar. ``calendar_event_id`` is set
+    only when the booking is also mirrored to an external calendar."""
+    __tablename__ = "bookings"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=True)
+    customer_platform_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    customer_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    customer_phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    service_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="confirmed", nullable=False, index=True)
+    price: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(16), default="telegram", nullable=False)
+    calendar_event_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    reminder_24h_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    reminder_1h_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    business: Mapped["Business"] = relationship("Business", back_populates="bookings")
+
+    __table_args__ = (
+        Index("idx_bookings_business_starts", "business_id", "starts_at"),
+        Index("idx_bookings_status_starts", "status", "starts_at"),
+    )
 
 
 # ---------------------------------------------------------------------------
