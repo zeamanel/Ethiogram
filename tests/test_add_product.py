@@ -23,6 +23,23 @@ def test_parse_full_caption():
 def test_parse_title_only():
     p = wh._parse_product_caption("Title: Red Shoes")
     assert p["title"] == "Red Shoes" and p["price"] is None and p["category"] is None
+    assert p["kind"] == "product" and p["duration"] is None
+
+
+def test_parse_service_via_type():
+    p = wh._parse_product_caption("Title: Home Cleaning\nType: service\nPrice: 800 ETB")
+    assert p["kind"] == "service"
+    assert p["title"] == "Home Cleaning" and p["price"] == "800 ETB"
+
+
+def test_parse_service_via_duration():
+    p = wh._parse_product_caption("Title: Haircut\nDuration: 45 min")
+    assert p["kind"] == "service" and p["duration"] == "45 min"
+
+
+def test_parse_product_type_stays_product():
+    p = wh._parse_product_caption("Title: Mug\nType: product\nPrice: 100")
+    assert p["kind"] == "product"
 
 
 def test_parse_requires_title():
@@ -99,6 +116,35 @@ async def test_owner_photo_creates_product(db, mock_redis, _stub_media):
     assert item.data["price"] == "1200 ETB" and item.data["category"] == "Dresses"
     assert item.data["image_url"].startswith("https://storage.googleapis.com/")
     assert "Added" in _stub_media["text"]
+
+
+@pytest.mark.asyncio
+async def test_owner_text_creates_service_without_photo(db, mock_redis, _stub_media):
+    biz = await _owned_biz(db, 4242)
+    handled = await wh._maybe_handle_add_product(
+        _env(4242, media=None, file_id=None,
+             text="Title: Home Cleaning\nType: service\nPrice: 800 ETB\nDuration: 2 hours"),
+        bot=SimpleNamespace(business_id=biz.id), business=biz, raw_token="tok", db=db, redis=mock_redis)
+    assert handled is True
+    item = (await db.execute(select(KnowledgeItem).where(
+        KnowledgeItem.business_id == biz.id))).scalars().one()
+    assert item.item_type == KnowledgeItemType.service
+    assert item.title == "Home Cleaning"
+    assert item.data["price"] == "800 ETB" and item.data["duration"] == "2 hours"
+    assert "image_url" not in item.data   # no photo was sent
+    assert "service" in _stub_media["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_duration_line_implies_service(db, mock_redis, _stub_media):
+    biz = await _owned_biz(db, 4242)
+    handled = await wh._maybe_handle_add_product(
+        _env(4242, media=None, file_id=None, text="Title: Haircut\nDuration: 45 min"),
+        bot=SimpleNamespace(business_id=biz.id), business=biz, raw_token="tok", db=db, redis=mock_redis)
+    assert handled is True
+    item = (await db.execute(select(KnowledgeItem).where(
+        KnowledgeItem.business_id == biz.id))).scalars().one()
+    assert item.item_type == KnowledgeItemType.service
 
 
 @pytest.mark.asyncio

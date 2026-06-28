@@ -465,6 +465,8 @@ def _is_addressed(envelope, bot) -> bool:
 _ADDP_TITLE = _re.compile(r"(?im)^\s*title\s*[:\-]\s*(.+)$")
 _ADDP_PRICE = _re.compile(r"(?im)^\s*price\s*[:\-]\s*(.+)$")
 _ADDP_CATEGORY = _re.compile(r"(?im)^\s*categor(?:y|ies)\s*[:\-]\s*(.+)$")
+_ADDP_TYPE = _re.compile(r"(?im)^\s*type\s*[:\-]\s*(.+)$")
+_ADDP_DURATION = _re.compile(r"(?im)^\s*duration\s*[:\-]\s*(.+)$")
 
 
 async def _sender_is_owner(envelope: MessageEnvelope, business, db: AsyncSession) -> bool:
@@ -492,72 +494,99 @@ def _parse_product_caption(text: str | None) -> "dict | None":
         return None
     p = _ADDP_PRICE.search(text)
     c = _ADDP_CATEGORY.search(text)
+    ty = _ADDP_TYPE.search(text)
+    d = _ADDP_DURATION.search(text)
+    duration = d.group(1).strip()[:64] if d else None
+
+    # A "Type: service" line OR any "Duration:" line makes it a service.
+    kind = "product"
+    if (ty and "serv" in ty.group(1).strip().lower()) or duration:
+        kind = "service"
+
+    key_lines = (_ADDP_TITLE, _ADDP_PRICE, _ADDP_CATEGORY, _ADDP_TYPE, _ADDP_DURATION)
     body_lines = [ln.strip() for ln in text.splitlines()
-                  if ln.strip() and not _ADDP_TITLE.match(ln)
-                  and not _ADDP_PRICE.match(ln) and not _ADDP_CATEGORY.match(ln)]
+                  if ln.strip() and not any(rx.match(ln) for rx in key_lines)]
     return {
+        "kind": kind,
         "title": title[:255],
         "price": (p.group(1).strip()[:64] if p else None),
         "category": (c.group(1).strip()[:64] if c else None),
+        "duration": duration,
         "body": (" ".join(body_lines)[:500] or None),
     }
 
 
 async def _maybe_handle_add_product(envelope, bot, business, raw_token, db, redis) -> bool:
-    """Owner-only: a photo captioned `Title: … / Price: …` becomes a catalog
-    product (image stored). A bare /addproduct (owner) replies with how-to."""
+    """Owner-only: a captioned `Title: … / Price: …` message becomes a catalog
+    item. A `Type: service` line or a `Duration:` line makes it a service
+    (image optional — services often have none); otherwise it's a product and
+    a photo's image is stored. A bare /addproduct (owner) replies with how-to."""
     text = envelope.text or ""
-    is_command = text.strip().lower().startswith("/addproduct")
+    is_command = text.strip().lower().startswith(("/addproduct", "/addservice"))
     parsed = _parse_product_caption(text)
+    has_photo = envelope.media_type == "photo" and bool(envelope.media_file_id)
 
-    # Nothing for us unless it's a captioned product photo or the /addproduct help.
-    if not (parsed and envelope.media_type == "photo" and envelope.media_file_id) and not is_command:
+    # Nothing for us unless it's a parseable item caption or the /add* help.
+    if not parsed and not is_command:
         return False
     if not await _sender_is_owner(envelope, business, db):
         return False   # never let a customer write to the catalog
 
-    # /addproduct with no usable product photo → instructions.
-    if not (parsed and envelope.media_type == "photo" and envelope.media_file_id):
+    # /addproduct or /addservice with no parseable caption → instructions.
+    if not parsed:
         await telegram_service.send_message(
             raw_token, envelope.customer_id,
-            "📦 To add a product: send me a *photo* with a caption like:\n\n"
+            "📦 *Add a product*: send a *photo* captioned like:\n"
             "Title: Blue Summer Dress\nPrice: 1200 ETB\nCategory: Dresses\n\n"
+            "🔧 *Add a service*: send a message (photo optional) like:\n"
+            "Title: Home Cleaning\nType: service\nPrice: 800 ETB\nDuration: 2 hours\n\n"
             "I'll add it to your store. You can edit the details later in your dashboard.")
         return True
 
-    # Download the photo and store it in the public bucket.
+    is_service = parsed["kind"] == "service"
+    noun = "service" if is_service else "product"
+
+    # Download the photo and store it in the public bucket (when one was sent).
     image_url = None
-    try:
-        url = await telegram_service.get_file_download_url(raw_token, envelope.media_file_id)
-        async with _httpx.AsyncClient(timeout=30) as client:
-            data = (await client.get(url)).content
-        path = f"items/{business.id}/{uuid.uuid4().hex}.jpg"
-        image_url = await storage_service.upload_public(data, path, content_type="image/jpeg")
-    except Exception as exc:
-        logger.error("Add-product image upload failed", business_id=str(business.id),
-                     error=f"{type(exc).__name__}: {exc}")
+    if has_photo:
+        try:
+            url = await telegram_service.get_file_download_url(raw_token, envelope.media_file_id)
+            async with _httpx.AsyncClient(timeout=30) as client:
+                data = (await client.get(url)).content
+            path = f"items/{business.id}/{uuid.uuid4().hex}.jpg"
+            image_url = await storage_service.upload_public(data, path, content_type="image/jpeg")
+        except Exception as exc:
+            logger.error("Add-item image upload failed", business_id=str(business.id),
+                         error=f"{type(exc).__name__}: {exc}")
 
     item_data: dict = {}
     if parsed["price"]:    item_data["price"] = parsed["price"]
     if parsed["category"]: item_data["category"] = parsed["category"]
+    if parsed["duration"]: item_data["duration"] = parsed["duration"]
     if image_url:          item_data["image_url"] = image_url
     db.add(KnowledgeItem(
-        business_id=business.id, item_type=KnowledgeItemType.product,
+        business_id=business.id,
+        item_type=KnowledgeItemType.service if is_service else KnowledgeItemType.product,
         title=parsed["title"], body=parsed["body"], data=(item_data or None), is_active=True,
     ))
     await db.flush()
     from app.api.miniapp import bust_storefront_cache
     await bust_storefront_cache(business.id, db, redis)
 
-    reply = f'✅ Added "{parsed["title"]}" to your catalog'
+    reply = f'✅ Added "{parsed["title"]}" to your {noun}s'
     reply += f' — {parsed["price"]}.' if parsed["price"] else "."
-    if not image_url:
+    if is_service and parsed["duration"]:
+        reply += f'\n⏱ Duration: {parsed["duration"]}'
+    if has_photo and not image_url:
         reply += "\n(Couldn't save the image — you can add it later in the dashboard.)"
     if not parsed["price"]:
         reply += "\nTip: add a 'Price:' line to set the price."
+    if not is_service:
+        reply += "\nTip: add 'Type: service' or a 'Duration:' line to list a service instead."
     reply += "\nEdit details anytime in your Mini App dashboard."
     await telegram_service.send_message(raw_token, envelope.customer_id, reply)
-    logger.info("Product added via bot", business_id=str(business.id), title=parsed["title"])
+    logger.info(f"{noun.capitalize()} added via bot", business_id=str(business.id),
+                title=parsed["title"], kind=parsed["kind"])
     return True
 
 
