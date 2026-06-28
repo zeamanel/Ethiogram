@@ -105,6 +105,9 @@ async def test_storefront_editor_present(client):
     assert "openStorefront" in js and "/storefront" in js                    # GET/PATCH wired
     assert "SF_SECTIONS" in js                                               # reorder/toggle state
     assert 'id="se-logo-file"' in html and "logo_url" in js                  # business logo upload
+    # store vibe (ui_child_prompt) + font selectors
+    assert 'id="se-vibe"' in html and 'id="se-font-heading"' in html and 'id="se-font-body"' in html
+    assert "ui_child_prompt" in js and "font_heading" in js
     # publish reveals the live link + BotFather setup guide
     assert 'id="se-publish-info"' in html and 'id="se-store-url"' in html
     assert "BotFather" in html and "Menu Button" in html

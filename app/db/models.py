@@ -771,6 +771,8 @@ class MiniAppConfig(Base, UUIDMixin, TimestampMixin):
     theme_secondary: Mapped[str] = mapped_column(String(7), default="#ffffff", nullable=False)
     theme_accent: Mapped[str] = mapped_column(String(7), default="#fbbc04", nullable=False)
     font_family: Mapped[str] = mapped_column(String(64), default="Inter", nullable=False)
+    font_heading: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    font_body: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     hero_image_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     layout_config: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     ui_child_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

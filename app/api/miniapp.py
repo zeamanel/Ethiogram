@@ -69,8 +69,9 @@ def _theme(cfg: Optional[MiniAppConfig], business: Business) -> dict:
         theme["primary"] = cfg.theme_primary or theme["primary"]
         theme["secondary"] = cfg.theme_secondary or theme["secondary"]
         theme["accent"] = cfg.theme_accent or theme["accent"]
-        if cfg.font_family:
-            theme["font_body"] = cfg.font_family
+        # Fonts: dedicated columns win; font_family is the legacy body fallback.
+        theme["font_heading"] = cfg.font_heading or theme["font_heading"]
+        theme["font_body"] = cfg.font_body or cfg.font_family or theme["font_body"]
         # AI/owner overrides live in the existing JSONB (no dedicated column).
         overrides = (cfg.layout_config or {}).get("theme_overrides") or {}
         theme.update({k: v for k, v in overrides.items() if k in _THEME_DEFAULTS})

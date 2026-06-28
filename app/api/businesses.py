@@ -276,6 +276,9 @@ class StorefrontResponse(BaseModel):
     tagline: Optional[str]
     hours: Optional[str]
     logo_url: Optional[str]
+    font_heading: Optional[str]
+    font_body: Optional[str]
+    ui_child_prompt: Optional[str]      # "store vibe" — the AI customization prompt
     sections: list[dict]          # [{type, label, visible, order}] — ALL known types
     is_published: bool
     store_url: str
@@ -286,6 +289,9 @@ class StorefrontUpdate(BaseModel):
     tagline: Optional[str] = None
     hours: Optional[str] = None
     logo_url: Optional[str] = None
+    font_heading: Optional[str] = None
+    font_body: Optional[str] = None
+    ui_child_prompt: Optional[str] = None
     sections: Optional[list[StorefrontSection]] = None
     is_published: Optional[bool] = None
 
@@ -308,11 +314,15 @@ def _storefront_to_response(cfg: Optional[MiniAppConfig], business: Business) ->
             sections.append({"type": t, "label": _SECTION_LABELS[t], "visible": False, "order": order})
             seen.append(t); order += 1
 
+    theme = _theme(cfg, business)
     return StorefrontResponse(
-        theme=_theme(cfg, business),
+        theme=theme,
         tagline=layout.get("tagline") or business.description,
         hours=layout.get("hours"),
         logo_url=business.logo_url,
+        font_heading=theme["font_heading"],     # resolved (column or default)
+        font_body=theme["font_body"],
+        ui_child_prompt=cfg.ui_child_prompt if cfg else None,
         sections=sections,
         is_published=bool(cfg.is_published) if cfg else False,
         store_url=f"/app/store/?s={business.slug}",
@@ -373,6 +383,12 @@ async def update_storefront_config(
         layout["hours"] = body.hours.strip() or None
     if body.logo_url is not None:
         business.logo_url = body.logo_url.strip() or None   # lives on Business, not the JSONB
+    if body.font_heading is not None:
+        cfg.font_heading = body.font_heading.strip() or None
+    if body.font_body is not None:
+        cfg.font_body = body.font_body.strip() or None
+    if body.ui_child_prompt is not None:
+        cfg.ui_child_prompt = body.ui_child_prompt.strip() or None
     if body.sections is not None:
         layout["sections"] = [
             {"type": s.type, "visible": s.visible, "order": i}

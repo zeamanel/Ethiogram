@@ -63,4 +63,7 @@
 \echo '==> 018_landing_pages_drop_legacy_notnull.sql'
 \i migrations/018_landing_pages_drop_legacy_notnull.sql
 
+\echo '==> 019_mini_app_fonts.sql'
+\i migrations/019_mini_app_fonts.sql
+
 \echo '==> All migrations applied successfully.'

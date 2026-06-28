@@ -118,6 +118,22 @@ async def test_storefront_default_layout_sections(client, db):
 
 
 @pytest.mark.asyncio
+async def test_published_flag_does_not_gate_access(client, db):
+    """Published is a soft label only — the store is reachable either way."""
+    biz_unpub = await _biz(db, slug="unpub-store")
+    db.add(MiniAppConfig(business_id=biz_unpub.id, is_published=False))
+    biz_pub = await _biz(db, slug="pub-store")
+    db.add(MiniAppConfig(business_id=biz_pub.id, is_published=True))
+    await db.flush()
+    assert (await client.get("/api/v1/miniapp/unpub-store")).status_code == 200
+    assert (await client.get("/api/v1/miniapp/pub-store")).status_code == 200
+    # also reachable with no config at all
+    biz_none = await _biz(db, slug="no-config")
+    await db.flush()
+    assert (await client.get("/api/v1/miniapp/no-config")).status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_storefront_404_for_unknown_slug(client, db):
     resp = await client.get("/api/v1/miniapp/does-not-exist")
     assert resp.status_code == 404

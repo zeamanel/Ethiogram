@@ -578,6 +578,10 @@
     // <input type=color> needs #rrggbb; ignore rgba()/short forms
     if (/^#[0-9a-fA-F]{6}$/.test(hex || "")) $(id).value = hex;
   }
+  function setSelect(id, value) {
+    const el = $(id);
+    if (value && Array.from(el.options).some(o => o.value === value)) el.value = value;
+  }
 
   function moveSf(i, dir) {
     const j = i + dir;
@@ -634,8 +638,11 @@
     setColor("se-accent", cfg.theme.accent);
     setColor("se-bg", cfg.theme.bg);
     setColor("se-text", cfg.theme.text);
+    setSelect("se-font-heading", cfg.font_heading || cfg.theme.font_heading);
+    setSelect("se-font-body", cfg.font_body || cfg.theme.font_body);
     $("se-tagline").value = cfg.tagline || "";
     $("se-hours").value = cfg.hours || "";
+    $("se-vibe").value = cfg.ui_child_prompt || "";
 
     // logo upload (sets Business.logo_url; the store header + landing use it)
     let logoUrl = cfg.logo_url || null;
@@ -678,6 +685,9 @@
         tagline: $("se-tagline").value.trim(),
         hours: $("se-hours").value.trim(),
         logo_url: logoUrl,
+        font_heading: $("se-font-heading").value,
+        font_body: $("se-font-body").value,
+        ui_child_prompt: $("se-vibe").value.trim(),
         sections: SF_SECTIONS.map((s, i) => ({ type: s.type, visible: s.visible, order: i })),
       };
       setBtn("se-save", true, "Saving…");

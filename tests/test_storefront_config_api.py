@@ -98,6 +98,32 @@ async def test_logo_persists_and_shows_in_storefront(client, db, sample_user_id,
 
 
 @pytest.mark.asyncio
+async def test_fonts_and_store_vibe_persist(client, db, sample_user_id, sample_business_id, valid_access_token):
+    await _seed(db, sample_user_id, sample_business_id, slug="vibe")
+    hdr = {"Authorization": f"Bearer {valid_access_token}"}
+    resp = await client.patch(
+        f"/api/v1/businesses/{sample_business_id}/storefront",
+        json={"font_heading": "Fraunces", "font_body": "Inter",
+              "ui_child_prompt": "Make it feel like a luxury boutique — dark, warm, gold."},
+        headers=hdr,
+    )
+    assert resp.status_code == 200, resp.text
+    b = resp.json()
+    assert b["font_heading"] == "Fraunces" and b["font_body"] == "Inter"
+    assert "luxury boutique" in b["ui_child_prompt"]
+
+    cfg = (await db.execute(select(MiniAppConfig).where(
+        MiniAppConfig.business_id == sample_business_id))).scalar_one()
+    assert cfg.font_heading == "Fraunces" and cfg.font_body == "Inter"
+    assert cfg.ui_child_prompt.startswith("Make it feel")
+
+    # fonts flow to the public store theme
+    pub = (await client.get("/api/v1/miniapp/vibe")).json()
+    assert pub["theme"]["font_heading"] == "Fraunces"
+    assert pub["theme"]["font_body"] == "Inter"
+
+
+@pytest.mark.asyncio
 async def test_patch_round_trips_with_public_storefront(client, db, sample_user_id, sample_business_id, valid_access_token):
     """What the owner saves is what the public storefront serves."""
     await _seed(db, sample_user_id, sample_business_id, slug="round")
