@@ -58,6 +58,15 @@ def test_free_slots_respects_num_slots_cap():
     assert len(slots) == 3
 
 
+@pytest.mark.parametrize("text, mins", [
+    ("30 min", 30), ("45 minutes", 45), ("1 hour", 60), ("2 hours", 120),
+    ("1.5 hours", 90), ("90", 90), ("1h30m", 90), ("", 60), (None, 60),
+    (45, 45), ("nonsense", 60),
+])
+def test_parse_duration_minutes(text, mins):
+    assert bs.parse_duration_minutes(text) == mins
+
+
 def test_booking_config_defaults_and_overrides():
     assert bs.booking_config(None)["open_hour"] == 9
     cfg = bs.booking_config({"timezone": "UTC", "open_hour": 8, "close_hour": 20,
@@ -105,6 +114,36 @@ async def test_create_booking_rejects_overlap(db):
         starts_at=start + timedelta(minutes=30), ends_at=start + timedelta(minutes=90))
     assert created1 is True
     assert created2 is False and booking2 is None
+
+
+@pytest.mark.asyncio
+async def test_load_bookable_services_from_catalog(db):
+    from app.db.models import KnowledgeItem, KnowledgeItemType
+    biz = await _biz(db)
+    db.add(KnowledgeItem(business_id=biz.id, item_type=KnowledgeItemType.service,
+                         title="Haircut", data={"price": "300 ETB", "duration": "30 min"},
+                         is_active=True))
+    db.add(KnowledgeItem(business_id=biz.id, item_type=KnowledgeItemType.service,
+                         title="Colour", data={"price": "900 ETB", "duration": "2 hours"},
+                         is_active=True))
+    db.add(KnowledgeItem(business_id=biz.id, item_type=KnowledgeItemType.product,
+                         title="Shampoo", data={"price": "120 ETB"}, is_active=True))
+    await db.flush()
+
+    svcs = await bs.load_bookable_services(db, biz.id)
+    assert [s["name"] for s in svcs] == ["Haircut", "Colour"]   # products excluded
+    assert svcs[0]["duration_min"] == 30 and svcs[1]["duration_min"] == 120
+    assert svcs[0]["price"] == "300 ETB"
+
+
+@pytest.mark.asyncio
+async def test_available_slots_uses_service_duration(db):
+    biz = await _biz(db)
+    # 9-12 with a 90-min service → 09:00 and 10:30 fit (12:00 end excluded)
+    slots = await bs.available_slots(
+        db, biz.id, {"timezone": "UTC", "open_hour": 9, "close_hour": 12},
+        date(2030, 4, 1), num_slots=10, duration_minutes=90)
+    assert [s["label"][-8:] for s in slots] == ["09:00 AM", "10:30 AM"]
 
 
 @pytest.mark.asyncio

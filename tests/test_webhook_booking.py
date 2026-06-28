@@ -7,6 +7,7 @@ that was taken in the meantime is rejected instead of double-booked.
 """
 import json
 import uuid
+from types import SimpleNamespace
 
 import fakeredis.aioredis
 import pytest
@@ -15,7 +16,9 @@ from sqlalchemy import select
 from app.agents.concierge import ConciergeAgent
 from app.api import webhooks
 from app.core.security import encrypt_child_secrets
-from app.db.models import Agent, AgentStatus, Booking, ChildAgent
+from app.db.models import (
+    Agent, AgentStatus, Booking, ChildAgent, KnowledgeItem, KnowledgeItemType,
+)
 
 _FAKE_CREDS = '{"type":"service_account","project_id":"x","private_key":"-----BEGIN PRIVATE KEY-----\\nMIIB\\n-----END PRIVATE KEY-----\\n","client_email":"x@x.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}'
 
@@ -167,6 +170,77 @@ async def test_callback_double_booking_is_rejected(db, captured):
     # only ONE booking exists for that slot
     rows = (await db.execute(select(Booking).where(Booking.business_id == biz))).scalars().all()
     assert len(rows) == 1
+
+
+# ── service-aware booking flow (pick service → sized slots → confirm) ─────────
+
+@pytest.fixture
+def flow(monkeypatch):
+    msgs, btns = [], []
+
+    async def _send(token, chat_id, text, **kw):
+        msgs.append(text)
+
+    async def _send_btns(token, chat_id, text, buttons, **kw):
+        btns.append({"text": text, "buttons": buttons})
+
+    async def _answer(token, cb_id, **kw):
+        return True
+    monkeypatch.setattr(webhooks.telegram_service, "send_message", _send)
+    monkeypatch.setattr(webhooks.telegram_service, "send_message_with_buttons", _send_btns)
+    monkeypatch.setattr(webhooks.telegram_service, "answer_callback_query", _answer)
+    return {"msgs": msgs, "btns": btns}
+
+
+def _flow_env(text=""):
+    return SimpleNamespace(customer_id="959519454", customer_name="Abebe",
+                           text=text, media_type=None, chat_type="private")
+
+
+def _cb_key(buttons):
+    """Extract the session key from the first button's callback_data a:key:idx."""
+    return buttons[0][0]["callback_data"].split(":")[1]
+
+
+@pytest.mark.asyncio
+async def test_service_aware_booking_flow(db, flow):
+    biz = uuid.uuid4()
+    await _deploy_concierge(db, biz, with_calendar=False)
+    db.add(KnowledgeItem(business_id=biz, item_type=KnowledgeItemType.service,
+                         title="Haircut", data={"price": "300 ETB", "duration": "30 min"},
+                         is_active=True))
+    db.add(KnowledgeItem(business_id=biz, item_type=KnowledgeItemType.service,
+                         title="Colour", data={"price": "900 ETB", "duration": "2 hours"},
+                         is_active=True))
+    await db.flush()
+    bot, conv = _Bot(), _Conv(biz)
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+
+    # 1. Booking intent → service picker
+    handled = await webhooks._maybe_handle_booking(
+        _flow_env("I'd like to book an appointment"), bot, "tok", conv, db, redis, {})
+    assert handled is True
+    picker = flow["btns"][-1]
+    assert "What would you like to book" in picker["text"]
+    labels = [b[0]["text"] for b in picker["buttons"]]
+    assert any("Haircut" in x and "300 ETB" in x for x in labels)
+    svc_key = _cb_key(picker["buttons"])
+
+    # 2. Tap "Haircut" → slots sized to it
+    await webhooks._maybe_handle_booking(
+        _flow_env(), bot, "tok", conv, db, redis,
+        {"callback_query": {"id": "c1", "data": f"booksvc:{svc_key}:0"}})
+    slots_msg = flow["btns"][-1]
+    assert "Haircut" in slots_msg["text"]
+    slot_key = _cb_key(slots_msg["buttons"])
+
+    # 3. Tap the first slot → booking records the chosen service + price
+    await webhooks._maybe_handle_booking(
+        _flow_env(), bot, "tok", conv, db, redis,
+        {"callback_query": {"id": "c2", "data": f"book_slot:{slot_key}:0"}})
+    assert "confirmed" in flow["msgs"][-1].lower()
+    row = (await db.execute(select(Booking).where(Booking.business_id == biz))).scalars().one()
+    assert row.service_name == "Haircut" and row.price == "300 ETB"
 
 
 @pytest.mark.asyncio

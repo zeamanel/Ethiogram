@@ -11,6 +11,7 @@ unit-testable; the async helpers load existing bookings and persist new ones.
 """
 from __future__ import annotations
 
+import re
 from datetime import date as date_cls
 from datetime import datetime, time, timedelta, timezone
 from typing import Optional
@@ -39,6 +40,62 @@ def _aware(dt: Optional[datetime]) -> Optional[datetime]:
     if dt is None:
         return None
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def parse_duration_minutes(text, default: int = DEFAULT_DURATION_MIN) -> int:
+    """Best-effort parse of a free-text duration into minutes.
+
+    Handles "30 min", "45 minutes", "1 hour", "2 hours", "1h30m", "1.5 hours",
+    and a bare number (treated as minutes). Falls back to ``default``."""
+    if text is None:
+        return default
+    if isinstance(text, (int, float)):
+        return max(5, int(text))
+    s = str(text).strip().lower()
+    if not s:
+        return default
+    if re.fullmatch(r"\d+", s):                       # bare number → minutes
+        return max(5, int(s))
+    total, found = 0.0, False
+    h = re.search(r"(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours)", s)
+    if h:
+        total += float(h.group(1)) * 60
+        found = True
+    m = re.search(r"(\d+)\s*(?:m|min|mins|minute|minutes)", s)
+    if m:
+        total += int(m.group(1))
+        found = True
+    if not found:
+        f = re.fullmatch(r"\d+(?:\.\d+)?", s)         # bare float → hours
+        if f:
+            total, found = float(s) * 60, True
+    return max(5, int(round(total))) if found else default
+
+
+async def load_bookable_services(db: AsyncSession, business_id, limit: int = 8) -> list[dict]:
+    """Bookable services from the catalog (KnowledgeItem type=service), each with
+    its own duration parsed from the item data. Empty when the business hasn't
+    listed services — the caller then falls back to a single default duration."""
+    from app.db.models import KnowledgeItem, KnowledgeItemType
+
+    rows = (await db.execute(
+        select(KnowledgeItem.title, KnowledgeItem.data).where(
+            KnowledgeItem.business_id == business_id,
+            KnowledgeItem.item_type == KnowledgeItemType.service,
+            KnowledgeItem.is_active.is_(True),
+        ).order_by(KnowledgeItem.created_at.asc()).limit(limit)
+    )).all()
+    out = []
+    for title, data in rows:
+        d = data or {}
+        if not title:
+            continue
+        out.append({
+            "name": title[:64],
+            "price": d.get("price"),
+            "duration_min": parse_duration_minutes(d.get("duration")),
+        })
+    return out
 
 
 def booking_config(child_data: Optional[dict]) -> dict:
@@ -112,12 +169,15 @@ async def available_slots(
     day,
     num_slots: int = 5,
     now: Optional[datetime] = None,
+    duration_minutes: Optional[int] = None,
 ) -> list[dict]:
     """Open slots for ``business_id`` on ``day``, computed natively from the
-    business's hours minus its confirmed bookings that day."""
+    business's hours minus its confirmed bookings that day. ``duration_minutes``
+    overrides the business default (e.g. the chosen service's length)."""
     from app.db.models import Booking
 
     cfg = booking_config(child_data)
+    duration = duration_minutes or cfg["duration"]
     zone = _tz(cfg["tz"])
     if isinstance(day, datetime):
         target_date = day.astimezone(zone).date() if day.tzinfo else day.date()
@@ -139,7 +199,7 @@ async def available_slots(
     return compute_free_slots(
         target_date, busy=busy, tz=zone,
         open_hour=cfg["open_hour"], close_hour=cfg["close_hour"],
-        duration_minutes=cfg["duration"], num_slots=num_slots, now=now,
+        duration_minutes=duration, num_slots=num_slots, now=now,
     )
 
 

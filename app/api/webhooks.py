@@ -653,14 +653,18 @@ async def _maybe_handle_booking(
     - booking intent + a Concierge configured with calendar credentials →
       fetch REAL availability and present slot buttons.
     """
-    from app.agents.concierge import concierge_agent
     from app.agents.router import Intent, intent_router
+    from app.services import booking_service
 
     cb = body.get("callback_query")
 
     # A. A tapped slot → confirm the booking.
     if cb and str(cb.get("data", "")).startswith("book_slot:"):
         await _confirm_booking_callback(envelope, bot, raw_token, conversation, db, redis, cb)
+        return True
+    # A2. A tapped service → present slots sized to that service's duration.
+    if cb and str(cb.get("data", "")).startswith("booksvc:"):
+        await _present_service_slots_callback(envelope, bot, raw_token, conversation, db, redis, cb)
         return True
     if cb:
         return False  # some other callback — let the normal flow deal with it
@@ -674,27 +678,93 @@ async def _maybe_handle_booking(
     if not child_data:
         return False  # no booking agent deployed → fall through to LLM guidance
 
-    from app.services import booking_service
+    # If the catalog lists services, let the customer pick one first — each has
+    # its own duration, so slots are sized correctly (salon Cut 30m vs Colour 2h).
+    services = await booking_service.load_bookable_services(db, conversation.business_id)
+    if services:
+        session_key = _secrets.token_hex(6)
+        await redis.set(f"booksvc:{bot.id}:{session_key}", json.dumps(services), ex=3600)
+        buttons = [
+            [{"text": s["name"] + (f" · {s['price']}" if s.get("price") else ""),
+              "callback_data": f"booksvc:{session_key}:{i}"}]
+            for i, s in enumerate(services)
+        ]
+        await telegram_service.send_message_with_buttons(
+            raw_token, envelope.customer_id, "What would you like to book?", buttons)
+        logger.info("Presented booking services", bot_id=str(bot.id), services=len(services))
+        return True
+
+    # No catalog services → a single default-duration availability list.
     now = datetime.now(timezone.utc)
+    return await _present_slots(
+        db, bot, raw_token, envelope.customer_id, redis,
+        conversation.business_id, child_data, None, now)
+
+
+async def _present_slots(
+    db, bot, raw_token, customer_id, redis, business_id, child_data, service, now,
+) -> bool:
+    """Compute and present available slots (sized to ``service`` when given),
+    stashing the slots + chosen service under a one-hour session key."""
+    from app.agents.concierge import concierge_agent
+    from app.services import booking_service
+
     target_day = now + timedelta(days=1)
+    duration = service.get("duration_min") if service else None
     slots = await booking_service.available_slots(
-        db, conversation.business_id, child_data, target_day, now=now)
+        db, business_id, child_data, target_day, now=now, duration_minutes=duration)
     if not slots:
         await telegram_service.send_message(
-            raw_token, envelope.customer_id,
-            "I don't see any open times right now. Please try again later or contact us directly.",
-        )
+            raw_token, customer_id,
+            "I don't see any open times right now. Please try again later or contact us directly.")
         return True
 
     session_key = _secrets.token_hex(6)
-    await redis.set(f"book:{bot.id}:{session_key}", json.dumps(slots), ex=3600)
+    await redis.set(f"book:{bot.id}:{session_key}",
+                    json.dumps({"slots": slots, "service": service}), ex=3600)
     buttons = concierge_agent.format_slots_as_buttons(slots, session_key)
-    await telegram_service.send_message_with_buttons(
-        raw_token, envelope.customer_id,
-        "Here are the next available times — tap one to book:", buttons,
-    )
-    logger.info("Presented booking slots", bot_id=str(bot.id), slots=len(slots))
+    header = (f"Available times for {service['name']} — tap one to book:"
+              if service else "Here are the next available times — tap one to book:")
+    await telegram_service.send_message_with_buttons(raw_token, customer_id, header, buttons)
+    logger.info("Presented booking slots", bot_id=str(bot.id), slots=len(slots),
+                service=(service or {}).get("name"))
     return True
+
+
+async def _present_service_slots_callback(
+    envelope, bot, raw_token, conversation, db, redis, cb,
+) -> None:
+    """A tapped service button → present slots sized to that service."""
+    try:
+        await telegram_service.answer_callback_query(raw_token, cb.get("id"))
+    except Exception:
+        pass
+
+    parts = str(cb.get("data", "")).split(":")
+    if len(parts) != 3:
+        return
+    _, session_key, idx_s = parts
+    raw = await redis.get(f"booksvc:{bot.id}:{session_key}")
+    if not raw:
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "⚠️ That option expired. Please ask to book again.")
+        return
+    try:
+        services = json.loads(raw)
+        service = services[int(idx_s)]
+    except (ValueError, IndexError, TypeError, json.JSONDecodeError):
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "⚠️ I couldn't read that service. Please ask to book again.")
+        return
+
+    child_data = await _load_child_data(str(conversation.business_id), "ConciergeAgent", db)
+    now = datetime.now(timezone.utc)
+    await _present_slots(
+        db, bot, raw_token, envelope.customer_id, redis,
+        conversation.business_id, child_data, service, now)
+    await redis.delete(f"booksvc:{bot.id}:{session_key}")
 
 
 async def _confirm_booking_callback(
@@ -727,10 +797,16 @@ async def _confirm_booking_callback(
             "⚠️ That booking option expired. Please ask for available times again.",
         )
         return
+    # Session payload is {"slots": [...], "service": {...}|null}; tolerate the
+    # legacy bare-list shape too.
     try:
-        slots = json.loads(raw)
+        payload = json.loads(raw)
+        if isinstance(payload, dict):
+            slots, chosen_service = payload.get("slots") or [], payload.get("service")
+        else:
+            slots, chosen_service = payload, None
         slot = slots[int(idx_s)]
-    except (ValueError, IndexError, TypeError, json.JSONDecodeError):
+    except (ValueError, IndexError, TypeError, KeyError, json.JSONDecodeError):
         await telegram_service.send_message(
             raw_token, envelope.customer_id,
             "⚠️ I couldn't read that slot. Please ask for available times again.",
@@ -753,7 +829,12 @@ async def _confirm_booking_callback(
 
     from app.services import booking_service
     child_data = await _load_child_data(str(conversation.business_id), "ConciergeAgent", db)
-    service_name = ((child_data or {}).get("services") if child_data else None) or "Appointment"
+    if chosen_service and chosen_service.get("name"):
+        service_name = chosen_service["name"]
+        service_price = chosen_service.get("price")
+    else:
+        service_name = ((child_data or {}).get("services") if child_data else None) or "Appointment"
+        service_price = None
 
     # Persist natively FIRST — our DB is the source of truth, no calendar needed.
     booking, created = await booking_service.create_booking(
@@ -763,6 +844,7 @@ async def _confirm_booking_callback(
         customer_platform_id=envelope.customer_id,
         customer_name=envelope.customer_name or "Customer",
         starts_at=start_dt, ends_at=end_dt, service_name=service_name,
+        price=service_price,
     )
     if not created:
         # Someone grabbed this slot between offer and tap.
