@@ -165,6 +165,7 @@
       <button class="adm-tab" data-tab="businesses">Businesses</button>
       <button class="adm-tab" data-tab="users">Users</button>
       <button class="adm-tab" data-tab="agents">Agents</button>
+      <button class="adm-tab" data-tab="models">Models</button>
       <button class="adm-tab" data-tab="system">System</button>
     </div>
 
@@ -195,6 +196,11 @@
     <div id="adm-agents" class="adm-page hidden">
       <div class="mgr-note" style="text-align:left;padding:0 16px 8px">Set the model each marketplace agent runs on. Changes apply to every business using it, on their next message.</div>
       <div class="lcard" id="adm-agents-list"></div>
+    </div>
+
+    <div id="adm-models" class="adm-page hidden">
+      <div class="mgr-note" style="text-align:left;padding:0 16px 8px">Set what each AI model costs per 1,000 tokens (ETG). This is what businesses are charged per reply — cheap and premium models price independently. Applies on the next message.</div>
+      <div class="lcard" id="adm-models-list"></div>
     </div>
 
     <div id="adm-system" class="adm-page hidden">

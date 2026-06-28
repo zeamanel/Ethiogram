@@ -221,6 +221,15 @@ body {
 .adm-model-select { flex-shrink:0; max-width:150px; font-size:12px; font-family:inherit; padding:7px 9px;
   border:1px solid var(--line); border-radius:9px; background:var(--card); color:var(--text); outline:none; }
 .adm-model-select:focus { border-color:var(--amber); }
+.adm-price { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+.adm-price label { display:flex; flex-direction:column; align-items:center; font-size:9px;
+  color:var(--text-3); text-transform:uppercase; gap:2px; }
+.adm-price input { width:46px; font-size:12px; font-family:inherit; padding:5px 4px; text-align:center;
+  border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--text); outline:none; }
+.adm-price input:focus { border-color:var(--amber); }
+.adm-price .mp-save { background:var(--ink); color:#F7F3EA; border:none; border-radius:8px;
+  font-size:12px; font-weight:600; padding:7px 10px; cursor:pointer; }
+.adm-price .mp-save:disabled { opacity:.7; }
 .adm-act { background:var(--amber-soft); color:var(--amber-deep); border:none; border-radius:9px;
   font-size:12px; font-weight:600; padding:6px 11px; cursor:pointer; flex-shrink:0; }
 .adm-act:disabled { opacity:.5; cursor:default; }

@@ -1281,13 +1281,46 @@
   }
 
   function switchAdminTab(tab) {
-    ["overview", "businesses", "users", "agents", "system"].forEach(t =>
+    ["overview", "businesses", "users", "agents", "models", "system"].forEach(t =>
       $("adm-" + t).classList.toggle("hidden", t !== tab));
     document.querySelectorAll(".adm-tab").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
     if (tab === "businesses") loadAdminBusinesses();
     else if (tab === "users") loadAdminUsers();
     else if (tab === "agents") loadAdminAgents();
+    else if (tab === "models") loadAdminModels();
     else if (tab === "system") loadAdminSystem();
+  }
+
+  async function loadAdminModels() {
+    $("adm-models-list").innerHTML = `<div class="lempty">Loading…</div>`;
+    let models;
+    try { models = await Eth.get("/admin/models/pricing"); }
+    catch (e) { $("adm-models-list").innerHTML = empty("Couldn't load models."); return; }
+    if (!models.length) { $("adm-models-list").innerHTML = empty("No models in the catalog."); return; }
+    $("adm-models-list").innerHTML = models.map(m => `<div class="litem adm-model-row" data-model="${esc(m.model_id)}">
+      <div class="lic ${m.is_enabled ? "ic-green" : "ic-amber"}">🤖</div>
+      <div class="linfo"><div class="lname">${esc(m.display_name)}</div>
+        <div class="lmeta">${esc(m.provider)} · ${esc(m.tier)}${m.is_enabled ? "" : " · disabled"}</div></div>
+      <div class="adm-price">
+        <label>in<input type="number" min="0" class="mp-in" value="${m.etg_cost_per_1k_input}"></label>
+        <label>out<input type="number" min="0" class="mp-out" value="${m.etg_cost_per_1k_output}"></label>
+        <button class="mp-save">Save</button>
+      </div></div>`).join("");
+    $("adm-models-list").querySelectorAll(".adm-model-row").forEach(row => {
+      const btn = row.querySelector(".mp-save");
+      btn.onclick = async () => {
+        const inp = parseInt(row.querySelector(".mp-in").value, 10);
+        const outp = parseInt(row.querySelector(".mp-out").value, 10);
+        if (isNaN(inp) || isNaN(outp) || inp < 0 || outp < 0) return notify("Enter valid prices.");
+        btn.disabled = true; btn.textContent = "…";
+        try {
+          await Eth.patch("/admin/models/pricing", {
+            model_id: row.dataset.model, etg_cost_per_1k_input: inp, etg_cost_per_1k_output: outp });
+          btn.textContent = "✓";
+          setTimeout(() => { btn.textContent = "Save"; btn.disabled = false; }, 1200);
+        } catch (e) { btn.textContent = "Save"; btn.disabled = false; notify(e.detail || "Couldn't save pricing."); }
+      };
+    });
   }
 
   let ADMIN_MODELS = null;

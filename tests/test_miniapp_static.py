@@ -209,6 +209,9 @@ async def test_admin_dashboard_present(client):
     # agents tab: set a father agent's model
     assert 'data-tab="agents"' in html and 'id="adm-agents-list"' in html
     assert "loadAdminAgents" in js and "/admin/agents/" in js and "/admin/models" in js
+    # models tab: set per-1k ETG pricing
+    assert 'data-tab="models"' in html and 'id="adm-models-list"' in html
+    assert "loadAdminModels" in js and "/admin/models/pricing" in js
 
 
 @pytest.mark.asyncio
