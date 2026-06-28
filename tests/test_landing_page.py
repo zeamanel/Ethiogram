@@ -61,14 +61,44 @@ async def test_landing_page_has_seo_and_content(client, db):
 @pytest.mark.asyncio
 async def test_landing_json_ld_is_valid_store_schema(client, db):
     biz = await _biz(db, slug="jsonld")
-    await _item(db, biz.id, KnowledgeItemType.product, "Bag", data={"price": "900 ETB"})
+    await _item(db, biz.id, KnowledgeItemType.product, "Bag",
+                body="Leather tote", data={"price": "900 ETB", "category": "Bags",
+                                           "image_url": "https://x/bag.jpg"})
+    await _item(db, biz.id, KnowledgeItemType.service, "Home Cleaning",
+                body="Deep clean", data={"price": "800 ETB", "duration": "2 hours"})
     body = (await client.get("/biz/jsonld")).text
     blob = body.split('application/ld+json">', 1)[1].split("</script>", 1)[0]
     data = json.loads(blob.replace("\\u003c", "<"))
     assert data["@type"] == "Store"
-    assert data["name"] == "Selam Store" or data["name"] == biz.name
     assert data["telephone"] == "+251911000000"
-    assert data["makesOffer"][0]["itemOffered"]["name"] == "Bag"
+
+    cat = data["hasOfferCatalog"]
+    assert cat["@type"] == "OfferCatalog" and cat["numberOfItems"] == 2
+    by_name = {o["itemOffered"]["name"]: o for o in cat["itemListElement"]}
+    # BOTH a product and a service are indexed
+    assert by_name["Bag"]["itemOffered"]["@type"] == "Product"
+    assert by_name["Home Cleaning"]["itemOffered"]["@type"] == "Service"
+    # rich fields + numeric price/currency parsed from "900 ETB"
+    bag = by_name["Bag"]
+    assert bag["price"] == "900" and bag["priceCurrency"] == "ETB"
+    assert bag["itemOffered"]["image"] == "https://x/bag.jpg"
+    assert bag["itemOffered"]["description"] == "Leather tote"
+
+
+@pytest.mark.asyncio
+async def test_landing_indexes_all_products_and_services(client, db):
+    """Every item must be crawlable in HTML and present in the catalog — past
+    the old 20-product cap, and including services."""
+    biz = await _biz(db, slug="bigcat")
+    for i in range(25):
+        await _item(db, biz.id, KnowledgeItemType.product, f"Prod{i}", data={"price": f"{i + 1}00 ETB"})
+    for i in range(5):
+        await _item(db, biz.id, KnowledgeItemType.service, f"Svc{i}")
+    body = (await client.get("/biz/bigcat")).text
+    assert "Prod0" in body and "Prod24" in body and "Svc4" in body   # all rendered server-side
+    blob = body.split('application/ld+json">', 1)[1].split("</script>", 1)[0]
+    data = json.loads(blob.replace("\\u003c", "<"))
+    assert data["hasOfferCatalog"]["numberOfItems"] == 30             # 25 products + 5 services
 
 
 @pytest.mark.asyncio

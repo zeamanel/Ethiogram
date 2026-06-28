@@ -13,6 +13,7 @@ Routes (NOT under /api/v1 — these are the public website):
 """
 import html
 import json
+import re
 from typing import Optional
 
 import jinja2
@@ -40,8 +41,39 @@ def _base_url() -> str:
 
 # ── JSON-LD: LocalBusiness structured data (rich results) ────────────────────
 
+_PRICE_NUM = re.compile(r"\d[\d,]*\.?\d*")
+
+
+def _price_amount(price) -> Optional[str]:
+    """Pull a bare numeric amount out of a free-text price ("2,400 ETB" -> 2400).
+    None when there's no number to offer."""
+    if not price:
+        return None
+    m = _PRICE_NUM.search(str(price))
+    return m.group(0).replace(",", "") if m else None
+
+
+def _offer(item_type: str, item: dict, currency: str) -> dict:
+    """A schema.org Offer wrapping a Product or Service, with extra fields and a
+    numeric price when we can parse one."""
+    offered = {"@type": item_type, "name": item["title"]}
+    if item.get("body"):
+        offered["description"] = item["body"]
+    if item.get("image_url"):
+        offered["image"] = item["image_url"]
+    if item.get("category"):
+        offered["category"] = item["category"]
+    offer = {"@type": "Offer", "itemOffered": offered}
+    amount = _price_amount(item.get("price"))
+    if amount:
+        offer["price"] = amount
+        offer["priceCurrency"] = currency
+    return offer
+
+
 def _json_ld(business: dict, content: dict, page_url: str) -> str:
     contact = content.get("contact") or {}
+    currency = business.get("currency") or "ETB"
     data = {
         "@context": "https://schema.org",
         "@type": "Store",
@@ -59,13 +91,18 @@ def _json_ld(business: dict, content: dict, page_url: str) -> str:
         data["geo"] = {"@type": "GeoCoordinates",
                        "latitude": contact["latitude"], "longitude": contact["longitude"]}
         data["hasMap"] = contact.get("directions_url")
-    products = content.get("products") or []
-    if products:
-        data["makesOffer"] = [
-            {"@type": "Offer", "itemOffered": {"@type": "Product", "name": p["title"]},
-             **({"price": p["price"]} if p.get("price") else {})}
-            for p in products[:20]
-        ]
+
+    # Expose the WHOLE catalog — every product AND service — as an OfferCatalog
+    # so search engines can index each item (not just a truncated product list).
+    offers = [_offer("Product", p, currency) for p in (content.get("products") or [])]
+    offers += [_offer("Service", s, currency) for s in (content.get("services") or [])]
+    if offers:
+        data["hasOfferCatalog"] = {
+            "@type": "OfferCatalog",
+            "name": f"{business['name']} catalog",
+            "numberOfItems": len(offers),
+            "itemListElement": offers[:200],
+        }
     # Escape '<' so the blob can't break out of the <script> context.
     return json.dumps(data, ensure_ascii=False).replace("<", "\\u003c")
 
