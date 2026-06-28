@@ -124,6 +124,30 @@ steps:
       - --set-env-vars=ENVIRONMENT=production
       - --set-secrets=SECRET_KEY=ethiogram-secret-key:latest,ENCRYPTION_KEY=ethiogram-encryption-key:latest,DATABASE_URL=ethiogram-database-url:latest,REDIS_URL=ethiogram-redis-url:latest
 
+  # Appointment reminders — message customers 24h + 1h before their booking.
+  # Schedule on Cloud Scheduler every ~15 min (see scripts/setup_scheduler.sh).
+  - id: deploy-booking-reminders
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - deploy
+      - ethiogram-booking-reminders
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --command=python
+      - --args=-m,workers.booking_reminders
+      - --cpu=1
+      - --memory=512Mi
+      - --task-timeout=300
+      - --max-retries=1
+      - --set-cloudsql-instances=${_SQL_INSTANCE}
+      - --vpc-connector=${_VPC_CONNECTOR}
+      - --vpc-egress=private-ranges-only
+      - --set-env-vars=ENVIRONMENT=production
+      - --set-secrets=SECRET_KEY=ethiogram-secret-key:latest,ENCRYPTION_KEY=ethiogram-encryption-key:latest,DATABASE_URL=ethiogram-database-url:latest,REDIS_URL=ethiogram-redis-url:latest,MASTER_BOT_TOKEN=ethiogram-master-bot-token:latest
+
   - id: deploy-escrow-release
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud

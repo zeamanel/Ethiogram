@@ -48,6 +48,7 @@ make_trigger () {
 # Polling workers -> every minute. Daily sweeps -> once a day (staggered).
 make_trigger ethiogram-embedding-worker-trigger  ethiogram-embedding-worker  "* * * * *"
 make_trigger ethiogram-notification-worker-trigger ethiogram-notification-worker "* * * * *"
+make_trigger ethiogram-booking-reminders-trigger ethiogram-booking-reminders "*/15 * * * *"
 make_trigger ethiogram-trial-monitor-trigger     ethiogram-trial-monitor     "0 6 * * *"
 make_trigger ethiogram-escrow-release-trigger    ethiogram-escrow-release    "0 7 * * *"
 
