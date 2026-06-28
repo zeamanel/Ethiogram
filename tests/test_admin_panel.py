@@ -58,7 +58,7 @@ async def test_allowlisted_telegram_id_passes_gate(client, db, sample_user_id, v
     db.add(User(id=sample_user_id, telegram_id=959519454, role=UserRole.owner,
                 is_admin=False, is_active=True))
     await db.flush()
-    monkeypatch.setattr(settings, "admin_telegram_ids", [959519454])
+    monkeypatch.setattr(settings, "admin_telegram_ids_raw", "959519454")
     resp = await client.get("/api/v1/admin/stats",
                             headers={"Authorization": f"Bearer {valid_access_token}"})
     assert resp.status_code == 200   # allowlist grants access even without the column flag

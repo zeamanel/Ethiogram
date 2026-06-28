@@ -1,6 +1,7 @@
 # app/core/config.py
 from functools import lru_cache
 from typing import Literal, Optional
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -135,7 +136,11 @@ class Settings(BaseSettings):
     rate_limit_auth_per_minute: int = 10
 
     # ADMIN
-    admin_telegram_ids: list[int] = []
+    # Stored as a raw string (read from ADMIN_TELEGRAM_IDS) so pydantic-settings
+    # never JSON-decodes it — a bare int like "959519454" can't crash startup.
+    # The parsed list[int] is exposed via the admin_telegram_ids property below,
+    # which tolerates "[959519454]", "959519454", "959519454,123", or "".
+    admin_telegram_ids_raw: str = Field(default="", validation_alias="ADMIN_TELEGRAM_IDS")
     admin_email: str = "admin@ethiogram.com"
     # Name of the HTTP header that carries the admin shared secret.
     admin_secret_header: str = "X-Ethiogram-Admin"
@@ -164,6 +169,13 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: Literal["json", "text"] = "json"
     sentry_dsn: Optional[str] = None
+
+    @property
+    def admin_telegram_ids(self) -> list[int]:
+        """Parsed platform-admin Telegram IDs. Accepts a JSON list, a bare int,
+        or a comma-separated string (brackets/whitespace tolerated)."""
+        inner = (self.admin_telegram_ids_raw or "").strip().lstrip("[").rstrip("]")
+        return [int(p.strip()) for p in inner.split(",") if p.strip()]
 
     @property
     def is_production(self) -> bool:

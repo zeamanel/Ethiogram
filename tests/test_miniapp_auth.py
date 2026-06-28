@@ -110,7 +110,7 @@ async def test_miniapp_endpoint_upserts_and_returns_token(client, db, monkeypatc
 @pytest.mark.asyncio
 async def test_miniapp_allowlisted_telegram_id_becomes_admin(client, db, monkeypatch):
     monkeypatch.setattr(settings, "master_bot_token", TOKEN_A)
-    monkeypatch.setattr(settings, "admin_telegram_ids", [959519454])
+    monkeypatch.setattr(settings, "admin_telegram_ids_raw", "959519454")
     init = _sign(TOKEN_A, {"id": 959519454, "first_name": "Platform", "username": "owner"})
 
     resp = await client.post("/api/v1/auth/miniapp", json={"init_data": init})
