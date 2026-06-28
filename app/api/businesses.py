@@ -409,6 +409,44 @@ async def update_storefront_config(
 
 
 # ---------------------------------------------------------------------------
+# AI storefront generation — "Generate page" (theme) / "Generate content" (copy)
+# ---------------------------------------------------------------------------
+
+class StorefrontGenerateRequest(BaseModel):
+    kind: str = "page"            # "page" → theme, "content" → copy
+    vibe: Optional[str] = None    # overrides the stored store vibe for this run
+
+
+class StorefrontGenerateResponse(BaseModel):
+    kind: str
+    source: str                   # "ai" | "fallback"
+    theme: Optional[dict] = None
+    tagline: Optional[str] = None
+    hours: Optional[str] = None
+
+
+@router.post("/{business_id}/storefront/generate", response_model=StorefrontGenerateResponse)
+async def generate_storefront(
+    business_id: uuid.UUID,
+    body: StorefrontGenerateRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> StorefrontGenerateResponse:
+    """AI-generate a storefront theme ("page") or copy ("content") from the
+    business's data + store vibe. Returns suggestions for the editor to preview;
+    nothing is saved until the owner hits Save."""
+    business = await _get_owned_business(business_id, current_user.id, db)
+    cfg = (await db.execute(
+        select(MiniAppConfig).where(MiniAppConfig.business_id == business_id)
+    )).scalar_one_or_none()
+    vibe = (body.vibe or "").strip() or (cfg.ui_child_prompt if cfg else None)
+
+    from app.services.storefront_ai import generate as generate_storefront_ai
+    result = await generate_storefront_ai(db, business, body.kind, vibe)
+    return StorefrontGenerateResponse(**result)
+
+
+# ---------------------------------------------------------------------------
 # Website (SEO landing page) config — title, meta, hero, keywords, publish
 # ---------------------------------------------------------------------------
 
