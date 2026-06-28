@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Discover · Ethiogram</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div class="g-head">
+    <div class="g-title">Discover</div>
+    <div class="g-sub">Find businesses on Ethiogram — chat or shop in seconds.</div>
+  </div>
+
+  <div class="g-search">
+    <span>🔍</span>
+    <input id="g-search" type="text" placeholder="Search businesses…" autocapitalize="off">
+  </div>
+
+  <div class="g-chips" id="g-chips"></div>
+
+  <div id="g-loading" class="center-state">
+    <div class="spinner"></div>
+    <div class="cs-text">Loading businesses…</div>
+  </div>
+
+  <div class="g-list" id="g-list"></div>
+
+  <script src="gallery.js"></script>
+</body>
+</html>
