@@ -735,6 +735,9 @@
     $("se-about").value = cfg.about || "";
     $("se-cta").value = cfg.cta || "";
     $("se-hours").value = cfg.hours || "";
+    $("se-address").value = cfg.address || "";
+    $("se-map").value = (cfg.latitude != null && cfg.longitude != null)
+      ? `${cfg.latitude}, ${cfg.longitude}` : "";
     $("se-vibe").value = cfg.ui_child_prompt || "";
 
     // AI generation — "Generate page" (theme) / "Generate content" (copy).
@@ -809,6 +812,8 @@
         about: $("se-about").value.trim(),
         cta: $("se-cta").value.trim(),
         hours: $("se-hours").value.trim(),
+        address: $("se-address").value.trim(),
+        map_pin: $("se-map").value.trim(),
         logo_url: logoUrl,
         font_heading: $("se-font-heading").value,
         font_body: $("se-font-body").value,

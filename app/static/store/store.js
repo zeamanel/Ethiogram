@@ -177,10 +177,11 @@
 
   function renderContact(c) {
     const ct = c.contact || {};
-    if (!ct.phone && !ct.address) return null;
+    if (!ct.phone && !ct.address && !ct.directions_url) return null;
     const lines = [];
     if (ct.phone) lines.push(`<a class="info-line" href="tel:${esc(ct.phone)}" style="color:inherit;text-decoration:none"><span class="ic">📞</span><span>${esc(ct.phone)}</span></a>`);
     if (ct.address) lines.push(`<div class="info-line"><span class="ic">📍</span><span>${esc(ct.address)}</span></div>`);
+    if (ct.directions_url) lines.push(`<a class="info-line directions" href="${esc(ct.directions_url)}" target="_blank" rel="noopener" style="color:inherit;text-decoration:none"><span class="ic">🧭</span><span>Get directions</span></a>`);
     return elFor(`<div><div class="sec-head"><div class="sec-title">Contact</div></div>
       <div class="info-block">${lines.join("")}</div></div>`);
   }

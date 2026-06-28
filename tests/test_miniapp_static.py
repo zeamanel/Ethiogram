@@ -74,9 +74,13 @@ async def test_storefront_ai_buttons_present(client):
     assert 'id="se-gen-page"' in html and 'id="se-gen-content"' in html
     assert "Generate page" in html and "Generate content" in html
     assert 'id="se-about"' in html and 'id="se-cta"' in html   # About + CTA fields
+    assert 'id="se-address"' in html and 'id="se-map"' in html  # location fields
     js = (await client.get("/app/owner/app.js")).text
     assert "/storefront/generate" in js and "runGenerate" in js
     assert 'runGenerate("page"' in js and 'runGenerate("content"' in js
+    assert "map_pin" in js                                       # location saved
+    store_js = (await client.get("/app/store/store.js")).text
+    assert "directions_url" in store_js and "Get directions" in store_js
 
 
 @pytest.mark.asyncio

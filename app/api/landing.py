@@ -55,6 +55,10 @@ def _json_ld(business: dict, content: dict, page_url: str) -> str:
         data["telephone"] = contact["phone"]
     if contact.get("address"):
         data["address"] = {"@type": "PostalAddress", "streetAddress": contact["address"]}
+    if contact.get("latitude") is not None and contact.get("longitude") is not None:
+        data["geo"] = {"@type": "GeoCoordinates",
+                       "latitude": contact["latitude"], "longitude": contact["longitude"]}
+        data["hasMap"] = contact.get("directions_url")
     products = content.get("products") or []
     if products:
         data["makesOffer"] = [
@@ -236,11 +240,12 @@ footer{padding:26px 0;color:var(--muted);font-size:13px;text-align:center;border
     {% if bot_url %}<a class="btn" href="{{ bot_url }}">Chat with us on Telegram</a>{% else %}<a class="btn" href="{{ store_url }}">Open the store</a>{% endif %}
   </section>
 
-  {% if content.contact.phone or content.contact.address %}
+  {% if content.contact.phone or content.contact.address or content.contact.directions_url %}
   <section class="sec" id="contact"><h2>Visit or call</h2>
     <div class="contact">
       {% if content.contact.phone %}<div>📞 {{ content.contact.phone }}</div>{% endif %}
       {% if content.contact.address %}<div>📍 {{ content.contact.address }}</div>{% endif %}
+      {% if content.contact.directions_url %}<div><a href="{{ content.contact.directions_url }}" target="_blank" rel="noopener">🧭 Get directions</a></div>{% endif %}
     </div>
   </section>
   {% endif %}

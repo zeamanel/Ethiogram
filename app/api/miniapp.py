@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
+from app.utils.geo import directions_url as _directions_url
 from app.db.models import (
     Bot,
     BotStatus,
@@ -133,6 +134,9 @@ def _content(business: Business, bot: Optional[Bot], cfg: Optional[MiniAppConfig
         "contact": {
             "phone": business.phone,
             "address": business.address,
+            "latitude": business.latitude,
+            "longitude": business.longitude,
+            "directions_url": _directions_url(business.latitude, business.longitude, business.address),
             "bot_username": bot_username,
         },
         "hours": layout_cfg.get("hours"),

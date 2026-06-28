@@ -280,6 +280,10 @@ class StorefrontResponse(BaseModel):
     about: Optional[str]                 # business description / "about" copy
     cta: Optional[str]                   # hero button text
     hours: Optional[str]
+    address: Optional[str]
+    latitude: Optional[float]
+    longitude: Optional[float]
+    directions_url: Optional[str]        # key-free "Get directions" link
     logo_url: Optional[str]
     font_heading: Optional[str]
     font_body: Optional[str]
@@ -295,6 +299,8 @@ class StorefrontUpdate(BaseModel):
     about: Optional[str] = None
     cta: Optional[str] = None
     hours: Optional[str] = None
+    address: Optional[str] = None
+    map_pin: Optional[str] = None        # "lat,lng" or a pasted Google Maps link
     logo_url: Optional[str] = None
     font_heading: Optional[str] = None
     font_body: Optional[str] = None
@@ -321,6 +327,7 @@ def _storefront_to_response(cfg: Optional[MiniAppConfig], business: Business) ->
             sections.append({"type": t, "label": _SECTION_LABELS[t], "visible": False, "order": order})
             seen.append(t); order += 1
 
+    from app.utils.geo import directions_url
     theme = _theme(cfg, business)
     return StorefrontResponse(
         theme=theme,
@@ -328,6 +335,10 @@ def _storefront_to_response(cfg: Optional[MiniAppConfig], business: Business) ->
         about=business.description,
         cta=layout.get("hero_cta"),
         hours=layout.get("hours"),
+        address=business.address,
+        latitude=business.latitude,
+        longitude=business.longitude,
+        directions_url=directions_url(business.latitude, business.longitude, business.address),
         logo_url=business.logo_url,
         font_heading=theme["font_heading"],     # resolved (column or default)
         font_body=theme["font_body"],
@@ -394,6 +405,18 @@ async def update_storefront_config(
         layout["hero_cta"] = body.cta.strip() or None
     if body.hours is not None:
         layout["hours"] = body.hours.strip() or None
+    if body.address is not None:
+        business.address = body.address.strip() or None
+    if body.map_pin is not None:
+        from app.utils.geo import parse_coordinates
+        pin = body.map_pin.strip()
+        if not pin:
+            business.latitude = business.longitude = None   # cleared
+        else:
+            coords = parse_coordinates(pin)
+            if coords:
+                business.latitude, business.longitude = coords
+            # silently ignore an unparseable pin — address still drives directions
     if body.logo_url is not None:
         business.logo_url = body.logo_url.strip() or None   # lives on Business, not the JSONB
     if body.font_heading is not None:
