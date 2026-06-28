@@ -23,15 +23,23 @@ from app.db.models import (
     ChildAgent,
     Conversation,
     EtgTransaction,
+    KnowledgeItem,
+    KnowledgeItemType,
     MessageRole,
     Platform,
     TokenWallet,
     UsageEvent,
+    User,
     WalletAlert,
 )
 from app.db.session import get_db, get_redis
+from app.services.storage_service import storage_service
 from app.services.telegram_service import MessageEnvelope, telegram_service
 from app.core.security import decrypt, decrypt_agent_prompt, decrypt_child_secrets
+
+import re as _re
+
+import httpx as _httpx
 
 logger = get_logger(__name__)
 
@@ -186,6 +194,13 @@ async def telegram_webhook(
         group_data = await _load_child_data(str(bot.business_id), "GroupAgent", db)
         if group_data is None:
             return JSONResponse({"ok": True})
+
+    # Owner Add-Product: a captioned photo (or /addproduct) from the OWNER writes
+    # to the catalog. Runs before the balance gate so it works with no credit.
+    if envelope.chat_type == "private" and await _maybe_handle_add_product(
+        envelope, bot, business, raw_token, db, redis
+    ):
+        return JSONResponse({"ok": True})
 
     # 6. Balance check (Redis-cached). Only gates when the BUSINESS pays the
     # platform cost; in user_pays the business wallet isn't used for messages.
@@ -427,6 +442,107 @@ def _is_addressed(envelope, bot) -> bool:
         return True
     text = (msg.get("text") or msg.get("caption") or "").lower()
     return f"@{username}" in text
+
+
+# ── Add Product: owner sends a captioned photo → a catalog item ───────────────
+
+_ADDP_TITLE = _re.compile(r"(?im)^\s*title\s*[:\-]\s*(.+)$")
+_ADDP_PRICE = _re.compile(r"(?im)^\s*price\s*[:\-]\s*(.+)$")
+_ADDP_CATEGORY = _re.compile(r"(?im)^\s*categor(?:y|ies)\s*[:\-]\s*(.+)$")
+
+
+async def _sender_is_owner(envelope: MessageEnvelope, business, db: AsyncSession) -> bool:
+    """True if the message sender (private chat) is the business owner."""
+    if business is None:
+        return False
+    try:
+        tg_id = int(envelope.customer_id)
+    except (TypeError, ValueError):
+        return False
+    owner_tg = await db.scalar(select(User.telegram_id).where(User.id == business.owner_id))
+    return owner_tg is not None and owner_tg == tg_id
+
+
+def _parse_product_caption(text: str | None) -> "dict | None":
+    """Parse an Add-Product caption. Requires a Title: line. The remaining
+    non-key lines become the description."""
+    if not text:
+        return None
+    t = _ADDP_TITLE.search(text)
+    if not t:
+        return None
+    title = t.group(1).strip()
+    if not title:
+        return None
+    p = _ADDP_PRICE.search(text)
+    c = _ADDP_CATEGORY.search(text)
+    body_lines = [ln.strip() for ln in text.splitlines()
+                  if ln.strip() and not _ADDP_TITLE.match(ln)
+                  and not _ADDP_PRICE.match(ln) and not _ADDP_CATEGORY.match(ln)]
+    return {
+        "title": title[:255],
+        "price": (p.group(1).strip()[:64] if p else None),
+        "category": (c.group(1).strip()[:64] if c else None),
+        "body": (" ".join(body_lines)[:500] or None),
+    }
+
+
+async def _maybe_handle_add_product(envelope, bot, business, raw_token, db, redis) -> bool:
+    """Owner-only: a photo captioned `Title: … / Price: …` becomes a catalog
+    product (image stored). A bare /addproduct (owner) replies with how-to."""
+    text = envelope.text or ""
+    is_command = text.strip().lower().startswith("/addproduct")
+    parsed = _parse_product_caption(text)
+
+    # Nothing for us unless it's a captioned product photo or the /addproduct help.
+    if not (parsed and envelope.media_type == "photo" and envelope.media_file_id) and not is_command:
+        return False
+    if not await _sender_is_owner(envelope, business, db):
+        return False   # never let a customer write to the catalog
+
+    # /addproduct with no usable product photo → instructions.
+    if not (parsed and envelope.media_type == "photo" and envelope.media_file_id):
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "📦 To add a product: send me a *photo* with a caption like:\n\n"
+            "Title: Blue Summer Dress\nPrice: 1200 ETB\nCategory: Dresses\n\n"
+            "I'll add it to your store. You can edit the details later in your dashboard.")
+        return True
+
+    # Download the photo and store it in the public bucket.
+    image_url = None
+    try:
+        url = await telegram_service.get_file_download_url(raw_token, envelope.media_file_id)
+        async with _httpx.AsyncClient(timeout=30) as client:
+            data = (await client.get(url)).content
+        path = f"items/{business.id}/{uuid.uuid4().hex}.jpg"
+        image_url = await storage_service.upload_public(data, path, content_type="image/jpeg")
+    except Exception as exc:
+        logger.error("Add-product image upload failed", business_id=str(business.id),
+                     error=f"{type(exc).__name__}: {exc}")
+
+    item_data: dict = {}
+    if parsed["price"]:    item_data["price"] = parsed["price"]
+    if parsed["category"]: item_data["category"] = parsed["category"]
+    if image_url:          item_data["image_url"] = image_url
+    db.add(KnowledgeItem(
+        business_id=business.id, item_type=KnowledgeItemType.product,
+        title=parsed["title"], body=parsed["body"], data=(item_data or None), is_active=True,
+    ))
+    await db.flush()
+    from app.api.miniapp import bust_storefront_cache
+    await bust_storefront_cache(business.id, db, redis)
+
+    reply = f'✅ Added "{parsed["title"]}" to your catalog'
+    reply += f' — {parsed["price"]}.' if parsed["price"] else "."
+    if not image_url:
+        reply += "\n(Couldn't save the image — you can add it later in the dashboard.)"
+    if not parsed["price"]:
+        reply += "\nTip: add a 'Price:' line to set the price."
+    reply += "\nEdit details anytime in your Mini App dashboard."
+    await telegram_service.send_message(raw_token, envelope.customer_id, reply)
+    logger.info("Product added via bot", business_id=str(business.id), title=parsed["title"])
+    return True
 
 
 async def _load_child_data(business_id: str, agent_type: str, db: AsyncSession) -> dict | None:
