@@ -123,6 +123,7 @@ class TelegramService:
         parse_mode: str = "HTML",
         reply_to_message_id: Optional[int] = None,
         disable_web_page_preview: bool = True,
+        reply_markup: Optional[dict] = None,
     ) -> dict:
         payload: dict = {
             "chat_id": chat_id,
@@ -132,6 +133,8 @@ class TelegramService:
         }
         if reply_to_message_id:
             payload["reply_to_message_id"] = reply_to_message_id
+        if reply_markup is not None:     # ReplyKeyboardMarkup / inline / remove
+            payload["reply_markup"] = reply_markup
         return await self._post(token, "sendMessage", payload)
 
     async def send_message_with_buttons(

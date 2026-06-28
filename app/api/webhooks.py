@@ -73,6 +73,22 @@ async def telegram_webhook(
     print(f"[WEBHOOK] body read ({len(body_bytes)} bytes); looking up bot…", flush=True)
     logger.info("Looking up bot by token_hash", token_hash=token_hash[:12])
 
+    # 0. Master/platform bot → the menu/command layer (language screen + main
+    # menu), NOT a business AI bot. Detected by the master token's hash.
+    from app.core.security import hash_bot_token
+    if settings.master_bot_token and token_hash == hash_bot_token(settings.master_bot_token):
+        try:
+            envelope = telegram_service.parse_incoming_update(json.loads(body_bytes), token_hash)
+        except Exception:
+            return JSONResponse({"ok": True})
+        if envelope is not None:
+            try:
+                from app.services.platform_menu import handle_platform_update
+                await handle_platform_update(envelope, db, await get_redis())
+            except Exception as exc:
+                logger.error("Platform menu handler failed", error=f"{type(exc).__name__}: {exc}")
+        return JSONResponse({"ok": True})
+
     # 1. Look up bot by token_hash — silent 200 on miss (security: no info leak)
     try:
         bot_result = await db.execute(
