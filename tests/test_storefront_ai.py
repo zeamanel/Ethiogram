@@ -65,10 +65,14 @@ async def test_generate_page_fallback_on_llm_error(db, monkeypatch):
 async def test_generate_content_returns_copy(db, monkeypatch):
     biz = await _biz(db)
     _fake_llm(monkeypatch, 'Sure! {"tagline":"Look sharp, feel sharper.",'
+                           '"about":"A neighbourhood barbershop with a modern edge.",'
+                           '"cta":"Book your visit",'
                            '"hours":"Mon-Sat, 9 AM - 7 PM"} hope that helps')
     out = await sai.generate(db, biz, "content")
     assert out["kind"] == "content" and out["source"] == "ai"
     assert out["tagline"] == "Look sharp, feel sharper."
+    assert out["about"].startswith("A neighbourhood")
+    assert out["cta"] == "Book your visit"
     assert out["hours"].startswith("Mon-Sat")
 
 
@@ -115,6 +119,55 @@ async def test_generate_endpoint(client, db, sample_user_id, valid_access_token,
         headers={"Authorization": f"Bearer {valid_access_token}"})
     assert resp.status_code == 200, resp.text
     assert resp.json()["tagline"] == "The taste of home."
+
+
+@pytest.mark.asyncio
+async def test_generate_endpoint_charges_wallet(client, db, sample_user_id, valid_access_token, monkeypatch):
+    from app.db.models import TokenWallet, UsageEvent
+    from sqlalchemy import select
+    db.add(User(id=sample_user_id))
+    biz = Business(id=uuid.uuid4(), owner_id=sample_user_id, name="Cafe Abol",
+                   slug=f"c-{uuid.uuid4().hex[:6]}")
+    db.add(biz)
+    db.add(TokenWallet(id=uuid.uuid4(), business_id=biz.id, balance=100))
+    await db.flush()
+    _fake_llm(monkeypatch, '{"tagline":"The taste of home."}')
+
+    resp = await client.post(
+        f"/api/v1/businesses/{biz.id}/storefront/generate",
+        json={"kind": "content"},
+        headers={"Authorization": f"Bearer {valid_access_token}"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["charged"] == 5
+    wallet = (await db.execute(select(TokenWallet).where(TokenWallet.business_id == biz.id))).scalar_one()
+    assert wallet.balance == 95 and wallet.lifetime_spent == 5
+    ev = (await db.execute(select(UsageEvent).where(UsageEvent.business_id == biz.id))).scalars().one()
+    assert ev.action_type == "storefront_generation" and ev.etg_charged == 5
+
+
+@pytest.mark.asyncio
+async def test_generate_endpoint_rate_limited(client, db, mock_redis, sample_user_id, valid_access_token, monkeypatch):
+    import app.api.businesses as biz_api
+    monkeypatch.setattr(biz_api, "_GEN_RATE_PER_HOUR", 2)
+    counter = {"n": 0}
+
+    async def _incr(_key):
+        counter["n"] += 1
+        return counter["n"]
+    mock_redis.incr = _incr
+
+    db.add(User(id=sample_user_id))
+    biz = Business(id=uuid.uuid4(), owner_id=sample_user_id, name="Cafe Abol",
+                   slug=f"c-{uuid.uuid4().hex[:6]}")
+    db.add(biz)
+    await db.flush()
+    _fake_llm(monkeypatch, '{"tagline":"x"}')
+    hdr = {"Authorization": f"Bearer {valid_access_token}"}
+    url = f"/api/v1/businesses/{biz.id}/storefront/generate"
+
+    assert (await client.post(url, json={"kind": "content"}, headers=hdr)).status_code == 200
+    assert (await client.post(url, json={"kind": "content"}, headers=hdr)).status_code == 200
+    assert (await client.post(url, json={"kind": "content"}, headers=hdr)).status_code == 429
 
 
 @pytest.mark.asyncio

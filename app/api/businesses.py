@@ -10,9 +10,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, RateLimitError
 from app.core.logging import get_logger
-from app.db.models import Business, BusinessBrainConfig, Conversation, LandingPage, MiniAppConfig
+from app.db.models import (
+    Business, BusinessBrainConfig, Conversation, LandingPage, MiniAppConfig,
+    TokenWallet, UsageEvent,
+)
 from app.db.session import get_db, get_redis
 from app.utils.text import slugify
 
@@ -274,6 +277,8 @@ class StorefrontSection(BaseModel):
 class StorefrontResponse(BaseModel):
     theme: dict
     tagline: Optional[str]
+    about: Optional[str]                 # business description / "about" copy
+    cta: Optional[str]                   # hero button text
     hours: Optional[str]
     logo_url: Optional[str]
     font_heading: Optional[str]
@@ -287,6 +292,8 @@ class StorefrontResponse(BaseModel):
 class StorefrontUpdate(BaseModel):
     theme: Optional[StorefrontTheme] = None
     tagline: Optional[str] = None
+    about: Optional[str] = None
+    cta: Optional[str] = None
     hours: Optional[str] = None
     logo_url: Optional[str] = None
     font_heading: Optional[str] = None
@@ -318,6 +325,8 @@ def _storefront_to_response(cfg: Optional[MiniAppConfig], business: Business) ->
     return StorefrontResponse(
         theme=theme,
         tagline=layout.get("tagline") or business.description,
+        about=business.description,
+        cta=layout.get("hero_cta"),
         hours=layout.get("hours"),
         logo_url=business.logo_url,
         font_heading=theme["font_heading"],     # resolved (column or default)
@@ -379,6 +388,10 @@ async def update_storefront_config(
 
     if body.tagline is not None:
         layout["tagline"] = body.tagline.strip() or None
+    if body.about is not None:
+        business.description = body.about.strip() or None   # feeds store + SEO landing
+    if body.cta is not None:
+        layout["hero_cta"] = body.cta.strip() or None
     if body.hours is not None:
         layout["hours"] = body.hours.strip() or None
     if body.logo_url is not None:
@@ -412,6 +425,42 @@ async def update_storefront_config(
 # AI storefront generation — "Generate page" (theme) / "Generate content" (copy)
 # ---------------------------------------------------------------------------
 
+# AI generation guards: a per-business hourly cap (stops runaway LLM cost) and
+# a small fixed ETG charge metered to the business wallet.
+_GEN_RATE_PER_HOUR = 15
+_GEN_COST_ETG = 5
+
+
+async def _enforce_generation_rate_limit(redis, business_id: uuid.UUID) -> None:
+    key = f"sfgen:rl:{business_id}"
+    count = await redis.incr(key)
+    if count == 1:
+        await redis.expire(key, 3600)
+    if count > _GEN_RATE_PER_HOUR:
+        raise RateLimitError(retry_after=3600)
+
+
+async def _charge_generation(db: AsyncSession, business_id: uuid.UUID, model_id) -> int:
+    """Meter one AI generation: deduct the fixed ETG from the business wallet
+    when funded (never blocking during the no-payments phase), and always record
+    a UsageEvent so it shows in usage analytics. Returns the amount charged."""
+    wallet = (await db.execute(
+        select(TokenWallet).where(TokenWallet.business_id == business_id)
+    )).scalar_one_or_none()
+    charged = 0
+    if wallet is not None and wallet.balance >= _GEN_COST_ETG:
+        wallet.balance -= _GEN_COST_ETG
+        wallet.lifetime_spent = (wallet.lifetime_spent or 0) + _GEN_COST_ETG
+        charged = _GEN_COST_ETG
+    db.add(UsageEvent(
+        business_id=business_id, action_type="storefront_generation",
+        model_id=model_id, input_tokens=0, output_tokens=0,
+        etg_charged=charged, payer="business",
+    ))
+    await db.flush()
+    return charged
+
+
 class StorefrontGenerateRequest(BaseModel):
     kind: str = "page"            # "page" → theme, "content" → copy
     vibe: Optional[str] = None    # overrides the stored store vibe for this run
@@ -420,8 +469,11 @@ class StorefrontGenerateRequest(BaseModel):
 class StorefrontGenerateResponse(BaseModel):
     kind: str
     source: str                   # "ai" | "fallback"
+    charged: int = 0              # ETG metered for this generation
     theme: Optional[dict] = None
     tagline: Optional[str] = None
+    about: Optional[str] = None
+    cta: Optional[str] = None
     hours: Optional[str] = None
 
 
@@ -431,11 +483,15 @@ async def generate_storefront(
     body: StorefrontGenerateRequest,
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
 ) -> StorefrontGenerateResponse:
     """AI-generate a storefront theme ("page") or copy ("content") from the
-    business's data + store vibe. Returns suggestions for the editor to preview;
-    nothing is saved until the owner hits Save."""
+    business's data + store vibe. Rate-limited per business; a small ETG charge
+    is metered when the LLM actually runs. Returns suggestions for the editor to
+    preview; nothing is saved until the owner hits Save."""
     business = await _get_owned_business(business_id, current_user.id, db)
+    await _enforce_generation_rate_limit(redis, business_id)
+
     cfg = (await db.execute(
         select(MiniAppConfig).where(MiniAppConfig.business_id == business_id)
     )).scalar_one_or_none()
@@ -443,7 +499,12 @@ async def generate_storefront(
 
     from app.services.storefront_ai import generate as generate_storefront_ai
     result = await generate_storefront_ai(db, business, body.kind, vibe)
-    return StorefrontGenerateResponse(**result)
+    model_used = result.pop("model", None)
+
+    charged = 0
+    if result.get("source") == "ai":   # only meter a real LLM run, not a fallback
+        charged = await _charge_generation(db, business_id, model_used)
+    return StorefrontGenerateResponse(charged=charged, **result)
 
 
 # ---------------------------------------------------------------------------

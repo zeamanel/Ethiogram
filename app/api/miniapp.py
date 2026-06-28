@@ -123,7 +123,7 @@ def _content(business: Business, bot: Optional[Bot], cfg: Optional[MiniAppConfig
             "title": business.name,
             "subtitle": layout_cfg.get("tagline") or business.description,
             "image_url": cfg.hero_image_url if cfg else None,
-            "cta": "Order on Telegram",
+            "cta": layout_cfg.get("hero_cta") or "Order on Telegram",
         },
         "categories": categories,
         "products": products,

@@ -732,6 +732,8 @@
     setSelect("se-font-heading", cfg.font_heading || cfg.theme.font_heading);
     setSelect("se-font-body", cfg.font_body || cfg.theme.font_body);
     $("se-tagline").value = cfg.tagline || "";
+    $("se-about").value = cfg.about || "";
+    $("se-cta").value = cfg.cta || "";
     $("se-hours").value = cfg.hours || "";
     $("se-vibe").value = cfg.ui_child_prompt || "";
 
@@ -749,9 +751,12 @@
         setColor("se-bg", t.bg); setColor("se-text", t.text);
         setSelect("se-font-heading", t.font_heading); setSelect("se-font-body", t.font_body);
         if (res.tagline) $("se-tagline").value = res.tagline;
+        if (res.about) $("se-about").value = res.about;
+        if (res.cta) $("se-cta").value = res.cta;
         if (res.hours) $("se-hours").value = res.hours;
+        const cost = res.charged ? ` (−${res.charged} ETG)` : "";
         note.textContent = res.source === "ai"
-          ? "✨ Generated — review and tap Save to apply."
+          ? `✨ Generated — review and tap Save to apply.${cost}`
           : "Used a starter suggestion (AI was busy) — tweak and Save.";
         note.classList.remove("hidden");
       } catch (e) {
@@ -801,6 +806,8 @@
           bg: $("se-bg").value, text: $("se-text").value,
         },
         tagline: $("se-tagline").value.trim(),
+        about: $("se-about").value.trim(),
+        cta: $("se-cta").value.trim(),
         hours: $("se-hours").value.trim(),
         logo_url: logoUrl,
         font_heading: $("se-font-heading").value,

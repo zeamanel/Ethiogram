@@ -38,7 +38,11 @@ _THEME_SYS = (
 _CONTENT_SYS = (
     "You are a marketing copywriter for small businesses. Write storefront copy "
     "in the business's own language. Respond with ONLY a compact JSON object "
-    "(no prose, no markdown) with keys: tagline (<= 80 characters, punchy) and "
+    "(no prose, no markdown) with keys: "
+    "tagline (<= 80 characters, punchy headline), "
+    "about (1-2 warm sentences describing the business, <= 240 characters), "
+    "cta (the storefront button text, an action phrase <= 24 characters, "
+    'e.g. "Book your visit", "Get a quote", "Shop now"), and '
     "hours (a short plausible opening-hours line, or empty string if unknown)."
 )
 
@@ -111,12 +115,10 @@ def _sanitize_theme(raw: dict) -> dict:
 
 def _sanitize_content(raw: dict) -> dict:
     out: dict = {}
-    tagline = raw.get("tagline")
-    if isinstance(tagline, str) and tagline.strip():
-        out["tagline"] = tagline.strip()[:120]
-    hours = raw.get("hours")
-    if isinstance(hours, str) and hours.strip():
-        out["hours"] = hours.strip()[:120]
+    for key, cap in (("tagline", 120), ("about", 400), ("cta", 32), ("hours", 120)):
+        v = raw.get(key)
+        if isinstance(v, str) and v.strip():
+            out[key] = v.strip()[:cap]
     return out
 
 
@@ -135,12 +137,13 @@ async def generate(db: AsyncSession, business, kind: str, vibe: str | None = Non
 
     raw: dict = {}
     source = "fallback"
+    model_used = None
     try:
-        text, _tokens, _model = await model_router.execute_with_fallback(
+        text, _tokens, model_used = await model_router.execute_with_fallback(
             messages=[{"role": "user", "content": user}],
             system_prompt=system,
             business_id=business.id,
-            max_tokens=400,
+            max_tokens=500,
             temperature=0.8,
         )
         raw = _extract_json(text)
@@ -150,11 +153,12 @@ async def generate(db: AsyncSession, business, kind: str, vibe: str | None = Non
         logger.warning("Storefront generation LLM call failed",
                        business_id=str(business.id), error=f"{type(exc).__name__}: {exc}")
 
-    result = {"kind": kind, "source": source}
+    result = {"kind": kind, "source": source, "model": model_used}
     if kind == "content":
         content = _sanitize_content(raw)
         if not content:
-            content = {"tagline": f"{business.name} — quality you can trust."}
+            content = {"tagline": f"{business.name} — quality you can trust.",
+                       "cta": "Order on Telegram"}
             result["source"] = "fallback"
         result.update(content)
     else:
