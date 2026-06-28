@@ -109,17 +109,55 @@
     } catch (e) {
       return fail("Couldn't load your dashboard.");
     }
-    const [ordersR, docsR, walletR] = await Promise.allSettled([
+    const [ordersR, docsR, walletR, apptsR] = await Promise.allSettled([
       Eth.get(`/dashboard/orders/${biz.id}`),
       Eth.get(`/knowledge/${biz.id}/documents`),
       Eth.get(`/billing/wallet/${biz.id}`),
+      Eth.get(`/dashboard/appointments/${biz.id}`),
     ]);
     const orders = ordersR.status === "fulfilled" ? ordersR.value : [];
     const docs = docsR.status === "fulfilled" ? docsR.value : [];
     const wallet = walletR.status === "fulfilled" ? walletR.value : null;
+    const appts = apptsR.status === "fulfilled" ? apptsR.value : [];
 
     render(overview, orders, docs, wallet);
+    renderAppointments(biz.id, appts);
     hide("loading"); show("dashboard");
+  }
+
+  // ---- appointments (native booking engine) ----
+  function apptWhen(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    return d.toLocaleString(undefined, { weekday: "short", day: "numeric", month: "short",
+                                         hour: "2-digit", minute: "2-digit" });
+  }
+
+  function renderAppointments(bizId, appts) {
+    const el = $("appointments");
+    if (!appts || !appts.length) {
+      el.innerHTML = empty("No upcoming appointments.");
+      return;
+    }
+    el.innerHTML = appts.slice(0, 12).map(a => {
+      const cal = a.synced_to_calendar ? " · 📅" : "";
+      const price = a.price ? `<span class="lamt">${esc(a.price)}</span>` : "";
+      const cancel = `<button class="appt-x" data-cancel="${esc(a.id)}" title="Cancel">✕</button>`;
+      return `<div class="litem"><div class="lic ic-blue">📅</div>
+        <div class="linfo"><div class="lname">${esc(a.customer_name || "Customer")} · ${esc(a.service_name || "Appointment")}</div>
+        <div class="lmeta">${esc(apptWhen(a.starts_at))}${cal}</div></div>
+        <div class="appt-right">${price}${cancel}</div></div>`;
+    }).join("");
+    el.querySelectorAll("[data-cancel]").forEach(btn => {
+      btn.onclick = async () => {
+        if (!(await confirmAction("Cancel this appointment?"))) return;
+        try {
+          await Eth.patch(`/dashboard/appointments/${bizId}/${btn.dataset.cancel}`, { status: "cancelled" });
+          const appts2 = await Eth.get(`/dashboard/appointments/${bizId}`);
+          renderAppointments(bizId, appts2);
+        } catch (e) { notify("Couldn't cancel — please try again."); }
+      };
+    });
   }
 
   function fail(msg) {

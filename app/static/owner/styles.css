@@ -102,6 +102,10 @@ body {
 .pl-fail { background:var(--red-soft); color:var(--red); }
 .lamt { font-family:'JetBrains Mono',monospace; font-size:12px; font-weight:600; }
 .lempty { padding:16px; text-align:center; font-size:12px; color:var(--text-3); }
+.appt-right { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.appt-x { border:1px solid var(--line); background:var(--card); color:var(--text-2);
+  width:26px; height:26px; border-radius:7px; font-size:12px; cursor:pointer; line-height:1; }
+.appt-x:active { background:var(--red-soft); color:var(--red); border-color:var(--red); }
 
 .live-tag { margin-left:auto; display:inline-flex; align-items:center; gap:5px; font-size:10px; font-weight:600; color:var(--green); }
 .live-pulse { width:6px; height:6px; border-radius:50%; background:var(--green); animation:pulse 2s infinite; }

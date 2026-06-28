@@ -69,6 +69,15 @@ async def test_business_switcher_present(client):
 
 
 @pytest.mark.asyncio
+async def test_appointments_section_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="appointments"' in html and "Upcoming Appointments" in html
+    js = (await client.get("/app/owner/app.js")).text
+    assert "renderAppointments" in js and "/dashboard/appointments/" in js
+    assert 'status: "cancelled"' in js                       # owner can cancel
+
+
+@pytest.mark.asyncio
 async def test_account_page_served(client):
     html = (await client.get("/app/account/")).text
     assert 'id="account"' in html and 'id="a-ref-link"' in html

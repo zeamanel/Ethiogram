@@ -15,6 +15,8 @@ from app.db.models import (
     Agent,
     AgentTrial,
     AgentUnlock,
+    BOOKING_STATUSES,
+    Booking,
     Bot,
     BotStatus,
     Business,
@@ -466,6 +468,95 @@ async def list_orders(
         )
         for o in orders
     ]
+
+
+# ---------------------------------------------------------------------------
+# Appointments (native booking engine)
+# ---------------------------------------------------------------------------
+
+class AppointmentSummary(BaseModel):
+    id: str
+    customer_name: Optional[str]
+    customer_phone: Optional[str]
+    service_name: Optional[str]
+    starts_at: str
+    ends_at: str
+    status: str
+    price: Optional[str]
+    source: str
+    synced_to_calendar: bool
+
+
+class AppointmentStatusUpdate(BaseModel):
+    status: str
+
+
+def _appointment_summary(b: Booking) -> AppointmentSummary:
+    return AppointmentSummary(
+        id=str(b.id),
+        customer_name=b.customer_name,
+        customer_phone=b.customer_phone,
+        service_name=b.service_name,
+        starts_at=b.starts_at.isoformat(),
+        ends_at=b.ends_at.isoformat(),
+        status=b.status,
+        price=b.price,
+        source=b.source,
+        synced_to_calendar=bool(b.calendar_event_id),
+    )
+
+
+@router.get("/appointments/{business_id}", response_model=list[AppointmentSummary])
+async def list_appointments(
+    business_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    scope: str = Query("upcoming"),   # upcoming | past | all
+    limit: int = Query(100, le=500),
+    offset: int = Query(0, ge=0),
+) -> list[AppointmentSummary]:
+    """The owner's appointment book. ``upcoming`` (default) lists future
+    bookings soonest-first; ``past`` lists history newest-first; ``all`` lists
+    everything newest-first."""
+    await _get_owned_business(business_id, current_user.id, db)
+    now = datetime.now(timezone.utc)
+
+    stmt = select(Booking).where(Booking.business_id == business_id)
+    if scope == "upcoming":
+        stmt = stmt.where(Booking.starts_at >= now).order_by(Booking.starts_at.asc())
+    elif scope == "past":
+        stmt = stmt.where(Booking.starts_at < now).order_by(Booking.starts_at.desc())
+    else:
+        stmt = stmt.order_by(Booking.starts_at.desc())
+    stmt = stmt.limit(limit).offset(offset)
+
+    rows = (await db.execute(stmt)).scalars().all()
+    return [_appointment_summary(b) for b in rows]
+
+
+@router.patch("/appointments/{business_id}/{booking_id}", response_model=AppointmentSummary)
+async def update_appointment_status(
+    business_id: uuid.UUID,
+    booking_id: uuid.UUID,
+    body: AppointmentStatusUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> AppointmentSummary:
+    """Owner marks a booking cancelled / completed / no-show (or back to
+    confirmed). A cancelled slot frees up for re-booking."""
+    await _get_owned_business(business_id, current_user.id, db)
+    if body.status not in BOOKING_STATUSES:
+        raise NotFoundError("BookingStatus", body.status)
+
+    booking = (await db.execute(
+        select(Booking).where(Booking.id == booking_id, Booking.business_id == business_id)
+    )).scalar_one_or_none()
+    if booking is None:
+        raise NotFoundError("Booking", str(booking_id))
+
+    booking.status = body.status
+    await db.flush()
+    return _appointment_summary(booking)
 
 
 # ---------------------------------------------------------------------------
