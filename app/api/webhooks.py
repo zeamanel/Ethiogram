@@ -665,15 +665,20 @@ async def _maybe_handle_booking(
     if cb:
         return False  # some other callback — let the normal flow deal with it
 
-    # B. Booking intent → present real slots, only if a Concierge is configured.
+    # B. Booking intent → present native availability, if a Concierge is deployed.
+    #    No Google Calendar required: slots come from the business's hours minus
+    #    the appointments already in our DB.
     if intent_router.classify(envelope) != Intent.BOOKING:
         return False
     child_data = await _load_child_data(str(conversation.business_id), "ConciergeAgent", db)
-    if not child_data or not (child_data.get("_secrets") or {}).get("credentials_json"):
-        return False  # no configured calendar → fall through to LLM booking guidance
+    if not child_data:
+        return False  # no booking agent deployed → fall through to LLM guidance
 
-    target_day = datetime.now(timezone.utc) + timedelta(days=1)
-    slots = await concierge_agent.get_available_slots(child_data, target_day)
+    from app.services import booking_service
+    now = datetime.now(timezone.utc)
+    target_day = now + timedelta(days=1)
+    slots = await booking_service.available_slots(
+        db, conversation.business_id, child_data, target_day, now=now)
     if not slots:
         await telegram_service.send_message(
             raw_token, envelope.customer_id,
@@ -732,27 +737,89 @@ async def _confirm_booking_callback(
         )
         return
 
+    # Parse the slot times (tz-aware; treat any naive value as UTC).
+    try:
+        start_dt = datetime.fromisoformat(slot["start"])
+        end_dt = datetime.fromisoformat(slot["end"])
+    except (KeyError, ValueError, TypeError):
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "⚠️ I couldn't read that slot. Please ask for available times again.")
+        return
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.replace(tzinfo=timezone.utc)
+    if end_dt.tzinfo is None:
+        end_dt = end_dt.replace(tzinfo=timezone.utc)
+
+    from app.services import booking_service
     child_data = await _load_child_data(str(conversation.business_id), "ConciergeAgent", db)
-    result = await concierge_agent.confirm_booking(
-        child_data=child_data,
-        slot_start=slot["start"],
-        slot_end=slot["end"],
+    service_name = ((child_data or {}).get("services") if child_data else None) or "Appointment"
+
+    # Persist natively FIRST — our DB is the source of truth, no calendar needed.
+    booking, created = await booking_service.create_booking(
+        db,
+        business_id=conversation.business_id,
+        conversation_id=getattr(conversation, "id", None),
+        customer_platform_id=envelope.customer_id,
         customer_name=envelope.customer_name or "Customer",
-        customer_email=None,
-        service_name=(child_data or {}).get("services") if child_data else None,
+        starts_at=start_dt, ends_at=end_dt, service_name=service_name,
     )
-    # booking_reply_text is the single source of truth for what the customer is
-    # told — it says "confirmed" ONLY when the calendar write actually succeeded.
+    if not created:
+        # Someone grabbed this slot between offer and tap.
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "⚠️ Sorry, that time was just taken. Please ask for available times again.")
+        await redis.delete(f"book:{bot.id}:{session_key}")
+        logger.info("Booking slot already taken", bot_id=str(bot.id))
+        return
+
+    # Best-effort mirror to Google Calendar when the business has wired it. A
+    # mirror failure must NOT fail the booking — we already own the record.
+    if child_data and (child_data.get("_secrets") or {}).get("credentials_json"):
+        try:
+            result = await concierge_agent.confirm_booking(
+                child_data=child_data, slot_start=slot["start"], slot_end=slot["end"],
+                customer_name=envelope.customer_name or "Customer",
+                service_name=service_name)
+            if result.get("id"):
+                booking.calendar_event_id = result["id"]
+                await db.flush()
+        except Exception as exc:
+            logger.warning("Calendar mirror failed (booking still confirmed)",
+                           bot_id=str(bot.id), error=str(exc))
+
+    # Tell the owner, then confirm to the customer, then consume the slot.
+    await _notify_owner_new_booking(db, conversation.business_id, booking, slot.get("label"))
     await telegram_service.send_message(
         raw_token, envelope.customer_id,
-        concierge_agent.booking_reply_text(result, slot_label=slot.get("label")),
-    )
-    # On success, consume the slot session so a re-tap can't double-book.
-    if result.get("status") != "failed" and result.get("id"):
-        await redis.delete(f"book:{bot.id}:{session_key}")
-        logger.info("Booking confirmed", bot_id=str(bot.id), event_id=result.get("id"))
-    else:
-        logger.warning("Booking failed", bot_id=str(bot.id), error=result.get("error"))
+        concierge_agent.booking_reply_text(
+            {"id": str(booking.id), "status": "confirmed"}, slot_label=slot.get("label")))
+    await redis.delete(f"book:{bot.id}:{session_key}")
+    logger.info("Booking confirmed (native)", bot_id=str(bot.id),
+                booking_id=str(booking.id), calendar_event_id=booking.calendar_event_id)
+
+
+async def _notify_owner_new_booking(db, business_id, booking, slot_label=None) -> None:
+    """Queue a dashboard + Telegram notification to the owner for a new booking.
+    Best-effort: a failure here must never break the customer's confirmation."""
+    try:
+        from app.db.models import Notification
+        owner_id = await db.scalar(select(Business.owner_id).where(Business.id == business_id))
+        if not owner_id:
+            return
+        when = slot_label or booking.starts_at.strftime("%a %d %b, %I:%M %p")
+        db.add(Notification(
+            user_id=owner_id,
+            notification_type="booking",
+            title="📅 New booking",
+            body=(f"{booking.customer_name or 'A customer'} booked "
+                  f"{booking.service_name or 'an appointment'} — {when}."),
+            data={"booking_id": str(booking.id), "business_id": str(business_id)},
+            sent_via=[], is_read=False,
+        ))
+        await db.flush()
+    except Exception as exc:
+        logger.warning("Owner booking notification failed", error=str(exc))
 
 
 async def _process_message(

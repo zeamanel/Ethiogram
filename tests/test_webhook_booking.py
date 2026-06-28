@@ -1,19 +1,21 @@
 """Webhook booking-callback dispatch tests.
 
-Proves the end-to-end callback path: a tapped slot is confirmed against the real
-calendar, and the message actually SENT to the customer never claims success
-when the calendar write fails.
+Proves the end-to-end callback path with the NATIVE booking engine: a tapped
+slot is persisted as a Booking in our own DB (the source of truth), the customer
+is told it's confirmed, Google Calendar is only a best-effort mirror, and a slot
+that was taken in the meantime is rejected instead of double-booked.
 """
 import json
 import uuid
 
 import fakeredis.aioredis
 import pytest
+from sqlalchemy import select
 
 from app.agents.concierge import ConciergeAgent
 from app.api import webhooks
 from app.core.security import encrypt_child_secrets
-from app.db.models import Agent, AgentStatus, ChildAgent
+from app.db.models import Agent, AgentStatus, Booking, ChildAgent
 
 _FAKE_CREDS = '{"type":"service_account","project_id":"x","private_key":"-----BEGIN PRIVATE KEY-----\\nMIIB\\n-----END PRIVATE KEY-----\\n","client_email":"x@x.iam.gserviceaccount.com","token_uri":"https://oauth2.googleapis.com/token"}'
 
@@ -28,6 +30,7 @@ class _Bot:
 class _Conv:
     def __init__(self, business_id):
         self.business_id = business_id
+        self.id = uuid.uuid4()
 
 
 class _Env:
@@ -35,7 +38,7 @@ class _Env:
     customer_name = "Abebe"
 
 
-async def _deploy_concierge(db, business_id):
+async def _deploy_concierge(db, business_id, *, with_calendar=True):
     from app.core.security import encrypt_agent_prompt
     enc, key_ref = encrypt_agent_prompt("You are a concierge.", str(uuid.uuid4()))
     father = Agent(
@@ -46,12 +49,13 @@ async def _deploy_concierge(db, business_id):
     )
     db.add(father)
     await db.flush()
+    secrets = encrypt_child_secrets(
+        {"calendar_id": "cal@example.com", "credentials_json": _FAKE_CREDS}
+    ) if with_calendar else None
     child = ChildAgent(
         agent_id=father.id, business_id=business_id, is_active=True,
         child_data={"services": "Consultation"},
-        child_secrets=encrypt_child_secrets(
-            {"calendar_id": "cal@example.com", "credentials_json": _FAKE_CREDS}
-        ),
+        child_secrets=secrets,
     )
     db.add(child)
     await db.flush()
@@ -74,17 +78,18 @@ def captured(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_callback_calendar_failure_tells_customer_it_failed(db, captured, monkeypatch):
+async def test_callback_persists_booking_even_if_calendar_mirror_fails(db, captured, monkeypatch):
+    """The whole point of the native engine: a calendar misconfiguration must
+    NOT block the booking. We own the record; the customer is confirmed."""
     biz = uuid.uuid4()
-    await _deploy_concierge(db, biz)
+    await _deploy_concierge(db, biz)        # has calendar creds...
     bot, conv = _Bot(), _Conv(biz)
     redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
 
-    # stash the offered slot under the session key the callback references
     key = "abcdef123456"
     await redis.set(f"book:{bot.id}:{key}", json.dumps([_SLOT]))
 
-    # force the real calendar insert to fail
+    # ...but the Google Calendar insert blows up
     def _boom(*a, **k):
         raise RuntimeError("Calendar API 500")
     monkeypatch.setattr(ConciergeAgent, "_create_event_sync", _boom)
@@ -92,17 +97,34 @@ async def test_callback_calendar_failure_tells_customer_it_failed(db, captured, 
     cb = {"id": "cb1", "data": f"book_slot:{key}:0"}
     await webhooks._confirm_booking_callback(_Env(), bot, "tok", conv, db, redis, cb)
 
-    assert captured, "a message must be sent to the customer"
-    msg = captured[-1].lower()
-    assert "did not go through" in msg          # explicit failure
-    assert "✅" not in captured[-1]
-    assert "confirmed" not in msg.replace("couldn't confirm", "")  # never fake success
-    # slot session NOT consumed on failure -> customer can retry
-    assert await redis.get(f"book:{bot.id}:{key}") is not None
+    assert "confirmed" in captured[-1].lower() and "✅" in captured[-1]
+    # the Booking is persisted in OUR db, with no calendar mirror id
+    row = (await db.execute(select(Booking).where(Booking.business_id == biz))).scalars().one()
+    assert row.customer_name == "Abebe" and row.service_name == "Consultation"
+    assert row.calendar_event_id is None
+    # slot consumed so a re-tap can't double-book
+    assert await redis.get(f"book:{bot.id}:{key}") is None
 
 
 @pytest.mark.asyncio
-async def test_callback_success_confirms_and_consumes_slot(db, captured, monkeypatch):
+async def test_callback_no_calendar_still_books(db, captured):
+    """Credential-free path: a Concierge with NO calendar still takes bookings."""
+    biz = uuid.uuid4()
+    await _deploy_concierge(db, biz, with_calendar=False)
+    bot, conv = _Bot(), _Conv(biz)
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    key = "0a0a0a0a0a0a"
+    await redis.set(f"book:{bot.id}:{key}", json.dumps([_SLOT]))
+
+    cb = {"id": "cbn", "data": f"book_slot:{key}:0"}
+    await webhooks._confirm_booking_callback(_Env(), bot, "tok", conv, db, redis, cb)
+
+    assert "confirmed" in captured[-1].lower()
+    assert (await db.execute(select(Booking).where(Booking.business_id == biz))).scalars().one()
+
+
+@pytest.mark.asyncio
+async def test_callback_success_mirrors_calendar_id(db, captured, monkeypatch):
     biz = uuid.uuid4()
     await _deploy_concierge(db, biz)
     bot, conv = _Bot(), _Conv(biz)
@@ -110,7 +132,6 @@ async def test_callback_success_confirms_and_consumes_slot(db, captured, monkeyp
     key = "feedface0001"
     await redis.set(f"book:{bot.id}:{key}", json.dumps([_SLOT]))
 
-    # real calendar returns a created event with an id
     def _ok(*a, **k):
         return {"id": "evt_999", "status": "confirmed"}
     monkeypatch.setattr(ConciergeAgent, "_create_event_sync", _ok)
@@ -119,8 +140,33 @@ async def test_callback_success_confirms_and_consumes_slot(db, captured, monkeyp
     await webhooks._confirm_booking_callback(_Env(), bot, "tok", conv, db, redis, cb)
 
     assert "confirmed" in captured[-1].lower()
-    # slot consumed so a re-tap can't double-book
+    row = (await db.execute(select(Booking).where(Booking.business_id == biz))).scalars().one()
+    assert row.calendar_event_id == "evt_999"     # mirrored
     assert await redis.get(f"book:{bot.id}:{key}") is None
+
+
+@pytest.mark.asyncio
+async def test_callback_double_booking_is_rejected(db, captured):
+    """A slot taken between offer and tap is rejected, not double-booked."""
+    biz = uuid.uuid4()
+    await _deploy_concierge(db, biz, with_calendar=False)
+    bot, conv = _Bot(), _Conv(biz)
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    key = "beadbeadbead"
+    await redis.set(f"book:{bot.id}:{key}", json.dumps([_SLOT]))
+
+    cb = {"id": "cbA", "data": f"book_slot:{key}:0"}
+    await webhooks._confirm_booking_callback(_Env(), bot, "tok", conv, db, redis, cb)
+    assert "confirmed" in captured[-1].lower()
+
+    # second customer taps the same (now-taken) slot
+    await redis.set(f"book:{bot.id}:{key}", json.dumps([_SLOT]))
+    cb2 = {"id": "cbB", "data": f"book_slot:{key}:0"}
+    await webhooks._confirm_booking_callback(_Env(), bot, "tok", conv, db, redis, cb2)
+    assert "just taken" in captured[-1].lower()
+    # only ONE booking exists for that slot
+    rows = (await db.execute(select(Booking).where(Booking.business_id == biz))).scalars().all()
+    assert len(rows) == 1
 
 
 @pytest.mark.asyncio
