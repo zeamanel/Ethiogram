@@ -862,6 +862,28 @@
     $("we-sub").value = cfg.hero_subheadline || "";
     $("we-keywords").value = (cfg.seo_keywords || []).join(", ");
 
+    // AI "Generate SEO" — fills title/meta/hero/keywords; owner reviews & Saves.
+    $("we-gen-seo").onclick = async () => {
+      const btn = $("we-gen-seo"), note = $("we-ai-note"), label = btn.textContent;
+      btn.disabled = true; btn.textContent = "Generating…"; note.classList.add("hidden");
+      try {
+        const res = await Eth.post(`/businesses/${bizId}/website/generate`, {});
+        if (res.title) $("we-title").value = res.title;
+        if (res.meta_description) $("we-meta").value = res.meta_description;
+        if (res.hero_headline) $("we-headline").value = res.hero_headline;
+        if (res.hero_subheadline) $("we-sub").value = res.hero_subheadline;
+        if (res.keywords && res.keywords.length) $("we-keywords").value = res.keywords.join(", ");
+        const cost = res.charged ? ` (−${res.charged} ETG)` : "";
+        note.textContent = res.source === "ai"
+          ? `✨ Generated — review and tap Save to apply.${cost}`
+          : "Used a starter suggestion (AI was busy) — tweak and Save.";
+        note.classList.remove("hidden");
+      } catch (e) {
+        note.textContent = e.detail || "Couldn't generate — please try again.";
+        note.classList.remove("hidden");
+      } finally { btn.disabled = false; btn.textContent = label; }
+    };
+
     let ogUrl = cfg.og_image_url || null;
     const renderOg = () => {
       const prev = $("we-og-preview");

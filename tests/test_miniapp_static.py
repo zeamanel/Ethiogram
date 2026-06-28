@@ -79,6 +79,8 @@ async def test_storefront_ai_buttons_present(client):
     assert "/storefront/generate" in js and "runGenerate" in js
     assert 'runGenerate("page"' in js and 'runGenerate("content"' in js
     assert "map_pin" in js                                       # location saved
+    assert 'id="we-gen-seo"' in html and "Generate SEO" in html  # website SEO button
+    assert "/website/generate" in js                             # SEO generation wired
     store_js = (await client.get("/app/store/store.js")).text
     assert "directions_url" in store_js and "Get directions" in store_js
 

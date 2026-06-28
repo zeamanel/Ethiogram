@@ -104,6 +104,47 @@ async def test_catalog_titles_feed_the_prompt(db, monkeypatch):
 
 # ── endpoint ─────────────────────────────────────────────────────────────────
 
+# ── SEO generation ───────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_generate_seo_returns_metadata(db, monkeypatch):
+    biz = await _biz(db)
+    _fake_llm(monkeypatch, '{"title":"Selam Salon — Hair & Beauty in Addis",'
+                           '"meta_description":"Book a cut or colour today.",'
+                           '"hero_headline":"Look your best","hero_subheadline":"Walk-ins welcome",'
+                           '"keywords":["addis salon","haircut addis","hair colour"]}')
+    out = await sai.generate_seo(db, biz)
+    assert out["source"] == "ai"
+    assert out["title"].startswith("Selam Salon")
+    assert out["keywords"] == ["addis salon", "haircut addis", "hair colour"]
+
+
+@pytest.mark.asyncio
+async def test_generate_seo_fallback(db, monkeypatch):
+    biz = await _biz(db)
+    _fake_llm(monkeypatch, "not json")
+    out = await sai.generate_seo(db, biz)
+    assert out["source"] == "fallback"
+    assert biz.name in out["title"] and out["keywords"]
+
+
+@pytest.mark.asyncio
+async def test_website_generate_endpoint(client, db, sample_user_id, valid_access_token, monkeypatch):
+    db.add(User(id=sample_user_id))
+    biz = Business(id=uuid.uuid4(), owner_id=sample_user_id, name="Cafe Abol",
+                   slug=f"c-{uuid.uuid4().hex[:6]}")
+    db.add(biz)
+    await db.flush()
+    _fake_llm(monkeypatch, '{"title":"Cafe Abol — Coffee in Addis","keywords":["addis coffee"]}')
+    resp = await client.post(
+        f"/api/v1/businesses/{biz.id}/website/generate", json={},
+        headers={"Authorization": f"Bearer {valid_access_token}"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["title"] == "Cafe Abol — Coffee in Addis"
+    assert body["keywords"] == ["addis coffee"]
+
+
 @pytest.mark.asyncio
 async def test_generate_endpoint(client, db, sample_user_id, valid_access_token, monkeypatch):
     db.add(User(id=sample_user_id))

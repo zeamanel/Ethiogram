@@ -463,7 +463,8 @@ async def _enforce_generation_rate_limit(redis, business_id: uuid.UUID) -> None:
         raise RateLimitError(retry_after=3600)
 
 
-async def _charge_generation(db: AsyncSession, business_id: uuid.UUID, model_id) -> int:
+async def _charge_generation(db: AsyncSession, business_id: uuid.UUID, model_id,
+                             action_type: str = "storefront_generation") -> int:
     """Meter one AI generation: deduct the fixed ETG from the business wallet
     when funded (never blocking during the no-payments phase), and always record
     a UsageEvent so it shows in usage analytics. Returns the amount charged."""
@@ -476,7 +477,7 @@ async def _charge_generation(db: AsyncSession, business_id: uuid.UUID, model_id)
         wallet.lifetime_spent = (wallet.lifetime_spent or 0) + _GEN_COST_ETG
         charged = _GEN_COST_ETG
     db.add(UsageEvent(
-        business_id=business_id, action_type="storefront_generation",
+        business_id=business_id, action_type=action_type,
         model_id=model_id, input_tokens=0, output_tokens=0,
         etg_charged=charged, payer="business",
     ))
@@ -631,6 +632,44 @@ async def update_website_config(
     await bust_storefront_cache(business_id, db, redis)
     logger.info("Website config updated", business_id=str(business_id), fields=list(changes.keys()))
     return _website_to_response(lp, business)
+
+
+class WebsiteGenerateRequest(BaseModel):
+    vibe: Optional[str] = None
+
+
+class WebsiteGenerateResponse(BaseModel):
+    source: str                   # "ai" | "fallback"
+    charged: int = 0
+    title: Optional[str] = None
+    meta_description: Optional[str] = None
+    hero_headline: Optional[str] = None
+    hero_subheadline: Optional[str] = None
+    keywords: list[str] = []
+
+
+@router.post("/{business_id}/website/generate", response_model=WebsiteGenerateResponse)
+async def generate_website(
+    business_id: uuid.UUID,
+    body: WebsiteGenerateRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+) -> WebsiteGenerateResponse:
+    """AI-generate SEO metadata (title, meta description, hero copy, keywords)
+    from the business data + catalog. Rate-limited per business with a small ETG
+    charge on a real run. Returns suggestions; nothing is saved until Save."""
+    business = await _get_owned_business(business_id, current_user.id, db)
+    await _enforce_generation_rate_limit(redis, business_id)
+
+    from app.services.storefront_ai import generate_seo
+    result = await generate_seo(db, business, (body.vibe or "").strip() or None)
+    model_used = result.pop("model", None)
+
+    charged = 0
+    if result.get("source") == "ai":
+        charged = await _charge_generation(db, business_id, model_used, action_type="seo_generation")
+    return WebsiteGenerateResponse(charged=charged, **result)
 
 
 # ---------------------------------------------------------------------------

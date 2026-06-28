@@ -168,3 +168,67 @@ async def generate(db: AsyncSession, business, kind: str, vibe: str | None = Non
             result["source"] = "fallback"
         result["theme"] = theme
     return result
+
+
+# ── SEO metadata generation (website editor "Generate SEO") ───────────────────
+
+_SEO_SYS = (
+    "You are an SEO specialist for local businesses. Generate search-optimised "
+    "website metadata. Respond with ONLY a compact JSON object (no prose, no "
+    "markdown) with keys: title (<= 60 chars; include the business name + main "
+    "offering, and the city if known), meta_description (<= 155 chars; "
+    "compelling, with a soft call to action), hero_headline (<= 70 chars), "
+    "hero_subheadline (<= 120 chars), and keywords (array of 5-8 short search "
+    "phrases a customer would actually type)."
+)
+
+
+def _sanitize_seo(raw: dict) -> dict:
+    out: dict = {}
+    for key, cap in (("title", 70), ("meta_description", 160),
+                     ("hero_headline", 255), ("hero_subheadline", 512)):
+        v = raw.get(key)
+        if isinstance(v, str) and v.strip():
+            out[key] = v.strip()[:cap]
+    kws = raw.get("keywords")
+    if isinstance(kws, list):
+        clean = [str(k).strip()[:40] for k in kws if str(k).strip()][:8]
+        if clean:
+            out["keywords"] = clean
+    return out
+
+
+async def generate_seo(db: AsyncSession, business, vibe: str | None = None) -> dict:
+    """Generate SEO metadata (title, meta description, hero copy, keywords) from
+    the business data + catalog. Returns {source, model, title?, ...}. Never raises."""
+    products, services = await _catalog_snippet(db, business.id)
+    ctx = _context(business, vibe, products, services)
+    if getattr(business, "address", None):
+        ctx += f"\nLocation: {business.address}"
+
+    raw, source, model_used = {}, "fallback", None
+    try:
+        text, _tokens, model_used = await model_router.execute_with_fallback(
+            messages=[{"role": "user", "content": f"{ctx}\n\nReturn the JSON now."}],
+            system_prompt=_SEO_SYS, business_id=business.id, max_tokens=500, temperature=0.7)
+        raw = _extract_json(text)
+        if raw:
+            source = "ai"
+    except Exception as exc:
+        logger.warning("SEO generation LLM call failed", business_id=str(business.id),
+                       error=f"{type(exc).__name__}: {exc}")
+
+    result = {"source": source, "model": model_used}
+    seo = _sanitize_seo(raw)
+    if not seo:
+        cat = getattr(business, "category", None) or "business"
+        seo = {
+            "title": f"{business.name} — {cat}"[:70],
+            "meta_description": (getattr(business, "description", None)
+                                 or f"{business.name}. Order on Telegram.")[:160],
+            "hero_headline": business.name[:70],
+            "keywords": [w for w in (business.name.lower(), str(cat).lower()) if w],
+        }
+        result["source"] = "fallback"
+    result.update(seo)
+    return result
