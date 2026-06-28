@@ -76,6 +76,15 @@
   <!-- DASHBOARD -->
   <div id="dashboard" class="hidden">
 
+    <!-- Business switcher — only shown when the owner has more than one business -->
+    <div id="biz-switcher" class="biz-switcher hidden">
+      <button id="biz-switch-btn" class="biz-switch-btn" type="button">
+        <span class="biz-switch-name" id="biz-switch-name">—</span>
+        <span class="biz-switch-caret">▾</span>
+      </button>
+      <div id="biz-switch-menu" class="biz-switch-menu hidden"></div>
+    </div>
+
     <div class="greet">
       <div class="greet-hi" id="greet-hi">Selam 👋</div>
       <div class="greet-sub" id="greet-sub"></div>

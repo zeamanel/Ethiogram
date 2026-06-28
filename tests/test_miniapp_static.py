@@ -58,6 +58,36 @@ async def test_brain_settings_editor_present(client):
 
 
 @pytest.mark.asyncio
+async def test_business_switcher_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="biz-switcher"' in html and 'id="biz-switch-menu"' in html   # picker + dropdown
+    js = (await client.get("/app/owner/app.js")).text
+    assert "renderSwitcher" in js and "switchBusiness" in js                # picker wired
+    assert "loadDashboard" in js and "pickBusiness" in js                   # reload per business
+    assert "localStorage" in js and "eth_selected_biz" in js               # selection persisted
+    assert "businesses.length < 2" in js                                    # hidden for single business
+
+
+@pytest.mark.asyncio
+async def test_account_page_served(client):
+    html = (await client.get("/app/account/")).text
+    assert 'id="account"' in html and 'id="a-ref-link"' in html
+    assert "telegram-web-app.js" in html
+    js = (await client.get("/app/account/account.js")).text
+    assert "/account/me" in js and "Eth.login" in js
+    css = await client.get("/app/account/styles.css")
+    assert css.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_legal_pages_served(client):
+    priv = await client.get("/app/legal/privacy.html")
+    assert priv.status_code == 200 and "Privacy Policy" in priv.text
+    terms = await client.get("/app/legal/terms.html")
+    assert terms.status_code == 200 and "Terms of Service" in terms.text
+
+
+@pytest.mark.asyncio
 async def test_catalog_manager_present(client):
     html = (await client.get("/app/owner/")).text
     assert 'id="catalog-manager"' in html and 'id="cat-form"' in html   # view + add/edit form

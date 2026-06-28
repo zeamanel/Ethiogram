@@ -16,6 +16,30 @@ body {
   max-width: 480px; margin: 0 auto; padding-bottom: 24px;
 }
 
+/* business switcher (shown only with >1 business) */
+.biz-switcher { position: relative; padding: 14px 16px 0; }
+.biz-switch-btn {
+  display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
+  background: var(--card); border: 1px solid var(--line); border-radius: 999px;
+  padding: 7px 14px; font-family: 'Inter', sans-serif; font-size: 13.5px;
+  font-weight: 600; color: var(--text); cursor: pointer;
+}
+.biz-switch-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.biz-switch-caret { color: var(--text-3); font-size: 11px; }
+.biz-switch-menu {
+  position: absolute; z-index: 30; top: calc(100% + 4px); left: 16px;
+  min-width: 200px; max-width: calc(100% - 32px);
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(20,17,13,.14); overflow: hidden; padding: 4px;
+}
+.biz-switch-item {
+  display: block; width: 100%; text-align: left; background: none; border: 0;
+  padding: 10px 12px; border-radius: 10px; font-family: 'Inter', sans-serif;
+  font-size: 14px; color: var(--text); cursor: pointer;
+}
+.biz-switch-item:hover, .biz-switch-item.active { background: var(--surface-2); }
+.biz-switch-item.active { font-weight: 700; color: var(--amber-deep); }
+
 /* greeting */
 .greet { padding: 18px 18px 6px; }
 .greet-hi { font-family:'Sora',sans-serif; font-size:21px; font-weight:700; letter-spacing:-0.02em; }

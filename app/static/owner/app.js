@@ -47,8 +47,61 @@
       setupWizard(); show("onboarding");
       return;
     }
-    const biz = businesses[0];
 
+    ALL_BUSINESSES = businesses;
+    const biz = pickBusiness(businesses);
+    renderSwitcher(businesses, biz.id);
+    await loadDashboard(biz);
+  }
+
+  // --- business switcher (only matters when the owner has >1 business) ---
+  const BIZ_KEY = "eth_selected_biz";
+  let ALL_BUSINESSES = [];
+
+  function pickBusiness(businesses) {
+    let saved = null;
+    try { saved = localStorage.getItem(BIZ_KEY); } catch (e) { /* private mode */ }
+    return businesses.find((b) => b.id === saved) || businesses[0];
+  }
+
+  function rememberBusiness(id) {
+    try { localStorage.setItem(BIZ_KEY, id); } catch (e) { /* ignore */ }
+  }
+
+  function renderSwitcher(businesses, selectedId) {
+    const wrap = $("biz-switcher");
+    if (!businesses || businesses.length < 2) { hide("biz-switcher"); return; }
+    const current = businesses.find((b) => b.id === selectedId) || businesses[0];
+    $("biz-switch-name").textContent = current.name || "Business";
+
+    const menu = $("biz-switch-menu");
+    menu.innerHTML = businesses.map((b) =>
+      `<button type="button" class="biz-switch-item${b.id === selectedId ? " active" : ""}" data-biz="${esc(b.id)}">`
+      + `${esc(b.name || "Business")}${b.id === selectedId ? " ✓" : ""}</button>`).join("");
+    menu.querySelectorAll("[data-biz]").forEach((btn) => {
+      btn.onclick = () => {
+        hide("biz-switch-menu");
+        const id = btn.dataset.biz;
+        if (id === selectedId) return;
+        switchBusiness(id);
+      };
+    });
+
+    $("biz-switch-btn").onclick = () => $("biz-switch-menu").classList.toggle("hidden");
+    show("biz-switcher");
+  }
+
+  async function switchBusiness(id) {
+    const biz = ALL_BUSINESSES.find((b) => b.id === id);
+    if (!biz) return;
+    rememberBusiness(id);
+    renderSwitcher(ALL_BUSINESSES, id);
+    hide("dashboard"); show("loading");
+    await loadDashboard(biz);
+  }
+
+  async function loadDashboard(biz) {
+    rememberBusiness(biz.id);
     // overview is required; orders/docs/wallet are best-effort enrichment.
     let overview;
     try {
