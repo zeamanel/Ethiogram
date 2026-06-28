@@ -102,6 +102,50 @@ async def test_landing_indexes_all_products_and_services(client, db):
 
 
 @pytest.mark.asyncio
+async def test_landing_business_website_and_mobile(client, db):
+    """Fuller business-website chrome (sticky nav, hours, map, tappable contact)
+    and mobile-friendly markers."""
+    from app.core.security import encrypt
+    from app.db.models import Bot, BotStatus, MiniAppConfig, Platform
+
+    biz = await _biz(db, slug="webfeat")
+    biz.email = "hi@selam.com"
+    biz.latitude = 9.01
+    biz.longitude = 38.74
+    db.add(MiniAppConfig(id=uuid.uuid4(), business_id=biz.id,
+                         layout_config={"hours": "Mon–Sat, 9 AM – 6 PM"}, is_published=True))
+    db.add(Bot(id=uuid.uuid4(), business_id=biz.id, platform=Platform.telegram,
+               bot_username="selambot", token_hash="h" + uuid.uuid4().hex[:40],
+               encrypted_token=encrypt("t"), status=BotStatus.active))
+    await _item(db, biz.id, KnowledgeItemType.product, "Dress", data={"price": "1200 ETB"})
+    await db.flush()
+
+    body = (await client.get("/biz/webfeat")).text
+    # mobile-friendly
+    assert 'name="theme-color"' in body and "viewport-fit=cover" in body
+    assert "@media(max-width:760px)" in body
+    assert 'class="mobile-cta"' in body                       # sticky mobile CTA (bot present)
+    # business-website chrome
+    assert 'class="topbar"' in body and 'class="navlinks"' in body
+    assert 'href="#products"' in body and 'href="#contact"' in body
+    # contact richness
+    assert "mailto:hi@selam.com" in body
+    assert "tel:+251911000000" in body
+    assert "Mon–Sat, 9 AM – 6 PM" in body                     # hours rendered
+    # key-free OpenStreetMap embed with a marker
+    assert "openstreetmap.org/export/embed.html" in body and "marker=9.01,38.74" in body
+
+
+@pytest.mark.asyncio
+async def test_landing_no_map_without_coords(client, db):
+    biz = await _biz(db, slug="nomap")   # _biz has address+phone but no lat/lng
+    await db.flush()
+    body = (await client.get("/biz/nomap")).text
+    assert "openstreetmap.org" not in body                    # no pin → no embedded map
+    assert "🧭 Get directions" not in body or "directions" in body   # address-only still ok
+
+
+@pytest.mark.asyncio
 async def test_unpublished_page_is_noindex_but_viewable(client, db):
     await _biz(db, slug="draft")           # no LandingPage row → unpublished
     resp = await client.get("/biz/draft")

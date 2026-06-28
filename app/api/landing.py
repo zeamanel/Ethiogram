@@ -71,6 +71,17 @@ def _offer(item_type: str, item: dict, currency: str) -> dict:
     return offer
 
 
+def _osm_embed_url(lat, lng) -> Optional[str]:
+    """A key-free OpenStreetMap embed (iframe src) with a marker — no API key,
+    no billing. Returns None when coordinates aren't set."""
+    if lat is None or lng is None:
+        return None
+    d = 0.004  # ~400m box around the pin
+    bbox = f"{lng - d},{lat - d},{lng + d},{lat + d}"
+    return ("https://www.openstreetmap.org/export/embed.html"
+            f"?bbox={bbox}&layer=mapnik&marker={lat},{lng}")
+
+
 def _json_ld(business: dict, content: dict, page_url: str) -> str:
     contact = content.get("contact") or {}
     currency = business.get("currency") or "ETB"
@@ -128,10 +139,16 @@ async def _build_context(slug: str, db: AsyncSession, *,
     default_title = f"{name} — {category}" + (f" in {locality.split(',')[0]}" if locality else "")
     default_desc = business.get("tagline") or f"{name}. Order on Telegram."
 
+    contact = content.get("contact") or {}
+    has_visit = bool(contact.get("phone") or contact.get("email") or contact.get("address")
+                     or contact.get("directions_url") or content.get("hours"))
+
     return {
         "business": business,
         "content": content,
         "theme": payload["theme"],
+        "has_visit": has_visit,
+        "map_embed_url": _osm_embed_url(contact.get("latitude"), contact.get("longitude")),
         "title": (lp.title if lp and lp.title else default_title)[:70],
         "meta_description": (lp.meta_description if lp and lp.meta_description else default_desc)[:160],
         "hero_headline": (lp.hero_headline if lp and lp.hero_headline else name),
@@ -154,7 +171,8 @@ _TEMPLATE = _ENV.from_string(r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="{{ theme.primary }}">
 <title>{{ title }}</title>
 <meta name="description" content="{{ meta_description }}">
 {% if keywords %}<meta name="keywords" content="{{ keywords | join(', ') }}">{% endif %}
@@ -172,24 +190,32 @@ _TEMPLATE = _ENV.from_string(r"""<!DOCTYPE html>
 <style>
 :root{--brand:{{ theme.primary }};--accent:{{ theme.accent }};--ink:#14110D;--muted:#6B6356;--line:#E8E1D2;--bg:#FBF8F1;--card:#fff}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--bg);line-height:1.55}
+html{scroll-behavior:smooth}
+body{font-family:'Inter',system-ui,sans-serif;color:var(--ink);background:var(--bg);line-height:1.55;-webkit-text-size-adjust:100%}
+img{max-width:100%;height:auto}
 .wrap{max-width:1040px;margin:0 auto;padding:0 20px}
 h1,h2,h3{font-family:'Sora',sans-serif;letter-spacing:-0.02em;line-height:1.15}
 a{color:inherit}
-.nav{display:flex;align-items:center;justify-content:space-between;padding:18px 0}
-.brand{display:flex;align-items:center;gap:10px;font-family:'Sora';font-weight:800;font-size:18px}
-.brand .logo{width:36px;height:36px;border-radius:9px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;overflow:hidden}
+/* sticky header */
+.topbar{position:sticky;top:0;z-index:50;background:rgba(251,248,241,.92);backdrop-filter:saturate(140%) blur(10px);border-bottom:1px solid var(--line)}
+.topbar-in{display:flex;align-items:center;gap:14px;padding:12px 0}
+.brand{display:flex;align-items:center;gap:10px;font-family:'Sora';font-weight:800;font-size:17px;text-decoration:none}
+.brand .logo{width:34px;height:34px;border-radius:9px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;overflow:hidden;flex-shrink:0}
 .brand .logo img{width:100%;height:100%;object-fit:cover}
+.navlinks{display:flex;gap:18px;margin-left:auto;font-size:14px;font-weight:600}
+.navlinks a{color:var(--muted);text-decoration:none}
+.navlinks a:hover{color:var(--ink)}
 .btn{display:inline-block;background:var(--brand);color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:11px 20px;border-radius:11px}
+.btn.sm{padding:9px 15px;font-size:13px}
 .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
-.hero{padding:48px 0 36px;display:grid;grid-template-columns:1.2fr .8fr;gap:30px;align-items:center}
+.hero{padding:44px 0 36px;display:grid;grid-template-columns:1.2fr .8fr;gap:30px;align-items:center}
 .hero h1{font-size:40px;font-weight:800}.hero h1 em{color:var(--brand);font-style:normal}
 .hero p{color:var(--muted);font-size:16px;margin:14px 0 22px;max-width:44ch}
 .hero-cta{display:flex;gap:10px;flex-wrap:wrap}
 .hero-card{background:linear-gradient(140deg,var(--brand),var(--accent));border-radius:20px;min-height:200px;display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Sora';font-weight:800;font-size:22px;text-align:center;padding:24px}
 .sec{padding:34px 0;border-top:1px solid var(--line)}
 .sec h2{font-size:24px;font-weight:700;margin-bottom:18px}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
 .card .img{aspect-ratio:4/3;background:#F3EEE2;display:flex;align-items:center;justify-content:center;font-size:34px}
 .card .img img{width:100%;height:100%;object-fit:cover}
@@ -199,25 +225,57 @@ a{color:inherit}
 .card .price{font-family:'Sora';font-weight:700;color:var(--brand);margin-top:8px}
 .rows{display:flex;flex-direction:column;gap:10px}
 .row{display:flex;justify-content:space-between;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
-.row .price{font-family:'Sora';font-weight:700;color:var(--accent)}
+.row .price{font-family:'Sora';font-weight:700;color:var(--accent);white-space:nowrap}
 .about p{color:var(--muted);max-width:62ch}
 .faq-item{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:10px}
 .faq-item .q{font-weight:600}.faq-item .a{color:var(--muted);font-size:14px;margin-top:6px}
 .cta{margin:36px 0;background:var(--ink);color:#F7F3EA;border-radius:20px;padding:34px;text-align:center}
 .cta h2{color:#fff;font-size:26px;margin-bottom:14px}
-.contact{display:flex;gap:24px;flex-wrap:wrap;color:var(--muted);font-size:14px}
-footer{padding:26px 0;color:var(--muted);font-size:13px;text-align:center;border-top:1px solid var(--line)}
-@media(max-width:720px){.hero{grid-template-columns:1fr}.hero h1{font-size:30px}.hero-card{min-height:140px}}
+.visit-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+.contact{display:flex;flex-direction:column;gap:12px;color:var(--ink);font-size:15px}
+.info{display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink)}
+.info .ic{width:30px;text-align:center;font-size:17px;flex-shrink:0}
+.info.link:hover{color:var(--brand)}
+.map{border-radius:14px;overflow:hidden;border:1px solid var(--line);height:300px}
+.map iframe{width:100%;height:100%;border:0;display:block}
+footer{padding:26px 0 34px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between}
+.foot-links{display:flex;gap:14px;flex-wrap:wrap}
+.foot-links a{color:var(--muted);text-decoration:none}
+.mobile-cta{display:none}
+@media(max-width:760px){
+  .hero{grid-template-columns:1fr;padding:30px 0 26px}
+  .hero h1{font-size:29px}.hero p{font-size:15px}
+  .hero-card{min-height:130px;font-size:18px;order:-1}
+  .navlinks{display:none}
+  .sec{padding:26px 0}.sec h2{font-size:21px}
+  .grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+  .cta{padding:26px 20px}.cta h2{font-size:21px}
+  .visit-grid{grid-template-columns:1fr}
+  .map{height:230px}
+  footer{justify-content:center;text-align:center}
+  body{padding-bottom:74px}
+  .mobile-cta{display:flex;position:fixed;left:14px;right:14px;bottom:14px;z-index:60;
+    align-items:center;justify-content:center;gap:8px;background:var(--brand);color:#fff;
+    text-decoration:none;font-weight:700;font-size:15px;padding:15px;border-radius:14px;
+    box-shadow:0 8px 24px rgba(0,0,0,.18)}
+}
 </style>
 <script type="application/ld+json">{{ json_ld | safe }}</script>
 </head>
-<body>
+<body id="top">
+  <header class="topbar">
+    <div class="wrap topbar-in">
+      <a class="brand" href="#top"><span class="logo">{% if business.logo_url %}<img src="{{ business.logo_url }}" alt="">{% else %}{{ business.name[0] | upper }}{% endif %}</span>{{ business.name }}</a>
+      <nav class="navlinks">
+        {% if content.products %}<a href="#products">Products</a>{% endif %}
+        {% if content.services %}<a href="#services">Services</a>{% endif %}
+        {% if business.tagline %}<a href="#about">About</a>{% endif %}
+        {% if has_visit %}<a href="#contact">Visit</a>{% endif %}
+      </nav>
+      {% if bot_url %}<a class="btn sm" href="{{ bot_url }}">Order</a>{% endif %}
+    </div>
+  </header>
 <div class="wrap">
-  <nav class="nav">
-    <div class="brand"><span class="logo">{% if business.logo_url %}<img src="{{ business.logo_url }}" alt="">{% else %}{{ business.name[0] | upper }}{% endif %}</span>{{ business.name }}</div>
-    {% if bot_url %}<a class="btn" href="{{ bot_url }}">Order on Telegram</a>{% endif %}
-  </nav>
-
   <header class="hero">
     <div>
       <h1>{{ hero_headline }}</h1>
@@ -227,7 +285,7 @@ footer{padding:26px 0;color:var(--muted);font-size:13px;text-align:center;border
         <a class="btn ghost" href="{{ store_url }}">Browse the store</a>
       </div>
     </div>
-    <div class="hero-card">{{ business.name }}</div>
+    <div class="hero-card">{% if business.logo_url %}<img src="{{ business.logo_url }}" alt="{{ business.name }}" style="max-height:120px;border-radius:14px">{% else %}{{ business.name }}{% endif %}</div>
   </header>
 
   {% if content.products %}
@@ -277,18 +335,32 @@ footer{padding:26px 0;color:var(--muted);font-size:13px;text-align:center;border
     {% if bot_url %}<a class="btn" href="{{ bot_url }}">Chat with us on Telegram</a>{% else %}<a class="btn" href="{{ store_url }}">Open the store</a>{% endif %}
   </section>
 
-  {% if content.contact.phone or content.contact.address or content.contact.directions_url %}
+  {% if has_visit %}
   <section class="sec" id="contact"><h2>Visit or call</h2>
-    <div class="contact">
-      {% if content.contact.phone %}<div>📞 {{ content.contact.phone }}</div>{% endif %}
-      {% if content.contact.address %}<div>📍 {{ content.contact.address }}</div>{% endif %}
-      {% if content.contact.directions_url %}<div><a href="{{ content.contact.directions_url }}" target="_blank" rel="noopener">🧭 Get directions</a></div>{% endif %}
+    <div class="visit-grid">
+      <div class="contact">
+        {% if content.contact.phone %}<a class="info link" href="tel:{{ content.contact.phone }}"><span class="ic">📞</span><span>{{ content.contact.phone }}</span></a>{% endif %}
+        {% if content.contact.email %}<a class="info link" href="mailto:{{ content.contact.email }}"><span class="ic">✉️</span><span>{{ content.contact.email }}</span></a>{% endif %}
+        {% if content.contact.address %}<div class="info"><span class="ic">📍</span><span>{{ content.contact.address }}</span></div>{% endif %}
+        {% if content.hours %}<div class="info"><span class="ic">🕒</span><span>{{ content.hours }}</span></div>{% endif %}
+        {% if content.contact.directions_url %}<a class="info link" href="{{ content.contact.directions_url }}" target="_blank" rel="noopener"><span class="ic">🧭</span><span>Get directions</span></a>{% endif %}
+      </div>
+      {% if map_embed_url %}<div class="map"><iframe src="{{ map_embed_url }}" loading="lazy" title="Map of {{ business.name }}"></iframe></div>{% endif %}
     </div>
   </section>
   {% endif %}
 
-  <footer>{{ business.name }} · Powered by Ethiogram</footer>
+  <footer>
+    <div>© {{ business.name }} · Powered by Ethiogram</div>
+    <div class="foot-links">
+      {% if content.products %}<a href="#products">Products</a>{% endif %}
+      {% if content.services %}<a href="#services">Services</a>{% endif %}
+      {% if has_visit %}<a href="#contact">Contact</a>{% endif %}
+      <a href="{{ store_url }}">Store</a>
+    </div>
+  </footer>
 </div>
+{% if bot_url %}<a class="mobile-cta" href="{{ bot_url }}">💬 Order on Telegram</a>{% endif %}
 </body>
 </html>""")
 

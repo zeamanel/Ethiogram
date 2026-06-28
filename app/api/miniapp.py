@@ -133,6 +133,7 @@ def _content(business: Business, bot: Optional[Bot], cfg: Optional[MiniAppConfig
         "faqs": faqs,
         "contact": {
             "phone": business.phone,
+            "email": business.email,
             "address": business.address,
             "latitude": business.latitude,
             "longitude": business.longitude,
