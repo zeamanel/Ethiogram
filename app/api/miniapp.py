@@ -13,11 +13,12 @@ import json
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, RateLimitError
 from app.core.logging import get_logger
 from app.utils.geo import directions_url as _directions_url
 from app.db.models import (
@@ -27,6 +28,7 @@ from app.db.models import (
     KnowledgeItem,
     KnowledgeItemType,
     MiniAppConfig,
+    UsageEvent,
 )
 from app.db.session import get_db, get_redis
 
@@ -223,3 +225,88 @@ async def get_storefront(
 
     await redis.set(key, json.dumps(payload), ex=_CACHE_TTL)
     return payload
+
+
+# ── public website support chat ──────────────────────────────────────────────
+
+# Abuse/cost guards for the UNAUTHENTICATED website chat. Per-IP throttle stops
+# a single visitor flooding; per-business daily cap bounds total LLM cost (over
+# the cap we gracefully hand off to Telegram instead of erroring).
+_WEBCHAT_IP_PER_MIN = 8
+_WEBCHAT_BIZ_PER_DAY = 300
+
+
+class WebChatTurn(BaseModel):
+    role: str
+    content: str
+
+
+class WebChatRequest(BaseModel):
+    message: str
+    history: list[WebChatTurn] = []
+
+
+class WebChatResponse(BaseModel):
+    reply: str
+    handoff: bool = False    # True → suggest continuing on Telegram (cap reached)
+
+
+async def _webchat_ip_throttle(redis, ip: str) -> None:
+    key = f"webchat:ip:{ip}"
+    count = await redis.incr(key)
+    if count == 1:
+        await redis.expire(key, 60)
+    if count > _WEBCHAT_IP_PER_MIN:
+        raise RateLimitError(retry_after=60)
+
+
+async def _webchat_biz_over_cap(redis, business_id) -> bool:
+    key = f"webchat:biz:{business_id}"
+    count = await redis.incr(key)
+    if count == 1:
+        await redis.expire(key, 86400)
+    return count > _WEBCHAT_BIZ_PER_DAY
+
+
+@router.post("/{slug}/chat", response_model=WebChatResponse)
+async def website_chat(
+    slug: str,
+    body: WebChatRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+) -> WebChatResponse:
+    """Public, stateless AI support chat for the landing page. Rate-limited per
+    IP and per business; replies are metered as a zero-rated UsageEvent."""
+    ip = request.client.host if request.client else "unknown"
+    await _webchat_ip_throttle(redis, ip)
+
+    business = (await db.execute(
+        select(Business).where(
+            Business.slug == slug,
+            Business.deleted_at.is_(None),
+            Business.is_suspended.is_(False),
+        )
+    )).scalar_one_or_none()
+    if business is None:
+        raise NotFoundError("Storefront", slug)
+
+    if await _webchat_biz_over_cap(redis, business.id):
+        return WebChatResponse(
+            reply="Our web assistant is taking a quick break — please continue the "
+                  "chat on Telegram and we'll help you right away.",
+            handoff=True)
+
+    from app.services import web_chat_service
+    result = await web_chat_service.answer(
+        db, business, body.message, [t.model_dump() for t in body.history])
+
+    # Meter the reply (zero-rated for now — the rate limits are the cost guard).
+    if result.get("source") == "ai":
+        db.add(UsageEvent(
+            business_id=business.id, action_type="web_chat",
+            model_id=result.get("model"), input_tokens=0, output_tokens=0,
+            etg_charged=0, payer="business"))
+        await db.flush()
+
+    return WebChatResponse(reply=result["reply"])
