@@ -58,6 +58,17 @@ async def test_brain_settings_editor_present(client):
 
 
 @pytest.mark.asyncio
+async def test_transfer_business_present(client):
+    html = (await client.get("/app/owner/")).text
+    assert 'id="transfer-editor"' in html and 'id="tr-send"' in html        # transfer form
+    assert 'id="incoming-transfers"' in html                                 # incoming banner slot
+    js = (await client.get("/app/owner/app.js")).text
+    assert "openTransfer" in js and "/transfers/business/" in js             # initiate/cancel/status
+    assert "renderIncoming" in js and "/transfers/incoming" in js            # accept/decline
+    assert 'id="bots-transfer"' in js                                        # entry from My Bots
+
+
+@pytest.mark.asyncio
 async def test_business_switcher_present(client):
     html = (await client.get("/app/owner/")).text
     assert 'id="biz-switcher"' in html and 'id="biz-switch-menu"' in html   # picker + dropdown

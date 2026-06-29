@@ -40,6 +40,13 @@ body {
 .biz-switch-item:hover, .biz-switch-item.active { background: var(--surface-2); }
 .biz-switch-item.active { font-weight: 700; color: var(--amber-deep); }
 
+/* incoming business transfers */
+.xfer-card { margin:12px 16px 0; background:var(--card); border:1px solid var(--blue); border-radius:13px; padding:13px 14px; }
+.xfer-txt { font-size:13.5px; color:var(--text); line-height:1.5; }
+.xfer-actions { display:flex; gap:8px; margin-top:10px; }
+.xfer-actions .onb-btn, .xfer-actions .onb-btn-ghost { padding:9px 16px; border-radius:10px; font-size:13px; }
+.xfer-actions .onb-btn-ghost { border:1px solid var(--line); }
+
 /* greeting */
 .greet { padding: 18px 18px 6px; }
 .greet-hi { font-family:'Sora',sans-serif; font-size:21px; font-weight:700; letter-spacing:-0.02em; }

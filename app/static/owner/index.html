@@ -90,6 +90,9 @@
       <div class="greet-sub" id="greet-sub"></div>
     </div>
 
+    <!-- incoming business transfers addressed to this user -->
+    <div id="incoming-transfers"></div>
+
     <div id="low-balance" class="alert-strip hidden">
       <div>🔔</div>
       <div class="alert-txt"><b>Low balance.</b> Recharge before your bot pauses.</div>
@@ -529,6 +532,34 @@
 
       <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:18px"><div class="sec-title">Custom domain</div></div>
       <div id="dom-panel"></div>
+    </div>
+  </div>
+
+  <!-- TRANSFER BUSINESS (hand ownership to another person) -->
+  <div id="transfer-editor" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="tr-back">‹ Back</button>
+      <div class="mgr-title">Transfer business</div>
+      <span></span>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Hand this business — its bots, catalog, storefront and wallet — to another person. They must accept before ownership moves, and you can cancel until they do.</div>
+
+      <div id="tr-pending" class="bl-credit hidden"></div>
+
+      <div id="tr-form">
+        <div class="field"><label for="tr-kind">Send to</label>
+          <select id="tr-kind" class="bl-select">
+            <option value="telegram_username">Telegram username</option>
+            <option value="telegram_id">Telegram ID</option>
+            <option value="email">Email</option>
+          </select></div>
+        <div class="field"><label for="tr-value">Recipient</label>
+          <input id="tr-value" type="text" placeholder="@username" autocapitalize="off"></div>
+        <div class="mgr-note" style="text-align:left;margin-top:0">⚠️ After they accept, you lose access to this business. This can't be undone.</div>
+        <div class="err-inline hidden" id="tr-err"></div>
+        <div class="wiz-actions"><button class="onb-btn" id="tr-send">Send transfer request</button></div>
+      </div>
     </div>
   </div>
 

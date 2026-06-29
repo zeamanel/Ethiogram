@@ -122,6 +122,7 @@
 
     render(overview, orders, docs, wallet);
     renderAppointments(biz.id, appts);
+    renderIncoming();
     hide("loading"); show("dashboard");
   }
 
@@ -1224,9 +1225,87 @@
       <div class="lic ic-amber">＋</div>
       <div class="linfo"><div class="lname" style="color:var(--amber-deep)">Connect a bot</div>
       <div class="lmeta">Add a Telegram bot to this business</div></div></div>`;
-    $("bots").innerHTML = botList + connectRow;
+    const transferRow = `<div class="litem" id="bots-transfer" style="cursor:pointer">
+      <div class="lic ic-blue">⇄</div>
+      <div class="linfo"><div class="lname">Transfer business</div>
+      <div class="lmeta">Hand ownership to another person</div></div></div>`;
+    $("bots").innerHTML = botList + connectRow + transferRow;
     $("bots-connect").onclick = () =>
       connectBotFlow(b.id, () => { hide("wiz-bot"); show("dashboard"); });
+    $("bots-transfer").onclick = () => openTransfer(b.id);
+  }
+
+  // ---- transfer business (ownership hand-off) ----
+  async function openTransfer(bizId) {
+    hide("dashboard"); show("transfer-editor");
+    hide("tr-err");
+    $("tr-back").onclick = () => { hide("transfer-editor"); show("dashboard"); };
+
+    function renderState(st) {
+      const pend = $("tr-pending");
+      if (st && st.status === "pending") {
+        const known = st.recipient_has_account ? " (has an account)" : " — they'll get it when they sign up";
+        pend.innerHTML = `<div><b>Pending transfer</b><br>To <b>${esc(st.to_value)}</b>${esc(known)}.</div>
+          <button class="onb-btn-ghost" id="tr-cancel" style="margin-top:8px">Cancel transfer</button>`;
+        pend.classList.remove("hidden");
+        $("tr-cancel").onclick = async () => {
+          try { await Eth.del(`/transfers/business/${bizId}`); openTransfer(bizId); }
+          catch (e) { notify(e.detail || "Couldn't cancel."); }
+        };
+      } else {
+        pend.classList.add("hidden"); pend.innerHTML = "";
+      }
+    }
+
+    try { renderState(await Eth.get(`/transfers/business/${bizId}`)); }
+    catch (e) { return showErr("tr-err", "Couldn't load transfer status."); }
+
+    $("tr-kind").onchange = () => {
+      const k = $("tr-kind").value;
+      $("tr-value").placeholder = k === "email" ? "name@example.com" : k === "telegram_id" ? "123456789" : "@username";
+    };
+    $("tr-send").onclick = async () => {
+      hide("tr-err");
+      const to_kind = $("tr-kind").value, to_value = $("tr-value").value.trim();
+      if (!to_value) return showErr("tr-err", "Enter the recipient.");
+      if (!(await confirmAction("Send a transfer request? You'll keep access until they accept."))) return;
+      setBtn("tr-send", true, "Sending…");
+      try {
+        const st = await Eth.post(`/transfers/business/${bizId}`, { to_kind, to_value });
+        $("tr-value").value = "";
+        renderState(st);
+        notify("Transfer request sent. They'll be asked to accept.");
+      } catch (e) { showErr("tr-err", e.detail || "Couldn't send the transfer."); }
+      finally { setBtn("tr-send", false, "Send transfer request"); }
+    };
+  }
+
+  // ---- incoming transfers (someone wants to hand a business to me) ----
+  async function renderIncoming() {
+    const box = $("incoming-transfers");
+    if (!box) return;
+    let items;
+    try { items = await Eth.get("/transfers/incoming"); }
+    catch (e) { box.innerHTML = ""; return; }
+    if (!items || !items.length) { box.innerHTML = ""; return; }
+    box.innerHTML = items.map(t => `<div class="xfer-card" data-id="${esc(t.id)}">
+      <div class="xfer-txt">🤝 <b>${esc(t.from_name || "Someone")}</b> wants to transfer <b>${esc(t.business_name)}</b> to you.</div>
+      <div class="xfer-actions">
+        <button class="onb-btn xfer-accept">Accept</button>
+        <button class="onb-btn-ghost xfer-decline">Decline</button>
+      </div></div>`).join("");
+    box.querySelectorAll(".xfer-card").forEach(card => {
+      const id = card.dataset.id;
+      card.querySelector(".xfer-accept").onclick = async () => {
+        if (!(await confirmAction("Accept this business? It becomes yours."))) return;
+        try { await Eth.post(`/transfers/incoming/${id}/accept`, {}); boot(); }
+        catch (e) { notify(e.detail || "Couldn't accept."); }
+      };
+      card.querySelector(".xfer-decline").onclick = async () => {
+        try { await Eth.post(`/transfers/incoming/${id}/decline`, {}); renderIncoming(); }
+        catch (e) { notify(e.detail || "Couldn't decline."); }
+      };
+    });
   }
 
   function renderUsage(rows) {
