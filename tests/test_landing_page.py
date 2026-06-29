@@ -134,6 +134,10 @@ async def test_landing_business_website_and_mobile(client, db):
     assert "Mon–Sat, 9 AM – 6 PM" in body                     # hours rendered
     # key-free OpenStreetMap embed with a marker
     assert "openstreetmap.org/export/embed.html" in body and "marker=9.01,38.74" in body
+    # support chat widget wired to the public chat endpoint
+    assert 'id="echat-fab"' in body and 'id="echat-panel"' in body
+    assert "/miniapp/" in body and "/chat" in body
+    assert 'data-slug="webfeat"' in body
 
 
 @pytest.mark.asyncio

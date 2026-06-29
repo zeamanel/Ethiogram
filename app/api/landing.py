@@ -259,6 +259,27 @@ footer{padding:26px 0 34px;color:var(--muted);font-size:13px;border-top:1px soli
     text-decoration:none;font-weight:700;font-size:15px;padding:15px;border-radius:14px;
     box-shadow:0 8px 24px rgba(0,0,0,.18)}
 }
+/* support chat widget */
+.echat-fab{position:fixed;right:18px;bottom:24px;z-index:70;width:56px;height:56px;border-radius:50%;background:var(--brand);color:#fff;border:none;cursor:pointer;font-size:24px;box-shadow:0 8px 24px rgba(0,0,0,.22);display:flex;align-items:center;justify-content:center}
+.echat-panel{position:fixed;right:18px;bottom:90px;z-index:71;width:360px;max-width:calc(100vw - 36px);height:520px;max-height:calc(100vh - 130px);background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 16px 48px rgba(0,0,0,.24);display:none;flex-direction:column;overflow:hidden}
+.echat-panel.open{display:flex}
+.echat-head{background:var(--brand);color:#fff;padding:13px 15px;display:flex;align-items:center;gap:9px;font-size:18px}
+.echat-head .t{font-family:'Sora';font-weight:700;font-size:15px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.echat-head .x{background:none;border:none;color:#fff;font-size:22px;line-height:1;cursor:pointer;opacity:.85}
+.echat-body{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:9px;background:var(--bg)}
+.echat-msg{max-width:84%;padding:9px 13px;border-radius:14px;font-size:14px;line-height:1.45;white-space:pre-wrap;word-wrap:break-word;overflow-wrap:anywhere}
+.echat-msg.bot{background:var(--card);border:1px solid var(--line);align-self:flex-start;border-bottom-left-radius:5px}
+.echat-msg.me{background:var(--brand);color:#fff;align-self:flex-end;border-bottom-right-radius:5px}
+.echat-msg.typing{color:var(--muted)}
+.echat-foot{border-top:1px solid var(--line);padding:10px;display:flex;gap:8px;background:var(--card)}
+.echat-foot input{flex:1;min-width:0;border:1px solid var(--line);border-radius:11px;padding:11px 12px;font-size:14px;font-family:inherit;outline:none}
+.echat-foot input:focus{border-color:var(--brand)}
+.echat-foot button{background:var(--brand);color:#fff;border:none;border-radius:11px;padding:0 16px;font-weight:600;cursor:pointer}
+.echat-tg{display:block;text-align:center;font-size:12.5px;color:var(--muted);text-decoration:none;padding:9px;border-top:1px solid var(--line);background:var(--card)}
+@media(max-width:760px){
+  .echat-fab{bottom:86px}
+  .echat-panel{right:10px;left:10px;top:10px;bottom:10px;width:auto;max-width:none;height:auto;max-height:none}
+}
 </style>
 <script type="application/ld+json">{{ json_ld | safe }}</script>
 </head>
@@ -361,6 +382,62 @@ footer{padding:26px 0 34px;color:var(--muted);font-size:13px;border-top:1px soli
   </footer>
 </div>
 {% if bot_url %}<a class="mobile-cta" href="{{ bot_url }}">💬 Order on Telegram</a>{% endif %}
+
+<!-- support chat widget -->
+<div id="echat" data-slug="{{ business.slug }}" data-name="{{ business.name }}"></div>
+<button class="echat-fab" id="echat-fab" aria-label="Chat with us">💬</button>
+<div class="echat-panel" id="echat-panel" role="dialog" aria-label="Support chat">
+  <div class="echat-head"><span>💬</span><span class="t">Chat with {{ business.name }}</span><button class="x" id="echat-close" aria-label="Close">×</button></div>
+  <div class="echat-body" id="echat-body"></div>
+  <div class="echat-foot">
+    <input id="echat-input" type="text" placeholder="Ask a question…" autocomplete="off" maxlength="800">
+    <button id="echat-send">Send</button>
+  </div>
+  {% if bot_url %}<a class="echat-tg" href="{{ bot_url }}" target="_blank" rel="noopener">Continue on Telegram →</a>{% endif %}
+</div>
+<script>
+(function(){
+  var el=document.getElementById('echat'); if(!el) return;
+  var slug=el.dataset.slug, name=el.dataset.name||'us';
+  var panel=document.getElementById('echat-panel'), body=document.getElementById('echat-body'),
+      input=document.getElementById('echat-input'), fab=document.getElementById('echat-fab');
+  var history=[], busy=false, greeted=false;
+  function add(role,text){
+    var m=document.createElement('div');
+    m.className='echat-msg '+(role==='user'?'me':'bot');
+    m.textContent=text; body.appendChild(m); body.scrollTop=body.scrollHeight; return m;
+  }
+  function openPanel(){
+    panel.classList.add('open');
+    if(!greeted){greeted=true; add('assistant','Hi! 👋 Ask me anything about '+name+' — hours, services, prices…');}
+    input.focus();
+  }
+  function closePanel(){ panel.classList.remove('open'); }
+  fab.onclick=function(){ panel.classList.contains('open')?closePanel():openPanel(); };
+  document.getElementById('echat-close').onclick=closePanel;
+  async function send(){
+    var msg=(input.value||'').trim(); if(!msg||busy) return;
+    input.value=''; add('user',msg); busy=true;
+    var typing=add('assistant','…'); typing.classList.add('typing');
+    try{
+      var res=await fetch('/api/v1/miniapp/'+encodeURIComponent(slug)+'/chat',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({message:msg, history:history.slice(-6)})});
+      var data=await res.json().catch(function(){return {};});
+      typing.remove();
+      if(res.status===429){ add('assistant',"You're sending messages a bit fast — please wait a moment and try again."); }
+      else{
+        var reply=(data&&data.reply)?data.reply:"Sorry, please try again or continue on Telegram.";
+        add('assistant',reply);
+        history.push({role:'user',content:msg}); history.push({role:'assistant',content:reply});
+      }
+    }catch(e){ typing.remove(); add('assistant',"Sorry, I couldn't reach the assistant. Please continue on Telegram."); }
+    finally{ busy=false; input.focus(); }
+  }
+  document.getElementById('echat-send').onclick=send;
+  input.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); send(); } });
+})();
+</script>
 </body>
 </html>""")
 
