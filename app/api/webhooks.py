@@ -34,6 +34,7 @@ from app.db.models import (
     WalletAlert,
 )
 from app.db.session import get_db, get_redis
+from app.services import owner_bot_menu
 from app.services.storage_service import storage_service
 from app.services.telegram_service import MessageEnvelope, telegram_service
 from app.core.security import decrypt, decrypt_agent_prompt, decrypt_child_secrets
@@ -262,6 +263,14 @@ async def telegram_webhook(
         envelope, bot, business, raw_token, db, redis
     ):
         return JSONResponse({"ok": True})
+
+    # Owner management menu on the business's own bot: /start, /menu, or a menu
+    # tap from the OWNER opens management tools (not the customer AI). Cheap text
+    # gate first, so we only run the ownership lookup for actual owner commands.
+    if envelope.chat_type == "private" and owner_bot_menu.is_owner_command(envelope.text) \
+            and await _sender_is_owner(envelope, business, db):
+        if await owner_bot_menu.handle(envelope, bot, business, raw_token, db, redis):
+            return JSONResponse({"ok": True})
 
     # 6. Balance check (Redis-cached). Only gates when the BUSINESS pays the
     # platform cost; in user_pays the business wallet isn't used for messages.
