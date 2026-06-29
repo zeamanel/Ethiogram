@@ -69,4 +69,7 @@
 \echo '==> 020_bookings.sql'
 \i migrations/020_bookings.sql
 
+\echo '==> 021_business_transfers.sql'
+\i migrations/021_business_transfers.sql
+
 \echo '==> All migrations applied successfully.'

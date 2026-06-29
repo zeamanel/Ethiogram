@@ -796,6 +796,29 @@ class Booking(Base, UUIDMixin, TimestampMixin):
     )
 
 
+# How an owner names the recipient of a business transfer, and the lifecycle.
+TRANSFER_KINDS = ("telegram_username", "telegram_id", "email")
+TRANSFER_STATUSES = ("pending", "accepted", "declined", "cancelled", "expired")
+
+
+class BusinessTransfer(Base, UUIDMixin, TimestampMixin):
+    """A pending hand-off of a business to another person (by Telegram or email).
+    Ownership only moves when the recipient accepts — so a mistaken target, or a
+    recipient who hasn't signed up yet, never loses or strands the business."""
+    __tablename__ = "business_transfers"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    from_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    to_kind: Mapped[str] = mapped_column(String(16), nullable=False)        # telegram_username | telegram_id | email
+    to_value: Mapped[str] = mapped_column(String(255), nullable=False, index=True)  # normalized identifier
+    to_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False, index=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+
 # ---------------------------------------------------------------------------
 # System 8 — Presence
 # ---------------------------------------------------------------------------
