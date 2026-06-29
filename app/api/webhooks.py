@@ -344,6 +344,14 @@ async def telegram_webhook(
         logger.error("Failed to send reply", bot_id=str(bot.id), error=str(exc), exc_info=True)
         return JSONResponse({"ok": True})
 
+    # 11b. If the conversation references a catalog product that has a photo,
+    # send the image too. Best-effort — a failure must never break the reply.
+    try:
+        await _maybe_send_product_images(
+            envelope, bot, raw_token, response_text, db)
+    except Exception as exc:
+        logger.warning("Product image send failed", bot_id=str(bot.id), error=str(exc))
+
     # 12-14. Persist, update stats, meter ETG, and check alerts.
     # These run AFTER the reply has been delivered, so a failure here must NOT
     # propagate: a non-200 response makes Telegram retry the update and
@@ -642,6 +650,54 @@ async def _maybe_handle_add_product(envelope, bot, business, raw_token, db, redi
     logger.info(f"{noun.capitalize()} added via bot", business_id=str(business.id),
                 title=parsed["title"], kind=parsed["kind"])
     return True
+
+
+async def _maybe_send_product_images(envelope, bot, raw_token, reply_text, db) -> int:
+    """Send the photo for any catalog product the conversation references.
+
+    Matches active products that HAVE an image against the customer's message +
+    the bot's reply (whole-word, case-insensitive), preferring the most specific
+    (longest) title, and sends up to 2 photos so a "do you have the blue dress?"
+    gets the picture, not just the text. Returns how many photos were sent."""
+    haystack = f"{envelope.text or ''} {reply_text or ''}".lower()
+    if len(haystack.strip()) < 3:
+        return 0
+
+    rows = (await db.execute(
+        select(KnowledgeItem.title, KnowledgeItem.data).where(
+            KnowledgeItem.business_id == bot.business_id,
+            KnowledgeItem.item_type == KnowledgeItemType.product,
+            KnowledgeItem.is_active.is_(True),
+        )
+    )).all()
+
+    matches = []
+    for title, data in rows:
+        image_url = (data or {}).get("image_url")
+        if not title or not image_url or len(title.strip()) < 3:
+            continue
+        if _re.search(r"\b" + _re.escape(title.strip().lower()) + r"\b", haystack):
+            matches.append((title.strip(), image_url, (data or {}).get("price")))
+
+    # Longest title first (most specific), de-duplicate by image URL.
+    matches.sort(key=lambda m: len(m[0]), reverse=True)
+    seen, sent = set(), 0
+    for title, image_url, price in matches:
+        if image_url in seen:
+            continue
+        seen.add(image_url)
+        raw_caption = title + (f" — {price}" if price else "")
+        caption = raw_caption.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        try:
+            await telegram_service.send_photo(raw_token, envelope.customer_id, image_url, caption=caption)
+            sent += 1
+        except Exception as exc:
+            logger.warning("send_photo failed", bot_id=str(bot.id), error=str(exc))
+        if sent >= 2:
+            break
+    if sent:
+        logger.info("Product images sent", bot_id=str(bot.id), count=sent)
+    return sent
 
 
 async def _load_child_data(business_id: str, agent_type: str, db: AsyncSession) -> dict | None:
