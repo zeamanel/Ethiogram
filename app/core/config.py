@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     fallback_model_id: str = "gpt-4o-mini"
     emergency_model_id: str = "llama-3.1-8b-instruct"
     embedding_model_id: str = "text-embedding-004"
+    # Amharic-speaker routing: Gemini handles Ge'ez/Amharic best, so an Amharic
+    # message is served by these first (Pro → Flash), then the normal chain.
+    amharic_primary_model_id: str = "google/gemini-2.5-pro"
+    amharic_secondary_model_id: str = "google/gemini-2.5-flash"
 
     # VERTEX AI
     vertex_ai_location: str = "us-central1"

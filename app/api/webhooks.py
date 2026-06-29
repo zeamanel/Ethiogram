@@ -1109,6 +1109,7 @@ async def _process_message(
             messages=[{"role": "user", "content": text}],
             system_prompt=system_prompt,
             business_id=envelope.business_id,
+            language=getattr(conversation, "detected_language", None),
         )
         return response_text, tokens, model_id
     except Exception as exc:

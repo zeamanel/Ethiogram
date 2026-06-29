@@ -80,14 +80,18 @@ class ModelRouter:
         business_preferred_model_id: Optional[str] = None,
         max_tokens: int = 1024,
         temperature: float = 0.7,
+        language: Optional[str] = None,
     ) -> tuple[str, dict, str]:
         """
         Resolve model, call provider, auto-failover on error.
         Returns (response_text, token_counts, model_id_used).
+
+        ``language`` lets us route by speaker: an Amharic ("am") message is
+        served by the configured Gemini models first (best at Ge'ez).
         """
         redis = await get_redis()
         chain = await self._build_failover_chain(
-            business_id, agent_model_id, business_preferred_model_id, redis
+            business_id, agent_model_id, business_preferred_model_id, redis, language
         )
         logger.info(
             "Failover chain resolved",
@@ -198,6 +202,7 @@ class ModelRouter:
         agent_model_id,
         business_preferred_model_id,
         redis,
+        language: Optional[str] = None,
     ) -> list[str]:
         primary = await self.resolve(business_id, agent_model_id, business_preferred_model_id)
 
@@ -211,7 +216,15 @@ class ModelRouter:
                 settings.emergency_model_id,
             ]
 
-        chain = [primary]
+        chain: list[str] = []
+        # Amharic speakers → the configured Gemini models first (Pro, then Flash),
+        # skipping any that are disabled/down. Then the normal chain as fallback.
+        if (language or "").lower() in ("am", "amh", "amharic"):
+            for m in (settings.amharic_primary_model_id, settings.amharic_secondary_model_id):
+                if m and m not in chain and await self._is_available(m, redis):
+                    chain.append(m)
+        if primary not in chain:
+            chain.append(primary)
         for m in custom_chain:
             if m not in chain:
                 chain.append(m)

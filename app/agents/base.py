@@ -104,13 +104,14 @@ class BaseAgent:
         # 4. Assemble messages: history + current turn
         messages = history + [{"role": "user", "content": text or ""}]
 
-        # 5. Model call with failover
+        # 5. Model call with failover (Amharic speakers route to Gemini first)
         response_text, tokens, model_id = await model_router.execute_with_fallback(
             messages=messages,
             system_prompt=system_prompt,
             business_id=str(conversation.business_id) if conversation.business_id else None,
             agent_model_id=agent_model_id,
             business_preferred_model_id=business_preferred_model_id,
+            language=getattr(conversation, "detected_language", None),
         )
 
         logger.info(

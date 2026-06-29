@@ -260,6 +260,12 @@ SEED_MODELS = [
      "provider": "anthropic", "tier": "premium"},
     {"model_id": "google/gemini-2.0-flash-001", "display_name": "Gemini 2.0 Flash",
      "provider": "google", "tier": "standard"},
+    # Amharic-speaker routing (Gemini handles Ge'ez best). Prices are rough
+    # starting points — tune in Admin → Models once real OpenRouter cost is known.
+    {"model_id": "google/gemini-2.5-pro", "display_name": "Gemini 2.5 Pro",
+     "provider": "google", "tier": "premium", "etg_in": 8, "etg_out": 24},
+    {"model_id": "google/gemini-2.5-flash", "display_name": "Gemini 2.5 Flash",
+     "provider": "google", "tier": "standard", "etg_in": 1, "etg_out": 3},
     {"model_id": "meta-llama/llama-3.1-8b-instruct", "display_name": "Llama 3.1 8B",
      "provider": "meta", "tier": "economy", "is_emergency": True},
     # Free OpenRouter model (':free' tier) — used by the high-volume Community
@@ -276,13 +282,18 @@ async def _upsert_model(db, spec: dict) -> str:
     )).scalar_one_or_none()
     if existing is not None:
         return "skipped"
-    db.add(AiModel(
+    model = AiModel(
         model_id=spec["model_id"], display_name=spec["display_name"],
         provider=ModelProvider(spec["provider"]), tier=ModelTier(spec["tier"]),
         is_default=spec.get("is_default", False),
         is_fallback=spec.get("is_fallback", False),
         is_emergency=spec.get("is_emergency", False),
-    ))
+    )
+    if "etg_in" in spec:
+        model.etg_cost_per_1k_input = spec["etg_in"]
+    if "etg_out" in spec:
+        model.etg_cost_per_1k_output = spec["etg_out"]
+    db.add(model)
     logger.info("Seeded model", model_id=spec["model_id"])
     return "created"
 

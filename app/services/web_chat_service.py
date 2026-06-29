@@ -94,11 +94,13 @@ async def answer(db: AsyncSession, business, message: str, history) -> dict:
 
     system = await _build_system_prompt(db, business, message)
     messages = _sanitize_history(history) + [{"role": "user", "content": message}]
+    # Amharic (Ge'ez script) → route to the Gemini chain like the bot does.
+    language = "am" if any("ሀ" <= c <= "፿" for c in message) else None
 
     try:
         text, _tokens, model_used = await model_router.execute_with_fallback(
             messages=messages, system_prompt=system, business_id=business.id,
-            max_tokens=_MAX_TOKENS, temperature=0.4)
+            max_tokens=_MAX_TOKENS, temperature=0.4, language=language)
         reply = (text or "").strip()
         if reply:
             return {"reply": reply, "source": "ai", "model": model_used}
