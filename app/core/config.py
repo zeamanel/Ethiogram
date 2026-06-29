@@ -66,10 +66,12 @@ class Settings(BaseSettings):
     fallback_model_id: str = "gpt-4o-mini"
     emergency_model_id: str = "llama-3.1-8b-instruct"
     embedding_model_id: str = "text-embedding-004"
-    # Amharic-speaker routing: Gemini handles Ge'ez/Amharic best, so an Amharic
-    # message is served by these first (Pro → Flash), then the normal chain.
-    amharic_primary_model_id: str = "google/gemini-2.5-pro"
-    amharic_secondary_model_id: str = "google/gemini-2.5-flash"
+    # Amharic-speaker routing: Gemini handles Ge'ez/Amharic best. Flash is the
+    # primary (fast + cheap, great Amharic); Pro is the fallback for when Flash
+    # is unavailable — routing every Amharic reply to Pro is ~10x the cost and
+    # drains wallets fast, so keep Flash first.
+    amharic_primary_model_id: str = "google/gemini-2.5-flash"
+    amharic_secondary_model_id: str = "google/gemini-2.5-pro"
 
     # VERTEX AI
     vertex_ai_location: str = "us-central1"

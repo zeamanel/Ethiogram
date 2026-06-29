@@ -232,10 +232,9 @@ async def telegram_webhook(
         logger.error("Token decryption failed", bot_id=str(bot.id), error=str(exc))
         return JSONResponse({"ok": True})
 
-    # 5. Paused bot — inform customer, do not process
-    if bot.status in (BotStatus.paused, BotStatus.grace):
-        logger.info("Dropping update: bot paused/grace — sending paused message",
-                    bot_id=str(bot.id), status=bot.status.value)
+    # 5. Paused / grace bot — block, but self-heal a GRACE bot whose wallet was
+    # recharged (grace = ran out of ETG, not an admin pause).
+    if await _bot_should_block(bot, db, redis):
         await _send_paused_message(raw_token, envelope)
         return JSONResponse({"ok": True})
 
@@ -399,6 +398,33 @@ def _verify_signature(secret: str, provided: str) -> bool:
     if not provided:
         return False
     return hmac.compare_digest(secret, provided)
+
+
+async def _bot_should_block(bot: Bot, db: AsyncSession, redis) -> bool:
+    """True if the bot must NOT process this message (send the paused notice).
+
+    A GRACE bot ran out of ETG automatically — if the wallet has since been
+    recharged, reactivate it and let it through (False), so a business isn't
+    stranded after paying. A PAUSED bot is an admin/manual stop and stays
+    blocked. Active bots pass straight through.
+    """
+    if bot.status == BotStatus.grace:
+        fresh = await db.scalar(
+            select(TokenWallet.balance).where(TokenWallet.business_id == bot.business_id))
+        if fresh and fresh > 0:
+            bot.status = BotStatus.active
+            bot.grace_period_started_at = None
+            await redis.delete(f"wallet:alert_sent:{str(bot.business_id)}")
+            await redis.delete(f"wallet:balance:{str(bot.business_id)}")   # bust stale 0
+            logger.info("Bot reactivated from grace (wallet recharged)",
+                        bot_id=str(bot.id), balance=int(fresh))
+            return False
+        logger.info("Dropping update: bot in grace, wallet empty", bot_id=str(bot.id))
+        return True
+    if bot.status == BotStatus.paused:
+        logger.info("Dropping update: bot paused", bot_id=str(bot.id))
+        return True
+    return False
 
 
 async def _send_paused_message(token: str, envelope: MessageEnvelope) -> None:
