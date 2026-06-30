@@ -275,6 +275,34 @@ SEED_MODELS = [
 ]
 
 
+# ETG top-up packages sold via Chapa (ETB) / card (USD). Roughly ~50 ETG per
+# ETB at the entry tier, rising to ~60 with the volume bonus; USD priced at
+# ~1 USD = 50 ETB. Tune the amounts/prices to your real margins later (or edit
+# them in the DB) — re-seeding only ADDS missing packages, it never overwrites.
+SEED_PACKAGES = [
+    {"name": "Starter",  "etg_amount": 5_000,   "bonus_etg": 0,      "price_etb": 100,   "price_usd": 2,   "display_order": 1},
+    {"name": "Standard", "etg_amount": 15_000,  "bonus_etg": 1_500,  "price_etb": 300,   "price_usd": 6,   "display_order": 2},
+    {"name": "Business", "etg_amount": 50_000,  "bonus_etg": 7_500,  "price_etb": 1_000, "price_usd": 20,  "display_order": 3},
+    {"name": "Pro",      "etg_amount": 150_000, "bonus_etg": 30_000, "price_etb": 3_000, "price_usd": 60,  "display_order": 4},
+]
+
+
+async def _upsert_package(db, spec: dict) -> str:
+    from app.db.models import EtgPackage
+    existing = (await db.execute(
+        select(EtgPackage).where(EtgPackage.name == spec["name"])
+    )).scalar_one_or_none()
+    if existing is not None:
+        return "skipped"
+    db.add(EtgPackage(
+        name=spec["name"], etg_amount=spec["etg_amount"], bonus_etg=spec["bonus_etg"],
+        price_etb=float(spec["price_etb"]), price_usd=float(spec["price_usd"]),
+        is_active=True, display_order=spec["display_order"],
+    ))
+    logger.info("Seeded ETG package", name=spec["name"])
+    return "created"
+
+
 async def _upsert_model(db, spec: dict) -> str:
     from app.db.models import AiModel, ModelProvider, ModelTier
     existing = (await db.execute(
@@ -299,11 +327,14 @@ async def _upsert_model(db, spec: dict) -> str:
 
 
 async def seed() -> dict:
-    summary = {"created": 0, "updated": 0, "models": 0}
+    summary = {"created": 0, "updated": 0, "models": 0, "packages": 0}
     async with get_db_context() as db:        # commits on clean exit
         for spec in SEED_MODELS:
             if await _upsert_model(db, spec) == "created":
                 summary["models"] += 1
+        for spec in SEED_PACKAGES:
+            if await _upsert_package(db, spec) == "created":
+                summary["packages"] += 1
         # Persist models BEFORE any agent insert: Agent.preferred_model_id FKs to
         # ai_models, and Postgres enforces it. Without this flush a re-seed could
         # FK-violate and roll back the whole transaction (new agent never lands).
@@ -321,7 +352,7 @@ async def main() -> None:
     try:
         summary = await seed()
         print(f"Seeded — agents created={summary['created']} updated={summary['updated']} "
-              f"models={summary['models']}")
+              f"models={summary['models']} packages={summary['packages']}")
     finally:
         await disconnect_db()
 

@@ -98,3 +98,28 @@ def test_seed_models_cover_router_defaults():
     ids = {m["model_id"] for m in SEED_MODELS}
     assert {"openai/gpt-4o-mini", "anthropic/claude-3.5-haiku",
             "meta-llama/llama-3.1-8b-instruct"} <= ids
+
+
+@pytest.mark.asyncio
+async def test_seed_packages_idempotent_and_priced(db):
+    from app.db.models import EtgPackage
+    from workers.seed_agents import SEED_PACKAGES, _upsert_package
+    assert await _upsert_package(db, SEED_PACKAGES[0]) == "created"
+    assert await _upsert_package(db, SEED_PACKAGES[0]) == "skipped"   # idempotent
+    rows = (await db.execute(select(EtgPackage))).scalars().all()
+    assert len(rows) == 1
+    p = rows[0]
+    assert p.price_etb > 0 and p.price_usd > 0 and p.etg_amount > 0 and p.is_active
+
+
+@pytest.mark.asyncio
+async def test_packages_endpoint_lists_seeded(client, db):
+    from app.db.models import EtgPackage
+    from workers.seed_agents import SEED_PACKAGES, _upsert_package
+    for spec in SEED_PACKAGES:
+        await _upsert_package(db, spec)
+    await db.flush()
+    resp = await client.get("/api/v1/billing/packages")
+    assert resp.status_code == 200, resp.text
+    names = [p["name"] for p in resp.json()]
+    assert "Starter" in names and "Pro" in names      # tiers visible to buyers
