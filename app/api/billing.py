@@ -345,6 +345,7 @@ async def chapa_webhook(
         reference_type="recharge",
         reference_id=str(order.id),
     )
+    await metering_service.reactivate_grace_bots(order.business_id, db)
     logger.info("Chapa recharge completed", order_id=str(order.id), etg=total_etg)
     return {"ok": True}
 

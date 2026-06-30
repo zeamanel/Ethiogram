@@ -328,6 +328,37 @@ class MeteringService:
         )
         return wallet.balance
 
+    # ------------------------------------------------------------------
+    # Grace-bot reactivation
+    # ------------------------------------------------------------------
+
+    async def reactivate_grace_bots(
+        self, business_id: str | uuid.UUID, db: AsyncSession
+    ) -> int:
+        """Reactivate all grace-paused bots for a business immediately after a
+        wallet credit — so owners see their bot come back the moment they pay,
+        not only when the next customer message happens to arrive.
+        Returns the number of bots reactivated."""
+        bid = business_id if isinstance(business_id, uuid.UUID) else uuid.UUID(str(business_id))
+        result = await db.execute(
+            select(Bot).where(
+                Bot.business_id == bid,
+                Bot.status == BotStatus.grace,
+            )
+        )
+        bots = result.scalars().all()
+        for bot in bots:
+            bot.status = BotStatus.active
+            bot.grace_period_started_at = None
+            db.add(bot)
+        if bots:
+            logger.info(
+                "Grace bots reactivated after wallet credit",
+                business_id=str(business_id),
+                count=len(bots),
+            )
+        return len(bots)
+
 
 def _balance_key(business_id) -> str:
     return f"wallet:balance:{business_id}"

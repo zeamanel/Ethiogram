@@ -61,6 +61,7 @@ async def internal_chapa_credit(
         reference_type="recharge",
         reference_id=tx_ref or None,
     )
+    await metering_service.reactivate_grace_bots(business_id, db)
 
     logger.info(
         "Internal Chapa credit applied",
