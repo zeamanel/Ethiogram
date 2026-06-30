@@ -288,3 +288,23 @@ body {
 .cat-image-remove { background:none; border:none; color:var(--red); font-size:12.5px; font-weight:600; cursor:pointer; }
 .cat-thumb { padding:0; overflow:hidden; background:var(--surface-2); }
 .cat-thumb img { width:100%; height:100%; object-fit:cover; }
+
+/* recharge sheet */
+.sheet-overlay { position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:900;
+  display:flex; align-items:flex-end; }
+.sheet-card { background:var(--card); border-radius:20px 20px 0 0; width:100%; max-height:90vh;
+  overflow-y:auto; padding:16px 20px 34px; }
+.sheet-handle { width:40px; height:4px; border-radius:2px; background:var(--line);
+  margin:0 auto 16px; }
+.sheet-title { font-size:18px; font-weight:700; color:var(--text); margin-bottom:4px; }
+.sheet-sub { font-size:13px; color:var(--text-3); margin-bottom:16px; }
+.pkg-list { display:flex; flex-direction:column; gap:10px; }
+.pkg-card { background:var(--surface-2); border:1.5px solid var(--line); border-radius:14px;
+  padding:14px 15px; cursor:pointer; transition:border-color .15s; }
+.pkg-card:hover, .pkg-card.selected { border-color:var(--amber); }
+.pkg-top { display:flex; align-items:center; justify-content:space-between; }
+.pkg-name { font-size:15px; font-weight:700; color:var(--text); }
+.pkg-price { font-size:14px; font-weight:700; color:var(--amber-deep); }
+.pkg-detail { font-size:12.5px; color:var(--text-3); margin-top:3px; }
+.pkg-bonus { color:var(--green); font-weight:600; }
+.pkg-cta { margin-top:16px; }

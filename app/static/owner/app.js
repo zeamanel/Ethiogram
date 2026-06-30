@@ -1125,7 +1125,7 @@
     $("btn-auto").textContent = wallet
       ? `Auto-recharge: ${wallet.auto_recharge_enabled ? "On" : "Off"}`
       : "Auto-recharge";
-    $("btn-recharge").onclick = () => notify("Recharge is coming soon.");
+    $("btn-recharge").onclick = () => openRecharge(b.id);
 
     // quick stats
     const messagesToday = (ov.bots || []).reduce((s, x) => s + (x.messages_24h || 0), 0);
@@ -1521,6 +1521,82 @@
       row("Workers", s.workers.status, `${(s.workers.jobs || []).join(", ")} · backlog ${fmt(s.workers.embedding_backlog)}`),
     ].join("");
   }
+
+  // ── Recharge sheet ────────────────────────────────────────────────────────
+  let _rchBizId = null;
+  let _rchPkgs = null;
+  let _rchSelected = null;
+
+  async function openRecharge(bizId) {
+    _rchBizId = bizId;
+    _rchSelected = null;
+    $("rch-err").classList.add("hidden");
+    $("pkg-list").innerHTML = `<div class="lempty">Loading packages…</div>`;
+    show("recharge-sheet");
+
+    if (!_rchPkgs) {
+      try { _rchPkgs = await Eth.get("/billing/packages"); }
+      catch (e) { $("pkg-list").innerHTML = `<div class="lempty">Couldn't load packages.</div>`; return; }
+    }
+    _renderPkgs();
+  }
+
+  function _renderPkgs() {
+    $("pkg-list").innerHTML = (_rchPkgs || []).map(p => {
+      const bonus = p.bonus_etg > 0 ? ` <span class="pkg-bonus">+ ${fmt(p.bonus_etg)} bonus</span>` : "";
+      return `<div class="pkg-card${_rchSelected === p.id ? " selected" : ""}" data-pid="${esc(p.id)}">
+        <div class="pkg-top">
+          <span class="pkg-name">${esc(p.name)}</span>
+          <span class="pkg-price">${fmt(p.price_etb)} ETB</span>
+        </div>
+        <div class="pkg-detail">${fmt(p.etg_amount)} ETG${bonus}</div>
+      </div>`;
+    }).join("") + `<div class="pkg-cta"><button class="onb-btn" id="rch-pay" ${_rchSelected ? "" : "disabled"}>Pay with Chapa →</button></div>`;
+
+    $("pkg-list").querySelectorAll(".pkg-card").forEach(card => {
+      card.onclick = () => {
+        _rchSelected = card.dataset.pid;
+        _renderPkgs();
+      };
+    });
+
+    const payBtn = $("rch-pay");
+    if (payBtn) {
+      payBtn.disabled = !_rchSelected;
+      payBtn.onclick = _submitRecharge;
+    }
+  }
+
+  async function _submitRecharge() {
+    if (!_rchSelected || !_rchBizId) return;
+    const btn = $("rch-pay");
+    btn.disabled = true; btn.textContent = "Redirecting…";
+    $("rch-err").classList.add("hidden");
+    try {
+      const res = await Eth.post(`/billing/recharge/${_rchBizId}`, {
+        package_id: _rchSelected,
+        payment_provider: "chapa",
+      });
+      if (res.payment_url) {
+        if (Eth.tg && Eth.tg.openLink) Eth.tg.openLink(res.payment_url);
+        else window.open(res.payment_url, "_blank");
+        hide("recharge-sheet");
+      } else {
+        $("rch-err").textContent = "Payment gateway not configured. Contact support.";
+        $("rch-err").classList.remove("hidden");
+      }
+    } catch (e) {
+      $("rch-err").textContent = e.detail || "Couldn't initiate payment. Try again.";
+      $("rch-err").classList.remove("hidden");
+    } finally {
+      btn.disabled = false; btn.textContent = "Pay with Chapa →";
+    }
+  }
+
+  $("rch-cancel").onclick = () => hide("recharge-sheet");
+  $("recharge-sheet").addEventListener("click", e => {
+    if (e.target === $("recharge-sheet")) hide("recharge-sheet");
+  });
 
   boot();
 })();

@@ -609,6 +609,18 @@
     </div>
   </div>
 
+  <!-- RECHARGE SHEET — package picker + Chapa checkout redirect -->
+  <div id="recharge-sheet" class="sheet-overlay hidden" role="dialog" aria-modal="true">
+    <div class="sheet-card">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">Top up ETG</div>
+      <div class="sheet-sub">Packages are priced in Ethiopian Birr (ETB). Choose a tier:</div>
+      <div id="pkg-list" class="pkg-list"></div>
+      <div class="err-inline hidden" id="rch-err"></div>
+      <button class="onb-btn-ghost" id="rch-cancel" style="margin-top:8px">Cancel</button>
+    </div>
+  </div>
+
   <script src="../shared/tg.js"></script>
   <script src="app.js"></script>
 </body>

@@ -1,7 +1,7 @@
 # app/core/config.py
 from functools import lru_cache
 from typing import Literal, Optional
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -97,7 +97,12 @@ class Settings(BaseSettings):
     etg_referral_bonus: int = 200
 
     # PAYMENT PROVIDERS
-    chapa_secret_key: Optional[str] = None
+    # Accepts CHAPA_SECRET_KEY *or* CHAPA_PAYMENT_TOKEN (old env-var name still
+    # in some Cloud Run deployments). Either name in the environment works.
+    chapa_secret_key: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("CHAPA_SECRET_KEY", "CHAPA_PAYMENT_TOKEN"),
+    )
     chapa_public_key: Optional[str] = None
     chapa_base_url: str = "https://api.chapa.co/v1"
     chapa_webhook_secret: Optional[str] = None
