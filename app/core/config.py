@@ -104,6 +104,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CHAPA_SECRET_KEY", "CHAPA_PAYMENT_TOKEN"),
     )
     chapa_public_key: Optional[str] = None
+    chapa_internal_key: str = ""   # shared secret for service-to-service calls (Odaflux)
     chapa_base_url: str = "https://api.chapa.co/v1"
     chapa_webhook_secret: Optional[str] = None
     stripe_secret_key: Optional[str] = None

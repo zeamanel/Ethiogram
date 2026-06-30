@@ -444,6 +444,7 @@ async def _get_payment_url(
         return await chapa_service.initialize(
             amount=order.fiat_amount, currency=order.fiat_currency, tx_ref=tx_ref,
             email=email, first_name=first_name,
-            callback_url=callback_url, return_url=return_url)
+            callback_url=callback_url, return_url=return_url,
+            meta={"platform": "ethiogram", "business_id": str(order.business_id)})
     # Other providers (telebirr / paypal) not wired yet.
     return None

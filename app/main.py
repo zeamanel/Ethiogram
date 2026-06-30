@@ -72,6 +72,7 @@ async def generic_error_handler(request: Request, exc: Exception):
 
 
 from app.api import auth, bots, webhooks, admin, billing, agents, dashboard, knowledge, businesses, miniapp, landing, domains, admin_panel, gallery, account, transfers
+from app.api.internal import router as internal_router
 
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(bots.router, prefix=settings.api_prefix)
@@ -89,6 +90,7 @@ app.include_router(gallery.router, prefix=settings.api_prefix)   # public bot di
 app.include_router(account.router, prefix=settings.api_prefix)   # My Account (end-user profile)
 app.include_router(transfers.router, prefix=settings.api_prefix)  # business ownership transfer
 app.include_router(landing.router)   # public website: /biz/{slug}, /sitemap.xml, /robots.txt
+app.include_router(internal_router, prefix=settings.api_prefix)  # service-to-service (Odaflux)
 
 # Telegram Mini Apps (static, same-origin). Owner console at /app/owner/.
 import os as _os

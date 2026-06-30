@@ -38,6 +38,7 @@ class ChapaService:
     async def initialize(
         self, *, amount, currency, tx_ref: str, email: Optional[str],
         first_name: Optional[str], callback_url: str, return_url: Optional[str] = None,
+        meta: Optional[dict] = None,
     ) -> Optional[str]:
         """Create a Chapa transaction; return its hosted checkout URL (or None)."""
         if not self.configured:
@@ -53,6 +54,8 @@ class ChapaService:
         }
         if return_url:
             payload["return_url"] = return_url
+        if meta:
+            payload["meta"] = meta
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(
