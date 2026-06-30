@@ -270,7 +270,9 @@ async def initiate_recharge(
     db.add(order)
     await db.flush()
 
-    payment_url = await _get_payment_url(order, body.return_url)
+    payment_url = await _get_payment_url(
+        order, body.return_url,
+        email=current_user.email, first_name=current_user.full_name)
 
     logger.info(
         "Recharge initiated",
@@ -297,11 +299,14 @@ async def chapa_webhook(
     db: AsyncSession = Depends(get_db),
     redis=Depends(get_redis),
 ) -> dict:
-    """Chapa payment confirmation webhook."""
-    tx_ref = request_data.get("trx_ref") or request_data.get("tx_ref")
-    status = request_data.get("status", "").lower()
+    """Chapa payment confirmation webhook.
 
-    if status != "success" or not tx_ref:
+    The callback body is NOT trusted — we re-verify the transaction directly with
+    Chapa before crediting, so a forged webhook can't top up a wallet. Idempotent:
+    a tx_ref whose order is already completed is a no-op.
+    """
+    tx_ref = request_data.get("tx_ref") or request_data.get("trx_ref")
+    if not tx_ref:
         return {"ok": True}
 
     result = await db.execute(
@@ -309,7 +314,21 @@ async def chapa_webhook(
     )
     order = result.scalar_one_or_none()
     if order is None or order.status != PaymentStatus.pending:
+        return {"ok": True}   # unknown ref or already processed
+
+    # Confirm with Chapa server-to-server (don't trust the webhook body).
+    from app.services.chapa_service import chapa_service
+    verified = await chapa_service.verify(tx_ref)
+    if verified is None:
+        logger.warning("Chapa webhook unverified — not crediting", tx_ref=tx_ref)
         return {"ok": True}
+    try:
+        if float(verified.get("amount", 0)) + 0.01 < float(order.fiat_amount):
+            logger.error("Chapa amount mismatch — not crediting", tx_ref=tx_ref,
+                         paid=verified.get("amount"), expected=order.fiat_amount)
+            return {"ok": True}
+    except (TypeError, ValueError):
+        pass
 
     from datetime import datetime, timezone
     order.status = PaymentStatus.completed
@@ -410,6 +429,21 @@ def _resolve_fiat(pkg: EtgPackage, provider: PaymentProvider) -> tuple[float, st
     return pkg.price_usd, "USD"
 
 
-async def _get_payment_url(order: RechargeOrder, return_url: Optional[str]) -> Optional[str]:
-    """Placeholder — real provider SDK calls go here in later phase."""
+async def _get_payment_url(
+    order: RechargeOrder, return_url: Optional[str], *,
+    email: Optional[str] = None, first_name: Optional[str] = None,
+) -> Optional[str]:
+    """Create the provider checkout and return its URL. Sets the order's
+    payment_reference (the tx_ref the webhook matches on)."""
+    if order.payment_provider == PaymentProvider.chapa:
+        from app.services.chapa_service import chapa_service
+        tx_ref = f"etg-{order.id}"
+        order.payment_reference = tx_ref
+        callback_url = (settings.base_url.rstrip("/") + settings.api_prefix
+                        + "/billing/webhook/chapa")
+        return await chapa_service.initialize(
+            amount=order.fiat_amount, currency=order.fiat_currency, tx_ref=tx_ref,
+            email=email, first_name=first_name,
+            callback_url=callback_url, return_url=return_url)
+    # Other providers (telebirr / paypal) not wired yet.
     return None

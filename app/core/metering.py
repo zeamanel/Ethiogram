@@ -290,12 +290,13 @@ class MeteringService:
         Add ETG to a wallet (bonus, recharge, admin grant).
         Returns new balance.
         """
+        bid = business_id if isinstance(business_id, uuid.UUID) else uuid.UUID(str(business_id))
         result = await db.execute(
-            select(TokenWallet).where(TokenWallet.business_id == str(business_id))
+            select(TokenWallet).where(TokenWallet.business_id == bid)
         )
         wallet = result.scalar_one_or_none()
         if wallet is None:
-            wallet = TokenWallet(business_id=str(business_id), balance=0, lifetime_recharged=0)
+            wallet = TokenWallet(business_id=bid, balance=0, lifetime_recharged=0)
             db.add(wallet)
             await db.flush()
 
