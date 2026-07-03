@@ -1564,21 +1564,13 @@
 
     const payBtn = $("rch-pay");
     if (payBtn) {
-      // Only enable when a package is selected AND the platform indicates
-      // Chapa is configured/available. Fall back to checking Eth.CHAPA_ENABLED
-      // if window.CHAPA_ENABLED isn't present.
-      let chapaEnabled = false;
-      try { chapaEnabled = !!(window.CHAPA_ENABLED || (window.Eth && window.Eth.CHAPA_ENABLED)); } catch (e) { chapaEnabled = false; }
+      // Enable the pay button when a package is selected; backend will validate.
+      const chapaEnabled = true; // Always enable; backend will validate
       const canPay = !!_rchSelected && chapaEnabled;
       payBtn.disabled = !canPay;
       payBtn.onclick = _submitRecharge;
-      // Show info when gateway not configured
-      if (!chapaEnabled) {
-        $("rch-err").textContent = "Payment gateway not configured. Contact support.";
-        $("rch-err").classList.remove("hidden");
-      } else {
-        $("rch-err").classList.add("hidden");
-      }
+      // Clear any prior error message
+      $("rch-err").classList.add("hidden");
     }
   }
 
