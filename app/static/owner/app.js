@@ -1584,12 +1584,14 @@
         package_id: _rchSelected,
         payment_provider: "chapa",
       });
+        console.log("Recharge response:", res);
       if (res.payment_url) {
         if (Eth.tg && Eth.tg.openLink) Eth.tg.openLink(res.payment_url);
         else window.open(res.payment_url, "_blank");
         hide("recharge-sheet");
       } else {
-        $("rch-err").textContent = "Payment gateway not configured. Contact support.";
+        // Show backend response for debugging (helps trace missing payment_url)
+        $("rch-err").textContent = (res && (res.message || res.detail)) || JSON.stringify(res) || "Payment gateway not configured. Contact support.";
         $("rch-err").classList.remove("hidden");
       }
     } catch (e) {
