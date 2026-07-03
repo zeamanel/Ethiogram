@@ -1,8 +1,11 @@
 # app/api/billing.py
+import hashlib
+import hmac
+import json
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -295,7 +298,7 @@ async def initiate_recharge(
 
 @router.post("/webhook/chapa", include_in_schema=False)
 async def chapa_webhook(
-    request_data: dict,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     redis=Depends(get_redis),
 ) -> dict:
@@ -304,7 +307,38 @@ async def chapa_webhook(
     The callback body is NOT trusted — we re-verify the transaction directly with
     Chapa before crediting, so a forged webhook can't top up a wallet. Idempotent:
     a tx_ref whose order is already completed is a no-op.
+    
+    Validates webhook signature using HMAC-SHA256 if CHAPA_WEBHOOK_SECRET is configured.
     """
+    # Get raw body bytes for signature verification
+    body_bytes = await request.body()
+    
+    # Validate webhook signature if secret is configured
+    if settings.chapa_webhook_secret:
+        signature_header = request.headers.get("X-Chapa-Signature", "")
+        if not signature_header:
+            logger.warning("Chapa webhook missing signature header")
+            raise HTTPException(status_code=401, detail="Missing signature")
+        
+        expected_signature = hmac.new(
+            settings.chapa_webhook_secret.encode(),
+            body_bytes,
+            hashlib.sha256
+        ).hexdigest()
+        
+        if not hmac.compare_digest(expected_signature, signature_header):
+            logger.warning("Chapa webhook invalid signature", provided=signature_header[:16])
+            raise HTTPException(status_code=401, detail="Invalid signature")
+        
+        logger.info("Chapa webhook signature validated")
+    
+    # Parse JSON body
+    try:
+        request_data = json.loads(body_bytes) if body_bytes else {}
+    except json.JSONDecodeError:
+        logger.warning("Chapa webhook malformed JSON")
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    
     tx_ref = request_data.get("tx_ref") or request_data.get("trx_ref")
     if not tx_ref:
         return {"ok": True}
