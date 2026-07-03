@@ -34,6 +34,8 @@
     } catch (e) {
       return fail("We couldn't verify your Telegram session. Open this from the bot's menu button.");
     }
+    // Signal the UI that Chapa payments are available for authenticated owners.
+    try { window.CHAPA_ENABLED = true; Eth.CHAPA_ENABLED = true; } catch (e) { /* no-op in restrictive env */ }
     IS_ADMIN = !!(auth && auth.is_admin);
     let businesses;
     try {
@@ -1562,8 +1564,21 @@
 
     const payBtn = $("rch-pay");
     if (payBtn) {
-      payBtn.disabled = !_rchSelected;
+      // Only enable when a package is selected AND the platform indicates
+      // Chapa is configured/available. Fall back to checking Eth.CHAPA_ENABLED
+      // if window.CHAPA_ENABLED isn't present.
+      let chapaEnabled = false;
+      try { chapaEnabled = !!(window.CHAPA_ENABLED || (window.Eth && window.Eth.CHAPA_ENABLED)); } catch (e) { chapaEnabled = false; }
+      const canPay = !!_rchSelected && chapaEnabled;
+      payBtn.disabled = !canPay;
       payBtn.onclick = _submitRecharge;
+      // Show info when gateway not configured
+      if (!chapaEnabled) {
+        $("rch-err").textContent = "Payment gateway not configured. Contact support.";
+        $("rch-err").classList.remove("hidden");
+      } else {
+        $("rch-err").classList.add("hidden");
+      }
     }
   }
 
