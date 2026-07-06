@@ -107,6 +107,7 @@ class Settings(BaseSettings):
     chapa_internal_key: str = ""   # shared secret for service-to-service calls (Odaflux)
     chapa_base_url: str = "https://api.chapa.co/v1"
     chapa_webhook_secret: Optional[str] = None
+    lulit_internal_url: str = ""
     stripe_secret_key: Optional[str] = None
     stripe_publishable_key: Optional[str] = None
     stripe_webhook_secret: Optional[str] = None

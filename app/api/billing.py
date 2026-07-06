@@ -5,6 +5,7 @@ import json
 import uuid
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, func
@@ -274,8 +275,12 @@ async def initiate_recharge(
     await db.flush()
 
     payment_url = await _get_payment_url(
-        order, body.return_url,
-        email=current_user.email, first_name=current_user.full_name)
+        order,
+        body.return_url,
+        email=current_user.email,
+        first_name=current_user.full_name,
+        current_user=current_user,
+    )
 
     logger.info(
         "Recharge initiated",
@@ -466,21 +471,37 @@ def _resolve_fiat(pkg: EtgPackage, provider: PaymentProvider) -> tuple[float, st
 
 
 async def _get_payment_url(
-    order: RechargeOrder, return_url: Optional[str], *,
-    email: Optional[str] = None, first_name: Optional[str] = None,
+    order: RechargeOrder,
+    return_url: Optional[str],
+    *,
+    email: Optional[str] = None,
+    first_name: Optional[str] = None,
+    current_user,
 ) -> Optional[str]:
-    """Create the provider checkout and return its URL. Sets the order's
-    payment_reference (the tx_ref the webhook matches on)."""
-    if order.payment_provider == PaymentProvider.chapa:
-        from app.services.chapa_service import chapa_service
-        tx_ref = f"etg-{order.id}"
-        order.payment_reference = tx_ref
-        callback_url = (settings.base_url.rstrip("/") + settings.api_prefix
-                        + "/billing/webhook/chapa")
-        return await chapa_service.initialize(
-            amount=order.fiat_amount, currency=order.fiat_currency, tx_ref=tx_ref,
-            email=email, first_name=first_name,
-            callback_url=callback_url, return_url=return_url,
-            meta={"platform": "ethiogram", "business_id": str(order.business_id)})
-    # Other providers (telebirr / paypal) not wired yet.
-    return None
+    if order.payment_provider != PaymentProvider.chapa:
+        return None
+
+    tx_ref = f"etg-{order.id}"
+    order.payment_reference = tx_ref
+
+    payload = {
+        "user_id": str(current_user.id),
+        "amount_etb": int(order.fiat_amount),
+        "phone_number": current_user.phone or "0912345678",
+        "callback_url": (settings.base_url.rstrip("/") + settings.api_prefix
+                         + "/billing/webhook/chapa"),
+        "meta": {
+            "platform": "ethiogram",
+            "business_id": str(order.business_id),
+        },
+    }
+
+    lulit_url = settings.lulit_internal_url.rstrip("/") + "/api/v1/chapa/initiate"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(lulit_url, json=payload)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("checkout_url")
+
+        logger.error("Lulit initiate failed", status=resp.status_code, body=resp.text)
+        return None
