@@ -1,15 +1,10 @@
 # app/services/chapa_service.py
-"""Chapa payment integration — hosted checkout via the REST API.
+"""Chapa payment integration — hosted checkout via the Lulit gateway.
 
-Two calls:
-  • initialize() creates a transaction and returns the hosted checkout URL the
-    owner is sent to.
-  • verify() confirms a transaction server-to-server. The webhook ALWAYS calls
-    verify() before crediting, so a spoofed callback can never top up a wallet.
-
-Configured by CHAPA_SECRET_KEY (CHASECK_…); a missing key makes both calls a
-safe no-op (returns None) so the recharge endpoint just yields no payment URL.
+The recharge flow now delegates Chapa initialization to Lulit, which returns a
+checkout URL for the hosted payment flow.
 """
+import os
 from typing import Optional
 
 import httpx
@@ -20,6 +15,9 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 
+LULIT_BASE_URL = os.getenv("LULIT_BASE_URL", "https://musa-ai-backend-760742977917.us-central1.run.app")
+
+
 def _base() -> str:
     return (settings.chapa_base_url or "https://api.chapa.co/v1").rstrip("/")
 
@@ -27,11 +25,10 @@ def _base() -> str:
 class ChapaService:
     @property
     def configured(self) -> bool:
-        return bool(settings.chapa_secret_key)
+        return bool(settings.chapa_secret_key or LULIT_BASE_URL)
 
     def _headers(self) -> dict:
         return {
-            "Authorization": f"Bearer {settings.chapa_secret_key}",
             "Content-Type": "application/json",
         }
 
@@ -40,18 +37,19 @@ class ChapaService:
         first_name: Optional[str], callback_url: str, return_url: Optional[str] = None,
         meta: Optional[dict] = None,
     ) -> Optional[str]:
-        """Create a Chapa transaction; return its hosted checkout URL (or None)."""
+        """Create a payment session through Lulit and return the hosted checkout URL."""
         if not self.configured:
             logger.warning("Chapa not configured — no CHAPA_SECRET_KEY")
             return None
         payload = {
-            "amount": str(amount),
-            "currency": currency or "ETB",
-            "email": email or "customer@ethiogram.com",
-            "first_name": (first_name or "Customer")[:50],
-            "tx_ref": tx_ref,
+            "amount_etb": int(amount),
             "callback_url": callback_url,
+            "tx_ref": tx_ref,
         }
+        if email:
+            payload["email"] = email
+        if first_name:
+            payload["first_name"] = first_name[:50]
         if return_url:
             payload["return_url"] = return_url
         if meta:
@@ -59,14 +57,17 @@ class ChapaService:
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(
-                    f"{_base()}/transaction/initialize", json=payload, headers=self._headers())
+                    f"{LULIT_BASE_URL}/api/v1/chapa/initiate",
+                    json=payload,
+                    headers=self._headers(),
+                )
             data = resp.json()
         except Exception as exc:
-            logger.error("Chapa initialize call failed", error=f"{type(exc).__name__}: {exc}")
+            logger.error("Lulit initialize call failed", error=f"{type(exc).__name__}: {exc}")
             return None
-        if resp.status_code == 200 and str(data.get("status")).lower() == "success":
-            return (data.get("data") or {}).get("checkout_url")
-        logger.error("Chapa initialize rejected", status_code=resp.status_code, body=data)
+        if resp.status_code == 200:
+            return data.get("checkout_url")
+        logger.error("Lulit initialize rejected", status_code=resp.status_code, body=data)
         return None
 
     async def verify(self, tx_ref: str) -> Optional[dict]:

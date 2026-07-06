@@ -1,0 +1,125 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  annotations:
+    run.googleapis.com/build-enable-automatic-updates: 'false'
+    run.googleapis.com/build-id: a17fa18b-7cf4-4e77-8fe3-e551979bc4d7
+    run.googleapis.com/build-image-uri: us-central1-docker.pkg.dev/odaflux-api/cloud-run-source-deploy/ethiogram-api
+    run.googleapis.com/build-name: projects/760742977917/locations/us-central1/builds/a17fa18b-7cf4-4e77-8fe3-e551979bc4d7
+    run.googleapis.com/build-source-location: gs://run-sources-odaflux-api-us-central1/services/ethiogram-api/1782652454.991559-790dbda64ace483487c3cf4a943f976f.zip#1782652463282374
+    run.googleapis.com/ingress: all
+    run.googleapis.com/ingress-status: all
+    run.googleapis.com/maxScale: '20'
+    run.googleapis.com/urls: '["https://ethiogram-api-760742977917.us-central1.run.app","https://ethiogram-api-rhz77lemzq-uc.a.run.app"]'
+  labels:
+    cloud.googleapis.com/location: us-central1
+  name: ethiogram-api
+  namespace: '760742977917'
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '20'
+        autoscaling.knative.dev/minScale: '1'
+        run.googleapis.com/client-name: gcloud
+        run.googleapis.com/client-version: 572.0.0
+        run.googleapis.com/cloudsql-instances: odaflux-api:us-central1:ethiogram-pg
+        run.googleapis.com/startup-cpu-boost: 'true'
+        run.googleapis.com/vpc-access-connector: ethiogram-vpc
+        run.googleapis.com/vpc-access-egress: private-ranges-only
+      labels:
+        client.knative.dev/nonce: bweqpqszpv
+        run.googleapis.com/startupProbeType: Default
+    spec:
+      containerConcurrency: 80
+      containers:
+      - env:
+        - name: ENVIRONMENT
+          value: production
+        - name: GCP_PROJECT_ID
+          value: odaflux-api
+        - name: VERTEX_AI_LOCATION
+          value: us-central1
+        - name: BASE_URL
+          value: https://ethiogram-api-760742977917.us-central1.run.app
+        - name: OPENAI_BASE_URL
+          value: https://openrouter.ai/api/v1
+        - name: DEFAULT_MODEL_ID
+          value: openai/gpt-4o-mini
+        - name: FALLBACK_MODEL_ID
+          value: anthropic/claude-3.5-haiku
+        - name: EMERGENCY_MODEL_ID
+          value: meta-llama/llama-3.1-8b-instruct
+        - name: ADMIN_TELEGRAM_IDS
+          value: '[959519454]'
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: ethiogram-secret-key
+        - name: ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: ethiogram-encryption-key
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: ethiogram-database-url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: ethiogram-redis-url
+        - name: MASTER_BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: ethiogram-master-bot-token
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: ethiogram-openai-key
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: ethiogram-anthropic-key
+        - name: ADMIN_SECRET_HEADER
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: ethiogram-admin-header
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: ethiogram-chapa-token
+        image: us-central1-docker.pkg.dev/odaflux-api/ethiogram/ethiogram-api:169ccc3
+        ports:
+        - containerPort: 8080
+          name: http1
+        resources:
+          limits:
+            cpu: '1'
+            memory: 1Gi
+        startupProbe:
+          failureThreshold: 1
+          periodSeconds: 240
+          tcpSocket:
+            port: 8080
+          timeoutSeconds: 240
+      serviceAccountName: 760742977917-compute@developer.gserviceaccount.com
+      timeoutSeconds: 300
+  traffic:
+  - latestRevision: true
+    percent: 100
+         - name: CHAPA_SECRET_KEY
+           value: "CHASECK-h0e7lzSNPvueyMT3cIQyXmef6o1vDvFq"
+         - name: CHAPA_PUBLIC_KEY
+           value: "CHAPUBK-aOfZO6EM1GDKJtPfyNq6EHhNSuiwE61n"
+         - name: CHAPA_WEBHOOK_SECRET
+           value: "1234567890"
+         - name: CHAPA_API_URL
+           value: "https://api.chapa.co/v1"

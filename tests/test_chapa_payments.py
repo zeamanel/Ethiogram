@@ -1,4 +1,6 @@
 """Chapa recharge: initialize → checkout URL, and a verified webhook credits ETG."""
+import hashlib
+import hmac
 import uuid
 
 import pytest
@@ -35,8 +37,8 @@ def _mock_httpx(monkeypatch, *, post=None, get=None):
 @pytest.mark.asyncio
 async def test_initialize_returns_checkout_url(monkeypatch):
     monkeypatch.setattr(cs.settings, "chapa_secret_key", "CHASECK_TEST-x")
-    _mock_httpx(monkeypatch, post=_Resp(200, {
-        "status": "success", "data": {"checkout_url": "https://checkout.chapa.co/abc"}}))
+    monkeypatch.setattr(cs, "LULIT_BASE_URL", "https://lulit.example")
+    _mock_httpx(monkeypatch, post=_Resp(200, {"checkout_url": "https://checkout.chapa.co/abc"}))
     url = await cs.chapa_service.initialize(
         amount=100, currency="ETB", tx_ref="etg-1", email="a@x.com",
         first_name="Abebe", callback_url="https://api/cb")
@@ -46,9 +48,34 @@ async def test_initialize_returns_checkout_url(monkeypatch):
 @pytest.mark.asyncio
 async def test_initialize_none_when_not_configured(monkeypatch):
     monkeypatch.setattr(cs.settings, "chapa_secret_key", None)
+    monkeypatch.setattr(cs, "LULIT_BASE_URL", "")
     url = await cs.chapa_service.initialize(
         amount=100, currency="ETB", tx_ref="x", email=None, first_name=None, callback_url="cb")
     assert url is None
+
+
+@pytest.mark.asyncio
+async def test_initialize_uses_lulit_endpoint(monkeypatch):
+    captured = {}
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, **k):
+            captured["url"] = url
+            captured["json"] = k["json"]
+            return _Resp(200, {"checkout_url": "https://lulit.example/checkout"})
+
+    monkeypatch.setattr(cs.httpx, "AsyncClient", _Client)
+    url = await cs.chapa_service.initialize(
+        amount=100, currency="ETB", tx_ref="etg-1", email="a@x.com",
+        first_name="Abebe", callback_url="https://api/cb")
+
+    assert url == "https://lulit.example/checkout"
+    assert captured["url"].endswith("/api/v1/chapa/initiate")
+    assert captured["json"]["amount_etb"] == 100
+    assert captured["json"]["callback_url"] == "https://api/cb"
 
 
 @pytest.mark.asyncio
@@ -98,6 +125,36 @@ async def test_initiate_recharge_returns_payment_url(client, db, sample_user_id,
     assert seen["callback_url"].endswith("/billing/webhook/chapa")
     order = (await db.execute(select(RechargeOrder))).scalars().one()
     assert order.payment_reference == f"etg-{order.id}"   # tx_ref set for the webhook
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_missing_or_invalid_signature(client, db, sample_user_id, monkeypatch):
+    biz, pkg = await _setup(db, sample_user_id)
+    order = RechargeOrder(
+        id=uuid.uuid4(), business_id=biz.id, etg_package_id=pkg.id,
+        etg_amount=5000, bonus_etg=500, fiat_amount=300.0, fiat_currency="ETB",
+        payment_provider=__import__("app.db.models", fromlist=["PaymentProvider"]).PaymentProvider.chapa,
+        payment_reference="etg-abc", status=PaymentStatus.pending)
+    db.add(order)
+    await db.flush()
+
+    monkeypatch.setattr(billing.settings, "chapa_webhook_secret", "super-secret")
+    body = b'{"tx_ref": "etg-abc", "status": "success"}'
+
+    missing = await client.post(
+        "/api/v1/billing/webhook/chapa",
+        content=body,
+        headers={"content-type": "application/json"},
+    )
+    assert missing.status_code == 401
+
+    bad_sig = hmac.new(b"super-secret", body, hashlib.sha256).hexdigest()
+    invalid = await client.post(
+        "/api/v1/billing/webhook/chapa",
+        content=body,
+        headers={"content-type": "application/json", "X-Chapa-Signature": bad_sig[:-1]},
+    )
+    assert invalid.status_code == 401
 
 
 @pytest.mark.asyncio
