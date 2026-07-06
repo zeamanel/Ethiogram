@@ -54,6 +54,7 @@ class ChapaService:
             payload["return_url"] = return_url
         if meta:
             payload["meta"] = meta
+        logger.info("Calling Lulit initiate", payload=payload)
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(
@@ -62,6 +63,10 @@ class ChapaService:
                     headers=self._headers(),
                 )
             data = resp.json()
+            body = getattr(resp, "text", None)
+            if body is None and hasattr(resp, "content"):
+                body = resp.content
+            logger.info("Lulit response", status=resp.status_code, body=body)
         except Exception as exc:
             logger.error("Lulit initialize call failed", error=f"{type(exc).__name__}: {exc}")
             return None
