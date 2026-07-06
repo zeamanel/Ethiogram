@@ -5,7 +5,7 @@ import json
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -299,6 +299,7 @@ async def initiate_recharge(
 @router.post("/webhook/chapa", include_in_schema=False)
 async def chapa_webhook(
     request: Request,
+    request_data: dict = Body(...),
     db: AsyncSession = Depends(get_db),
     redis=Depends(get_redis),
 ) -> dict:
