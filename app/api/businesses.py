@@ -486,8 +486,8 @@ async def _charge_generation(db: AsyncSession, business_id: uuid.UUID, model_id,
 
 
 class StorefrontGenerateRequest(BaseModel):
-    kind: str = "page"            # "page" → theme, "content" → copy
-    vibe: Optional[str] = None    # overrides the stored store vibe for this run
+    kind: str = "page"            # "page" → theme, "content" → copy, "full" → whole page
+    vibe: Optional[str] = None    # the owner's brief — overrides the stored one for this run
 
 
 class StorefrontGenerateResponse(BaseModel):
@@ -499,6 +499,7 @@ class StorefrontGenerateResponse(BaseModel):
     about: Optional[str] = None
     cta: Optional[str] = None
     hours: Optional[str] = None
+    sections: Optional[list[dict]] = None   # "full" only — editor-shaped layout
 
 
 @router.post("/{business_id}/storefront/generate", response_model=StorefrontGenerateResponse)
@@ -524,6 +525,20 @@ async def generate_storefront(
     from app.services.storefront_ai import generate as generate_storefront_ai
     result = await generate_storefront_ai(db, business, body.kind, vibe)
     model_used = result.pop("model", None)
+
+    # "full" returns an ordered list of visible section types — expand it into
+    # the editor's shape ({type,label,visible,order}) with the rest hidden.
+    if isinstance(result.get("sections"), list):
+        visible = result["sections"]
+        shaped, order = [], 0
+        for t in visible:
+            shaped.append({"type": t, "label": _SECTION_LABELS[t],
+                           "visible": True, "order": order}); order += 1
+        for t in _SECTION_LABELS:
+            if t not in visible:
+                shaped.append({"type": t, "label": _SECTION_LABELS[t],
+                               "visible": False, "order": order}); order += 1
+        result["sections"] = shaped
 
     charged = 0
     if result.get("source") == "ai":   # only meter a real LLM run, not a fallback

@@ -82,15 +82,19 @@ async def test_business_switcher_present(client):
 @pytest.mark.asyncio
 async def test_storefront_ai_buttons_present(client):
     html = (await client.get("/app/owner/")).text
+    # prompt-driven builder: one primary "create" button + two partial refreshes
+    assert 'id="se-gen-full"' in html and "Create my page with AI" in html
     assert 'id="se-gen-page"' in html and 'id="se-gen-content"' in html
-    assert "Generate page" in html and "Generate content" in html
+    assert 'id="se-vibe"' in html                               # the AI brief field
     assert 'id="se-about"' in html and 'id="se-cta"' in html   # About + CTA fields
     assert 'id="se-address"' in html and 'id="se-map"' in html  # location fields
     js = (await client.get("/app/owner/app.js")).text
     assert "/storefront/generate" in js and "runGenerate" in js
+    assert 'runGenerate("full"' in js
     assert 'runGenerate("page"' in js and 'runGenerate("content"' in js
+    assert "res.sections" in js                                  # full applies layout too
     assert "map_pin" in js                                       # location saved
-    assert 'id="we-gen-seo"' in html and "Generate SEO" in html  # website SEO button
+    assert 'id="we-gen-seo"' in html and 'id="we-vibe"' in html  # website AI brief + button
     assert "/website/generate" in js                             # SEO generation wired
     store_js = (await client.get("/app/store/store.js")).text
     assert "directions_url" in store_js and "Get directions" in store_js

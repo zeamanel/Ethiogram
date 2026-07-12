@@ -743,7 +743,8 @@
       ? `${cfg.latitude}, ${cfg.longitude}` : "";
     $("se-vibe").value = cfg.ui_child_prompt || "";
 
-    // AI generation — "Generate page" (theme) / "Generate content" (copy).
+    // AI generation — "Create my page" (full: theme + copy + layout from the
+    // owner's brief), or "Only theme" / "Only text" for a partial refresh.
     // Applies suggestions to the editor fields; the owner reviews and Saves.
     async function runGenerate(kind, btnId) {
       const btn = $(btnId), note = $("se-ai-note"), label = btn.textContent;
@@ -760,6 +761,10 @@
         if (res.about) $("se-about").value = res.about;
         if (res.cta) $("se-cta").value = res.cta;
         if (res.hours) $("se-hours").value = res.hours;
+        if (res.sections && res.sections.length) {   // "full" also lays out the page
+          SF_SECTIONS = res.sections.map(s => ({ type: s.type, label: s.label, visible: s.visible }));
+          renderSfSections();
+        }
         const cost = res.charged ? ` (−${res.charged} ETG)` : "";
         note.textContent = res.source === "ai"
           ? `✨ Generated — review and tap Save to apply.${cost}`
@@ -770,6 +775,7 @@
         note.classList.remove("hidden");
       } finally { btn.disabled = false; btn.textContent = label; }
     }
+    $("se-gen-full").onclick = () => runGenerate("full", "se-gen-full");
     $("se-gen-page").onclick = () => runGenerate("page", "se-gen-page");
     $("se-gen-content").onclick = () => runGenerate("content", "se-gen-content");
 
@@ -870,7 +876,9 @@
       const btn = $("we-gen-seo"), note = $("we-ai-note"), label = btn.textContent;
       btn.disabled = true; btn.textContent = "Generating…"; note.classList.add("hidden");
       try {
-        const res = await Eth.post(`/businesses/${bizId}/website/generate`, {});
+        const brief = $("we-vibe").value.trim();
+        const res = await Eth.post(`/businesses/${bizId}/website/generate`,
+          brief ? { vibe: brief } : {});
         if (res.title) $("we-title").value = res.title;
         if (res.meta_description) $("we-meta").value = res.meta_description;
         if (res.hero_headline) $("we-headline").value = res.hero_headline;

@@ -449,12 +449,15 @@
           </select></div>
       </div>
 
-      <div class="field"><label for="se-vibe">Store vibe <span style="color:var(--text-3)">(optional)</span></label>
-        <textarea id="se-vibe" rows="3" placeholder="e.g. Make it feel like a luxury boutique — dark, warm, gold accents"></textarea>
-        <div class="mgr-note" style="text-align:left;margin-top:6px">Describe the feel you want — used to AI-style your store.</div>
+      <div class="field"><label for="se-vibe">Describe your page <span style="color:var(--text-3)">(AI brief)</span></label>
+        <textarea id="se-vibe" rows="4" placeholder="e.g. A cozy Ethiopian coffee house — warm earthy colors, show my menu and opening hours first, friendly tone, button says 'Order coffee'"></textarea>
+        <div class="mgr-note" style="text-align:left;margin-top:6px">Tell the AI what you want — look &amp; feel, colors, wording, which sections to show. It builds the whole page; you review and Save.</div>
+        <div class="se-ai-row" style="grid-template-columns:1fr">
+          <button type="button" class="se-ai-btn se-ai-btn-primary" id="se-gen-full">✨ Create my page with AI</button>
+        </div>
         <div class="se-ai-row">
-          <button type="button" class="se-ai-btn" id="se-gen-page">✨ Generate page</button>
-          <button type="button" class="se-ai-btn" id="se-gen-content">✨ Generate content</button>
+          <button type="button" class="se-ai-btn" id="se-gen-page">🎨 Only theme</button>
+          <button type="button" class="se-ai-btn" id="se-gen-content">✍️ Only text</button>
         </div>
         <div class="mgr-note se-ai-note hidden" id="se-ai-note" style="text-align:left;margin-top:6px"></div></div>
 
@@ -504,8 +507,10 @@
         <div class="mgr-note" style="text-align:left">Submit this link to <b>Google Search Console</b> to get indexed faster.</div>
       </div>
 
+      <div class="field"><label for="we-vibe">Describe your website <span style="color:var(--text-3)">(AI brief, optional)</span></label>
+        <textarea id="we-vibe" rows="3" placeholder="e.g. Target customers searching for 'dental clinic Addis Ababa' — professional tone, mention same-day appointments"></textarea></div>
       <div class="se-ai-row" style="grid-template-columns:1fr">
-        <button type="button" class="se-ai-btn" id="we-gen-seo">✨ Generate SEO</button>
+        <button type="button" class="se-ai-btn se-ai-btn-primary" id="we-gen-seo">✨ Generate my website content</button>
       </div>
       <div class="mgr-note se-ai-note hidden" id="we-ai-note" style="text-align:left;margin:6px 0 4px"></div>
 

@@ -1,4 +1,4 @@
-"""Tests for the internal service-to-service credit endpoint."""
+"""Tests for the internal service-to-service credit endpoint (called by Odaflux/Lulit)."""
 import uuid
 
 import pytest
@@ -7,11 +7,18 @@ from sqlalchemy import select
 from app.db.models import Business, TokenWallet, User
 
 
+def _payload(business_id, amount=100, **over):
+    body = {"user_id": str(uuid.uuid4()), "business_id": str(business_id),
+            "amount": amount, "tx_ref": "etg-test-001"}
+    body.update(over)
+    return body
+
+
 @pytest.mark.asyncio
-async def test_missing_key_returns_401(client):
-    resp = await client.post("/api/v1/internal/chapa-credit",
-                             json={"business_id": str(uuid.uuid4()), "amount": 100})
-    assert resp.status_code == 401
+async def test_unconfigured_key_returns_500(client):
+    # settings.chapa_internal_key defaults to "" — endpoint must refuse to run.
+    resp = await client.post("/api/v1/internal/chapa-credit", json=_payload(uuid.uuid4()))
+    assert resp.status_code == 500
 
 
 @pytest.mark.asyncio
@@ -20,7 +27,7 @@ async def test_wrong_key_returns_401(client, monkeypatch):
     monkeypatch.setattr(m.settings, "chapa_internal_key", "secret-abc")
     resp = await client.post("/api/v1/internal/chapa-credit",
                              headers={"X-Internal-Key": "wrong"},
-                             json={"business_id": str(uuid.uuid4()), "amount": 100})
+                             json=_payload(uuid.uuid4()))
     assert resp.status_code == 401
 
 
@@ -34,14 +41,13 @@ async def test_credit_applied_to_wallet(client, db, monkeypatch):
     biz = Business(id=uuid.uuid4(), owner_id=owner_id, name="IntBiz",
                    slug=f"int-{uuid.uuid4().hex[:6]}")
     db.add(biz)
-    wallet = TokenWallet(id=uuid.uuid4(), business_id=biz.id, balance=500)
-    db.add(wallet)
+    db.add(TokenWallet(id=uuid.uuid4(), business_id=biz.id, balance=500))
     await db.flush()
 
     resp = await client.post(
         "/api/v1/internal/chapa-credit",
         headers={"X-Internal-Key": "secret-abc"},
-        json={"business_id": str(biz.id), "amount": 1000, "tx_ref": "etg-test-001"},
+        json=_payload(biz.id, amount=1000),
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -58,7 +64,7 @@ async def test_credit_applied_to_wallet(client, db, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_bad_amount_returns_400(client, db, monkeypatch):
+async def test_bad_amount_rejected(client, db, monkeypatch):
     import app.api.internal as m
     monkeypatch.setattr(m.settings, "chapa_internal_key", "s")
 
@@ -69,8 +75,13 @@ async def test_bad_amount_returns_400(client, db, monkeypatch):
     db.add(TokenWallet(id=uuid.uuid4(), business_id=biz.id, balance=0))
     await db.flush()
 
-    for bad in [0, -1, "abc", None]:
-        r = await client.post("/api/v1/internal/chapa-credit",
-                              headers={"X-Internal-Key": "s"},
-                              json={"business_id": str(biz.id), "amount": bad})
+    hdr = {"X-Internal-Key": "s"}
+    url = "/api/v1/internal/chapa-credit"
+    # zero / negative → 400 from the endpoint's guard
+    for bad in (0, -1):
+        r = await client.post(url, headers=hdr, json=_payload(biz.id, amount=bad))
         assert r.status_code == 400, f"expected 400 for amount={bad!r}"
+    # non-integer → 422 from pydantic validation
+    for bad in ("abc", None):
+        r = await client.post(url, headers=hdr, json=_payload(biz.id, amount=bad))
+        assert r.status_code == 422, f"expected 422 for amount={bad!r}"

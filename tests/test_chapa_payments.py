@@ -106,23 +106,30 @@ async def _setup(db, owner_id):
 
 @pytest.mark.asyncio
 async def test_initiate_recharge_returns_payment_url(client, db, sample_user_id, valid_access_token, monkeypatch):
+    """Recharge now initiates through the Lulit gateway — mock its HTTP call."""
     biz, pkg = await _setup(db, sample_user_id)
     seen = {}
 
-    async def _initialize(**kw):
-        seen.update(kw)
-        return "https://checkout.chapa.co/pay"
-    # patch the real _get_payment_url's dependency (chapa_service.initialize)
-    from app.services import chapa_service as svc
-    monkeypatch.setattr(svc.chapa_service, "initialize", _initialize)
+    monkeypatch.setattr(billing.settings, "lulit_internal_url", "https://lulit.test")
+
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, json=None, **k):
+            seen["url"] = url
+            seen.update(json or {})
+            return _Resp(200, {"checkout_url": "https://checkout.chapa.co/pay"})
+    monkeypatch.setattr(billing.httpx, "AsyncClient", _Client)
 
     r = await client.post(f"/api/v1/billing/recharge/{biz.id}",
                           json={"package_id": str(pkg.id), "payment_provider": "chapa"},
                           headers={"Authorization": f"Bearer {valid_access_token}"})
     assert r.status_code == 201, r.text
     assert r.json()["payment_url"] == "https://checkout.chapa.co/pay"
-    assert seen["currency"] == "ETB" and seen["tx_ref"].startswith("etg-")
+    assert seen["url"] == "https://lulit.test/api/v1/chapa/initiate"
     assert seen["callback_url"].endswith("/billing/webhook/chapa")
+    assert seen["meta"] == {"platform": "ethiogram", "business_id": str(biz.id)}
     order = (await db.execute(select(RechargeOrder))).scalars().one()
     assert order.payment_reference == f"etg-{order.id}"   # tx_ref set for the webhook
 

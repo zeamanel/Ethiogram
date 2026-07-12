@@ -205,6 +205,8 @@ body {
   background:var(--amber-soft); color:var(--amber-deep); font-weight:600; font-size:13px;
   cursor:pointer; }
 .se-ai-btn:disabled { opacity:.6; cursor:default; }
+.se-ai-btn-primary { background:var(--amber); color:#1a1206; font-size:14px; padding:12px; }
+.se-ai-btn-primary:hover { background:var(--amber-deep); color:#fff; }
 .se-ai-note { color:var(--text-2); }
 .bl-credit { background:var(--card); border:1px solid var(--amber); border-radius:13px; padding:13px 14px; margin-bottom:10px; }
 .bl-credit-name { font-size:13px; font-weight:600; margin-bottom:8px; }
