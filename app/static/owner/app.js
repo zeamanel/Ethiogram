@@ -538,6 +538,19 @@
     $("ag-active").checked = !!a.is_active;
     $("ag-name").value = a.display_name || "";
 
+    // "Runs on" bot binding — only worth showing when there's a choice to make.
+    hide("ag-bot-row");
+    let botRowShown = false;
+    try {
+      const bots = await Eth.get(`/bots?business_id=${bizId}`);
+      if (bots && bots.length > 1) {
+        $("ag-bot").innerHTML = `<option value="">All bots</option>` + bots.map(bt =>
+          `<option value="${esc(bt.id)}">@${esc(bt.bot_username || bt.bot_display_name || "bot")}</option>`).join("");
+        $("ag-bot").value = a.assigned_bot_id || "";
+        show("ag-bot-row"); botRowShown = true;
+      }
+    } catch (e) { /* bots list is enrichment — manage still works without it */ }
+
     const data = a.child_data || {};
     const defs = agentFieldDefs(a.child_schema, data);
     renderSchemaFields("ag-fields", defs, data, "agf");
@@ -573,6 +586,7 @@
         display_name: $("ag-name").value.trim() || null,
         child_data,
       };
+      if (botRowShown) body.assigned_bot_id = $("ag-bot").value;   // "" = all bots
       if (sdefs.length) {
         const s = collectSecrets(sdefs, "ags");
         if (s.filled > 0 && s.filled < s.total)

@@ -329,6 +329,11 @@
       <div class="field"><label for="ag-name">Display name</label>
         <input id="ag-name" type="text" maxlength="128" placeholder="e.g. Front Desk"></div>
 
+      <!-- only shown when the business has more than one bot -->
+      <div class="field hidden" id="ag-bot-row"><label for="ag-bot">Runs on</label>
+        <select id="ag-bot" class="bl-select"><option value="">All bots</option></select>
+        <div class="mgr-note" style="text-align:left;margin-top:6px">Bind this agent to one bot, or let it answer on all of them.</div></div>
+
       <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:8px"><div class="sec-title">Configuration</div></div>
       <div id="ag-fields"></div>
 

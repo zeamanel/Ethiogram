@@ -33,31 +33,37 @@ class Intent:
 _GREETING_WORDS = {
     "hello", "hi", "hey", "selam", "salam", "ሰላም", "ሃሎ",
     "good morning", "good evening", "good afternoon",
+    "ጤና ይስጥልኝ", "እንደምን አለህ", "እንደምን አለሽ",
 }
 
 _ORDER_WORDS = {
     "order", "buy", "purchase", "ዕዝ", "ግዢ", "ልዝ", "add to cart", "checkout",
     "i want", "i need", "i'd like", "i would like",
+    "ማዘዝ", "መግዛት", "እፈልጋለሁ", "ግዛ",
 }
 
 _BOOKING_WORDS = {
     "book", "appointment", "schedule", "reserve", "reservation",
     "ቀጠሮ", "ቀጠሮ ያዝ", "slot", "available", "when can i",
+    "ማስያዝ", "ቀጠሮ መያዝ", "ቀጠሮ እፈልጋለሁ", "መቼ ነው ክፍት",
 }
 
 _PRICE_WORDS = {
     "price", "cost", "how much", "ዋጋ", "ምን ያህል", "birr", "ብር",
     "rate", "fee", "charge",
+    "ስንት ነው", "ስንት", "ዋጋው",
 }
 
 _COMPLAINT_WORDS = {
     "problem", "issue", "not working", "broken", "complaint", "wrong",
     "bad", "terrible", "disappointed", "refund", "return",
+    "ችግር", "ቅሬታ", "አልሰራም", "ተበላሽቷል", "ገንዘቤን መልሱ",
 }
 
 _HANDOFF_WORDS = {
     "human", "agent", "person", "staff", "manager", "speak to",
     "talk to", "real person", "support",
+    "ሰው ማናገር", "ከሰው ጋር", "ባለቤቱን",
 }
 
 

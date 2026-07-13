@@ -252,7 +252,7 @@ async def telegram_webhook(
     if envelope.chat_type in ("group", "supergroup"):
         if not _is_addressed(envelope, bot):
             return JSONResponse({"ok": True})
-        group_data = await _load_child_data(str(bot.business_id), "GroupAgent", db)
+        group_data = await _load_child_data(str(bot.business_id), "GroupAgent", db, bot_id=bot.id)
         if group_data is None:
             return JSONResponse({"ok": True})
 
@@ -726,7 +726,9 @@ async def _maybe_send_product_images(envelope, bot, raw_token, reply_text, db) -
     return sent
 
 
-async def _load_child_data(business_id: str, agent_type: str, db: AsyncSession) -> dict | None:
+async def _load_child_data(
+    business_id: str, agent_type: str, db: AsyncSession, bot_id=None,
+) -> dict | None:
     """
     Return the business's active ChildAgent config for ``agent_type``, enriched
     with the decrypted father system prompt under ``_father_prompt``.
@@ -735,6 +737,11 @@ async def _load_child_data(business_id: str, agent_type: str, db: AsyncSession) 
     owner's real services/hours/timezone (and calendar config), the Accountant
     gets its business context, etc. Returns None when the business has no
     matching deployed agent — the agent then uses its generic behaviour.
+
+    Per-bot binding: a child with ``assigned_to_bot_id`` set only runs on that
+    bot; a child with it NULL runs on every bot. When both exist for the same
+    agent type, the bot-specific one wins. Ordering is otherwise by created_at
+    so which child answers is deterministic.
     """
     from uuid import UUID
     bid = business_id if isinstance(business_id, UUID) else UUID(str(business_id))
@@ -742,10 +749,20 @@ async def _load_child_data(business_id: str, agent_type: str, db: AsyncSession) 
         select(ChildAgent, Agent)
         .join(Agent, ChildAgent.agent_id == Agent.id)
         .where(ChildAgent.business_id == bid, ChildAgent.is_active.is_(True))
+        .order_by(ChildAgent.created_at)
     )
+    candidates = []
     for child, father in result.all():
         if _agent_type_for(father) != agent_type:
             continue
+        if child.assigned_to_bot_id is not None and (
+            bot_id is None or str(child.assigned_to_bot_id) != str(bot_id)
+        ):
+            continue                     # bound to a different bot → skip
+        candidates.append((child, father))
+    # Bot-specific children outrank business-wide ones.
+    candidates.sort(key=lambda cf: cf[0].assigned_to_bot_id is None)
+    for child, father in candidates[:1]:
         # Plain config (rendered into the prompt). Keys are owner-controlled, so
         # strip any "_"-prefixed keys to avoid clobbering reserved slots.
         data = {k: v for k, v in (child.child_data or {}).items() if not k.startswith("_")}
@@ -810,7 +827,8 @@ async def _maybe_handle_booking(
     #    the appointments already in our DB.
     if intent_router.classify(envelope) != Intent.BOOKING:
         return False
-    child_data = await _load_child_data(str(conversation.business_id), "ConciergeAgent", db)
+    child_data = await _load_child_data(
+        str(conversation.business_id), "ConciergeAgent", db, bot_id=bot.id)
     if not child_data:
         return False  # no booking agent deployed → fall through to LLM guidance
 
@@ -895,7 +913,8 @@ async def _present_service_slots_callback(
             "⚠️ I couldn't read that service. Please ask to book again.")
         return
 
-    child_data = await _load_child_data(str(conversation.business_id), "ConciergeAgent", db)
+    child_data = await _load_child_data(
+        str(conversation.business_id), "ConciergeAgent", db, bot_id=bot.id)
     now = datetime.now(timezone.utc)
     await _present_slots(
         db, bot, raw_token, envelope.customer_id, redis,
@@ -964,7 +983,8 @@ async def _confirm_booking_callback(
         end_dt = end_dt.replace(tzinfo=timezone.utc)
 
     from app.services import booking_service
-    child_data = await _load_child_data(str(conversation.business_id), "ConciergeAgent", db)
+    child_data = await _load_child_data(
+        str(conversation.business_id), "ConciergeAgent", db, bot_id=bot.id)
     if chosen_service and chosen_service.get("name"):
         service_name = chosen_service["name"]
         service_price = chosen_service.get("price")
@@ -1088,11 +1108,25 @@ async def _process_message(
         # 2b. Load the business's deployed config for this agent type (ChildAgent),
         # so specialists answer with the owner's real services/hours/timezone and
         # the father agent's prompt instead of generic defaults.
+        #
+        # Deployment-aware: a specialist only runs when the business actually
+        # deployed a matching agent. "Book me in" at a business with no Booking
+        # Concierge gets the general Q&A agent (which answers from the Business
+        # Brain), not a specialist running blind with no config.
         child_data = None
         if conversation is not None and db is not None:
+            bot_id = getattr(conversation, "bot_id", None)
             child_data = await _load_child_data(
-                str(conversation.business_id), type(agent).__name__, db
+                str(conversation.business_id), type(agent).__name__, db, bot_id=bot_id
             )
+            if child_data is None and type(agent).__name__ != "BaseAgent":
+                logger.info("Specialist not deployed — using BaseAgent",
+                            intent=intent, specialist=type(agent).__name__,
+                            business_id=envelope.business_id)
+                agent = intent_router.select_agent(intent, available_agents=[])
+                child_data = await _load_child_data(
+                    str(conversation.business_id), "BaseAgent", db, bot_id=bot_id
+                )
 
     logger.info("Routing message to agent", intent=intent, agent=agent.agent_name,
                 business_id=envelope.business_id, child_data=bool(child_data))

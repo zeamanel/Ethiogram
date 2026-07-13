@@ -45,6 +45,19 @@ def test_single_word_keyword_not_matched_inside_other_words():
     assert intent_router.classify(_env(text="this thistle")) == Intent.GENERAL_QA
 
 
+@pytest.mark.parametrize("text,expected", [
+    ("ቀጠሮ መያዝ እፈልጋለሁ", Intent.BOOKING),        # "I want to book an appointment"
+    ("ማስያዝ ይቻላል?", Intent.BOOKING),               # "can I reserve?"
+    ("ስንት ነው ዋጋው", Intent.PRICE_CHECK),           # "how much is the price"
+    ("ቡና ማዘዝ እችላለሁ?", Intent.ORDER),             # "can I order coffee?"
+    ("ጤና ይስጥልኝ", Intent.GREETING),                # formal hello
+    ("ችግር አለ, አልሰራም", Intent.COMPLAINT),          # "there's a problem, it didn't work"
+    ("ሰው ማናገር እፈልጋለሁ", Intent.HUMAN_HANDOFF),   # "I want to speak to a person"
+])
+def test_classify_amharic_intents(text, expected):
+    assert intent_router.classify(_env(text=text)) == expected
+
+
 def test_media_without_text_routes_to_receipt():
     assert intent_router.classify(_env(media_type="photo")) == Intent.RECEIPT_OCR
 

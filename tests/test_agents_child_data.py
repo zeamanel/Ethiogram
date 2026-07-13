@@ -99,6 +99,51 @@ async def test_inactive_child_agent_is_ignored(db):
     assert await _load_child_data(str(biz), "ConciergeAgent", db) is None
 
 
+# ── per-bot binding (assigned_to_bot_id) ─────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_bot_bound_child_only_runs_on_its_bot(db):
+    biz = uuid.uuid4()
+    bot_a, bot_b = uuid.uuid4(), uuid.uuid4()
+    father, child = await _deploy_agent(
+        db, biz, category="concierge", child_data={"services": "Cut"}, prompt="p")
+    child.assigned_to_bot_id = bot_a
+    await db.flush()
+
+    assert (await _load_child_data(str(biz), "ConciergeAgent", db, bot_id=bot_a)) is not None
+    assert await _load_child_data(str(biz), "ConciergeAgent", db, bot_id=bot_b) is None
+    # legacy callers that pass no bot_id never see bot-bound children
+    assert await _load_child_data(str(biz), "ConciergeAgent", db) is None
+
+
+@pytest.mark.asyncio
+async def test_unbound_child_runs_on_every_bot(db):
+    biz = uuid.uuid4()
+    await _deploy_agent(db, biz, category="concierge",
+                        child_data={"services": "Cut"}, prompt="p")
+    assert (await _load_child_data(str(biz), "ConciergeAgent", db, bot_id=uuid.uuid4())) is not None
+    assert (await _load_child_data(str(biz), "ConciergeAgent", db)) is not None
+
+
+@pytest.mark.asyncio
+async def test_bot_specific_child_outranks_business_wide(db):
+    biz = uuid.uuid4()
+    bot_a = uuid.uuid4()
+    # business-wide concierge first, bot-bound one second — need TWO fathers
+    # (uq_child_agent_business blocks two children of the same father).
+    await _deploy_agent(db, biz, category="concierge",
+                        child_data={"services": "Generic"}, prompt="p1")
+    father2, child2 = await _deploy_agent(db, biz, category="booking",
+                                          child_data={"services": "BotA-only"}, prompt="p2")
+    child2.assigned_to_bot_id = bot_a
+    await db.flush()
+
+    on_a = await _load_child_data(str(biz), "ConciergeAgent", db, bot_id=bot_a)
+    assert on_a["services"] == "BotA-only"       # bound child wins on its bot
+    on_other = await _load_child_data(str(biz), "ConciergeAgent", db, bot_id=uuid.uuid4())
+    assert on_other["services"] == "Generic"     # other bots get the unbound one
+
+
 def test_child_data_surfaces_in_concierge_prompt():
     prompt = concierge_agent.build_system_prompt(
         brain_config=None,
