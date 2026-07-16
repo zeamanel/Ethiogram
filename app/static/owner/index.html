@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Ethiogram — Owner Console</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+
+  <!-- LOADING -->
+  <div id="loading" class="center-state">
+    <div class="spinner"></div>
+    <div class="onb-text">Opening your console…</div>
+  </div>
+
+  <!-- ERROR -->
+  <div id="error" class="center-state hidden">
+    <div class="onb-emoji">⚠️</div>
+    <div class="onb-title">Couldn't load</div>
+    <div class="onb-text" id="error-msg"></div>
+    <button class="onb-btn" onclick="location.reload()">Retry</button>
+  </div>
+
+  <!-- ONBOARDING intro (no business yet) -->
+  <div id="onboarding" class="center-state hidden">
+    <div class="onb-emoji">🏪</div>
+    <div class="onb-title">Welcome to Ethiogram</div>
+    <div class="onb-text">Create your business and connect your Telegram bot to start serving customers with AI — right here, no app to install.</div>
+    <button class="onb-btn" id="onb-start">Create my business</button>
+  </div>
+
+  <!-- WIZARD step 1: business details -->
+  <div id="wiz-business" class="wiz hidden">
+    <div class="wiz-step-tag">Step 1 of 3</div>
+    <div class="wiz-title">Your business</div>
+    <div class="wiz-sub">This is how your store appears to customers.</div>
+    <div class="field">
+      <label for="wb-name">Business name</label>
+      <input id="wb-name" type="text" placeholder="e.g. Selam Store" autocomplete="off" maxlength="255">
+    </div>
+    <div class="field">
+      <label for="wb-cat">Category <span style="color:var(--text-3)">(optional)</span></label>
+      <input id="wb-cat" type="text" placeholder="e.g. Fashion, Restaurant, Electronics" autocomplete="off">
+    </div>
+    <div class="err-inline hidden" id="wb-err"></div>
+    <div class="wiz-actions">
+      <button class="onb-btn" id="wb-continue">Continue →</button>
+    </div>
+  </div>
+
+  <!-- WIZARD step 2: describe the business → AI builds everything -->
+  <div id="wiz-brief" class="wiz hidden">
+    <div class="wiz-step-tag">Step 2 of 3</div>
+    <div class="wiz-title">Describe your business</div>
+    <div class="wiz-sub">One message — the AI sets up your bot's knowledge, your store page and your website. You can edit everything later.</div>
+    <div class="field">
+      <label for="wz-brief">What do you do?</label>
+      <textarea id="wz-brief" rows="5" placeholder="e.g. I run a hair salon in Bole. Services: haircut 300 birr (30 min), hair colour 1500 birr (2 hours), beard trim 150 birr. Open Mon–Sat 9am–7pm. We take Telebirr."></textarea>
+    </div>
+    <div class="err-inline hidden" id="wz-err"></div>
+    <div class="wiz-actions">
+      <button class="onb-btn" id="wz-build">✨ Build my business</button>
+      <button class="onb-btn-ghost" id="wz-skip">Skip for now</button>
+    </div>
+  </div>
+
+  <!-- WIZARD step 3: connect bot -->
+  <div id="wiz-bot" class="wiz hidden">
+    <div class="wiz-step-tag">Step 3 of 3</div>
+    <div class="wiz-title">Connect your bot</div>
+    <div class="wiz-sub">Paste your Telegram bot token to go live. You get free ETG credit when your first bot connects.</div>
+    <div class="steps-note">
+      <b>Get a token in 30 seconds:</b><br>
+      1. Open <b>@BotFather</b> in Telegram<br>
+      2. Send <code>/newbot</code> and follow the prompts<br>
+      3. Copy the token it gives you and paste it below
+    </div>
+    <div class="field">
+      <label for="wb-token">Bot token</label>
+      <input id="wb-token" type="text" placeholder="1234567890:AA..." autocomplete="off" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="err-inline hidden" id="wt-err"></div>
+    <div class="wiz-actions">
+      <button class="onb-btn" id="wt-connect">Connect bot →</button>
+      <button class="onb-btn-ghost" id="wt-skip">Skip for now</button>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="dashboard" class="hidden">
+
+    <!-- Business switcher — only shown when the owner has more than one business -->
+    <div id="biz-switcher" class="biz-switcher hidden">
+      <button id="biz-switch-btn" class="biz-switch-btn" type="button">
+        <span class="biz-switch-name" id="biz-switch-name">—</span>
+        <span class="biz-switch-caret">▾</span>
+      </button>
+      <div id="biz-switch-menu" class="biz-switch-menu hidden"></div>
+    </div>
+
+    <div class="greet">
+      <div class="greet-hi" id="greet-hi">Selam 👋</div>
+      <div class="greet-sub" id="greet-sub"></div>
+    </div>
+
+    <!-- incoming business transfers addressed to this user -->
+    <div id="incoming-transfers"></div>
+
+    <div id="low-balance" class="alert-strip hidden">
+      <div>🔔</div>
+      <div class="alert-txt"><b>Low balance.</b> Recharge before your bot pauses.</div>
+    </div>
+
+    <div class="wallet">
+      <div class="wallet-label">⛁ ETG Wallet</div>
+      <div class="wallet-bal"><span id="w-bal">—</span> <span class="u">ETG</span></div>
+      <div class="wallet-runway" id="w-runway">—</div>
+      <div class="runway-bar"><div class="runway-fill" id="w-fill"></div></div>
+      <div class="wallet-btns">
+        <button class="wbtn wbtn-amber" id="btn-recharge">＋ Recharge</button>
+        <button class="wbtn wbtn-ghost" id="btn-auto">Auto-recharge: —</button>
+      </div>
+    </div>
+
+    <div class="qstats" id="qstats"></div>
+
+    <div class="sec-head"><div class="sec-title">ETG Usage · 7 days</div></div>
+    <div class="chart-card" id="usage"></div>
+
+    <div class="gap"></div>
+
+    <div class="sec-head"><div class="sec-title">Recent Orders</div></div>
+    <div class="lcard" id="orders"></div>
+
+    <div class="gap"></div>
+
+    <div class="sec-head"><div class="sec-title">Upcoming Appointments</div></div>
+    <div class="lcard" id="appointments"></div>
+
+    <div class="gap"></div>
+
+    <div class="sec-head"><div class="sec-title">Business Brain</div><div class="sec-link" id="brain-manage" style="cursor:pointer">Manage →</div></div>
+    <div class="lcard" id="brain"></div>
+
+    <div class="gap"></div>
+
+    <div class="sec-head"><div class="sec-title">Storefront</div><div class="sec-link" id="store-customize" style="cursor:pointer">Customize →</div></div>
+    <div class="lcard" id="storefront-card"></div>
+
+    <div class="gap"></div>
+
+    <div class="sec-head"><div class="sec-title">Website</div><div class="sec-link" id="web-customize" style="cursor:pointer">Customize →</div></div>
+    <div class="lcard" id="website-card"></div>
+
+    <div class="gap"></div>
+
+    <div class="sec-head"><div class="sec-title">Billing</div><div class="sec-link" id="billing-customize" style="cursor:pointer">Manage →</div></div>
+    <div class="lcard" id="billing-card"></div>
+
+    <div class="gap"></div>
+
+    <!-- referral program — hidden until auth returns a referral_link -->
+    <div id="invite-sec" class="hidden">
+      <div class="sec-head"><div class="sec-title">Invite &amp; Earn</div></div>
+      <div class="lcard" id="invite-card"></div>
+    </div>
+
+    <div class="gap"></div>
+
+    <div class="sec-head"><div class="sec-title">Active Agents</div><div class="sec-link" id="agents-browse-link" style="cursor:pointer">＋ Add agent</div></div>
+    <div class="lcard" id="agents"></div>
+
+    <div class="gap"></div>
+
+    <div class="sec-head"><div class="sec-title">My Bots</div></div>
+    <div class="lcard" id="bots"></div>
+
+    <div class="gap"></div>
+  </div>
+
+  <!-- ADMIN DASHBOARD (shown to admins with no businesses) -->
+  <div id="admin" class="hidden">
+    <div class="greet">
+      <div class="greet-hi">Admin Console</div>
+      <div class="greet-sub" id="adm-sub">Platform overview</div>
+    </div>
+    <div class="adm-tabs">
+      <button class="adm-tab active" data-tab="overview">Overview</button>
+      <button class="adm-tab" data-tab="businesses">Businesses</button>
+      <button class="adm-tab" data-tab="users">Users</button>
+      <button class="adm-tab" data-tab="agents">Agents</button>
+      <button class="adm-tab" data-tab="models">Models</button>
+      <button class="adm-tab" data-tab="system">System</button>
+    </div>
+
+    <div id="adm-overview" class="adm-page">
+      <div class="qstats" id="adm-stats"></div>
+    </div>
+
+    <div id="adm-businesses" class="adm-page hidden">
+      <div class="adm-toolbar">
+        <input id="adm-biz-search" type="text" placeholder="Search name or owner…" autocapitalize="off">
+        <select id="adm-biz-status">
+          <option value="">All</option>
+          <option value="active">Active</option>
+          <option value="suspended">Suspended</option>
+          <option value="deleted">Deleted</option>
+        </select>
+      </div>
+      <div class="lcard" id="adm-biz-list"></div>
+    </div>
+
+    <div id="adm-users" class="adm-page hidden">
+      <div class="adm-toolbar">
+        <input id="adm-user-search" type="text" placeholder="Search email or name…" autocapitalize="off">
+      </div>
+      <div class="lcard" id="adm-user-list"></div>
+    </div>
+
+    <div id="adm-agents" class="adm-page hidden">
+      <div class="mgr-note" style="text-align:left;padding:0 16px 8px">Set the model each marketplace agent runs on. Changes apply to every business using it, on their next message.</div>
+      <div class="lcard" id="adm-agents-list"></div>
+    </div>
+
+    <div id="adm-models" class="adm-page hidden">
+      <div class="mgr-note" style="text-align:left;padding:0 16px 8px">Set what each AI model costs per 1,000 tokens (ETG). This is what businesses are charged per reply — cheap and premium models price independently. Applies on the next message.</div>
+      <div class="lcard" id="adm-models-list"></div>
+    </div>
+
+    <div id="adm-system" class="adm-page hidden">
+      <div class="lcard" id="adm-system-list"></div>
+    </div>
+  </div>
+
+  <!-- BRAIN MANAGER (documents) -->
+  <div id="brain-manager" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="bm-back">‹ Back</button>
+      <div class="mgr-title">Business Brain</div>
+      <button class="mgr-refresh" id="bm-catalog-link" title="Catalog">🏷</button>
+      <button class="mgr-refresh" id="bm-settings-link" title="Settings">⚙</button>
+      <button class="mgr-refresh" id="bm-refresh" title="Refresh">↻</button>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Upload menus, price lists, FAQs, or policies (.txt, .pdf, .docx, .xlsx, .csv, .md). Your bot answers customers from them automatically.</div>
+      <input type="file" id="bm-file" accept=".txt,.md,.csv,.pdf,.docx,.xlsx" style="display:none">
+      <button class="onb-btn bm-upload-btn" id="bm-upload">＋ Upload document</button>
+      <div class="err-inline hidden" id="bm-err"></div>
+      <div class="mgr-note">Processing (embedding) can take a few minutes — pull ↻ to refresh status.</div>
+      <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:16px"><div class="sec-title">Documents</div></div>
+      <div class="lcard" id="bm-list"></div>
+    </div>
+  </div>
+
+  <!-- BRAIN SETTINGS (persona, tone, fallback, RAG tuning) -->
+  <div id="brain-settings" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="bs-back">‹ Back</button>
+      <div class="mgr-title">Brain Settings</div>
+      <span style="width:18px"></span>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Tune your bot's personality and how strictly it matches your knowledge.</div>
+      <div class="field"><label for="bs-persona">Bot name (persona)</label>
+        <input id="bs-persona" type="text" maxlength="128" placeholder="e.g. Selam"></div>
+      <div class="field"><label for="bs-tone">Tone</label>
+        <input id="bs-tone" type="text" maxlength="64" placeholder="friendly, professional, warm…"></div>
+      <div class="field"><label for="bs-extra">Extra instructions <span style="color:var(--text-3)">(optional)</span></label>
+        <textarea id="bs-extra" rows="3" placeholder="e.g. Always greet in Amharic. Mention free delivery over 1000 ETB."></textarea></div>
+      <div class="field"><label for="bs-fallback">Fallback message <span style="color:var(--text-3)">(when it can't answer)</span></label>
+        <textarea id="bs-fallback" rows="2"></textarea></div>
+      <div class="field"><label for="bs-thresh">Knowledge match strictness <span style="color:var(--text-3)">(0.0–1.0)</span></label>
+        <input id="bs-thresh" type="number" min="0" max="1" step="0.05">
+        <div class="mgr-note" style="text-align:left;margin-top:6px">Lower = more results (broader). ~0.3 recommended. Higher = only very close matches.</div></div>
+      <div class="field"><label for="bs-topk">Max knowledge snippets per reply</label>
+        <input id="bs-topk" type="number" min="1" max="20"></div>
+      <div class="err-inline hidden" id="bs-err"></div>
+      <div class="wiz-actions"><button class="onb-btn" id="bs-save">Save changes</button></div>
+    </div>
+  </div>
+
+  <!-- CATALOG MANAGER (structured knowledge_items: products, services, FAQs) -->
+  <div id="catalog-manager" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="cat-back">‹ Back</button>
+      <div class="mgr-title">Catalog</div>
+      <button class="mgr-refresh" id="cat-refresh" title="Refresh">↻</button>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Add products, services, FAQs or policies your bot should always know — these go straight into every reply, no file upload needed.</div>
+
+      <!-- add / edit form (hidden until "Add item") -->
+      <div id="cat-form" class="cat-form hidden">
+        <div class="field"><label for="cat-type">Type</label>
+          <select id="cat-type">
+            <option value="product">Product</option>
+            <option value="service">Service</option>
+            <option value="menu_item">Menu item</option>
+            <option value="faq">FAQ</option>
+            <option value="policy">Policy</option>
+            <option value="general">General</option>
+          </select></div>
+        <div class="field"><label for="cat-title">Title / name</label>
+          <input id="cat-title" type="text" maxlength="255" placeholder="e.g. Blue Summer Dress"></div>
+        <div class="field"><label for="cat-body">Details <span style="color:var(--text-3)">(optional)</span></label>
+          <textarea id="cat-body" rows="3" placeholder="Description, answer, terms…"></textarea></div>
+        <div class="field"><label for="cat-price">Price <span style="color:var(--text-3)">(optional)</span></label>
+          <input id="cat-price" type="text" maxlength="64" placeholder="e.g. 1200 ETB"></div>
+        <div class="field"><label for="cat-category">Category <span style="color:var(--text-3)">(optional)</span></label>
+          <input id="cat-category" type="text" maxlength="64" placeholder="e.g. Dresses — groups it in your store"></div>
+        <div class="field"><label>Image <span style="color:var(--text-3)">(optional)</span></label>
+          <input type="file" id="cat-image-file" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none">
+          <div class="cat-image-row">
+            <div class="cat-image-preview" id="cat-image-preview"></div>
+            <button type="button" class="onb-btn-ghost" id="cat-image-btn">Upload image</button>
+            <button type="button" class="cat-image-remove hidden" id="cat-image-remove">Remove</button>
+          </div></div>
+        <div class="err-inline hidden" id="cat-err"></div>
+        <div class="wiz-actions">
+          <button class="onb-btn" id="cat-save">Save item</button>
+          <button class="onb-btn-ghost" id="cat-cancel">Cancel</button>
+        </div>
+      </div>
+
+      <button class="onb-btn bm-upload-btn" id="cat-add">＋ Add item</button>
+      <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:16px"><div class="sec-title">Items</div></div>
+      <div class="lcard" id="cat-list"></div>
+    </div>
+  </div>
+
+  <!-- AGENT MANAGER (manage a deployed child agent: pause, rename, config) -->
+  <div id="agent-manager" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="ag-back">‹ Back</button>
+      <div class="mgr-title">Agent</div>
+      <button class="mgr-refresh" id="ag-refresh" title="Refresh">↻</button>
+    </div>
+    <div class="mgr-body">
+      <div id="ag-head" class="ag-head"></div>
+      <div id="ag-guide" class="steps-note hidden"></div>
+
+      <div class="ag-toggle-row">
+        <div>
+          <div class="ag-toggle-label">Agent is active</div>
+          <div class="mgr-note" style="text-align:left;margin:0">Pause to stop it replying — without uninstalling.</div>
+        </div>
+        <label class="switch"><input type="checkbox" id="ag-active"><span class="slider"></span></label>
+      </div>
+
+      <div class="field"><label for="ag-name">Display name</label>
+        <input id="ag-name" type="text" maxlength="128" placeholder="e.g. Front Desk"></div>
+
+      <!-- only shown when the business has more than one bot -->
+      <div class="field hidden" id="ag-bot-row"><label for="ag-bot">Runs on</label>
+        <select id="ag-bot" class="bl-select"><option value="">All bots</option></select>
+        <div class="mgr-note" style="text-align:left;margin-top:6px">Bind this agent to one bot, or let it answer on all of them.</div></div>
+
+      <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:8px"><div class="sec-title">Configuration</div></div>
+      <div id="ag-fields"></div>
+
+      <div id="ag-secrets-sec" class="hidden">
+        <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:8px">
+          <div class="sec-title">Credentials</div>
+          <button class="sec-link-danger hidden" id="ag-secrets-disconnect">Disconnect</button>
+        </div>
+        <div id="ag-secrets-status" class="ag-secrets"></div>
+        <div id="ag-secret-fields"></div>
+      </div>
+
+      <div class="err-inline hidden" id="ag-err"></div>
+      <div class="wiz-actions"><button class="onb-btn" id="ag-save">Save changes</button></div>
+    </div>
+  </div>
+
+  <!-- BROWSE AGENTS (marketplace) -->
+  <div id="agents-browse" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="ab-back">‹ Back</button>
+      <div class="mgr-title">Add an agent</div>
+      <button class="mgr-refresh" id="ab-refresh" title="Refresh">↻</button>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Deploy a specialist to handle bookings, receipts and more. Start a free trial — no charge to try.</div>
+      <div class="err-inline hidden" id="ab-err"></div>
+      <div class="lcard" id="ab-list"></div>
+    </div>
+  </div>
+
+  <!-- DEPLOY AGENT (config + start trial) -->
+  <div id="agent-deploy" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="ad-back">‹ Back</button>
+      <div class="mgr-title">Deploy agent</div>
+      <span style="width:18px"></span>
+    </div>
+    <div class="mgr-body">
+      <div id="ad-head" class="ag-head"></div>
+      <div id="ad-guide" class="steps-note hidden"></div>
+      <div class="field"><label for="ad-name">Display name <span style="color:var(--text-3)">(optional)</span></label>
+        <input id="ad-name" type="text" maxlength="128" placeholder="e.g. Front Desk"></div>
+      <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:8px"><div class="sec-title">Configuration</div></div>
+      <div id="ad-fields"></div>
+      <div class="err-inline hidden" id="ad-err"></div>
+      <div class="wiz-actions"><button class="onb-btn" id="ad-deploy">Start free trial</button></div>
+    </div>
+  </div>
+
+  <!-- STOREFRONT EDITOR (customer Mini App config) -->
+  <div id="storefront-editor" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="se-back">‹ Back</button>
+      <div class="mgr-title">Storefront</div>
+      <button class="mgr-refresh" id="se-view" title="View store">↗</button>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Customize the public store customers open from your bot.</div>
+
+      <div class="ag-toggle-row">
+        <div><div class="ag-toggle-label">Published</div>
+          <div class="mgr-note" style="text-align:left;margin:0">Mark your store ready to share.</div></div>
+        <label class="switch"><input type="checkbox" id="se-published"><span class="slider"></span></label>
+      </div>
+
+      <!-- shown when Published is ON: live link + how to add it to the bot -->
+      <div id="se-publish-info" class="se-publish-info hidden">
+        <div class="field" style="margin-top:0">
+          <label for="se-store-url">Your store link</label>
+          <div class="copy-row">
+            <input id="se-store-url" type="text" readonly>
+            <button class="copy-btn" id="se-copy">Copy</button>
+          </div>
+        </div>
+        <div class="steps-note">
+          <b>Add it to your bot — via @BotFather:</b><br>
+          1. Open <b>@BotFather</b> and send <code>/mybots</code><br>
+          2. Pick your bot → <b>Bot Settings</b> → <b>Menu Button</b><br>
+          3. Choose <b>Edit menu button URL</b> and paste the link above<br>
+          4. Send a button label, e.g. <code>🛍 Shop</code><br>
+          Customers tap the menu button to open your store — no install needed.
+        </div>
+      </div>
+
+      <div class="field"><label>Business logo <span style="color:var(--text-3)">(shown at the top of your store)</span></label>
+        <input type="file" id="se-logo-file" accept="image/png,image/jpeg,image/webp" style="display:none">
+        <div class="cat-image-row">
+          <div class="cat-image-preview" id="se-logo-preview"></div>
+          <button type="button" class="onb-btn-ghost" id="se-logo-btn">Upload logo</button>
+          <button type="button" class="cat-image-remove hidden" id="se-logo-remove">Remove</button>
+        </div></div>
+
+      <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:8px"><div class="sec-title">Theme</div></div>
+      <div class="se-colors">
+        <div class="se-color"><label for="se-primary">Brand</label><input type="color" id="se-primary"></div>
+        <div class="se-color"><label for="se-accent">Accent</label><input type="color" id="se-accent"></div>
+        <div class="se-color"><label for="se-bg">Background</label><input type="color" id="se-bg"></div>
+        <div class="se-color"><label for="se-text">Text</label><input type="color" id="se-text"></div>
+      </div>
+
+      <div class="se-fonts">
+        <div class="field"><label for="se-font-heading">Heading font</label>
+          <select id="se-font-heading" class="bl-select">
+            <option value="Sora">Sora</option>
+            <option value="Fraunces">Fraunces</option>
+            <option value="Inter">Inter</option>
+            <option value="DM Sans">DM Sans</option>
+            <option value="Poppins">Poppins</option>
+          </select></div>
+        <div class="field"><label for="se-font-body">Body font</label>
+          <select id="se-font-body" class="bl-select">
+            <option value="DM Sans">DM Sans</option>
+            <option value="Inter">Inter</option>
+            <option value="Sora">Sora</option>
+            <option value="Fraunces">Fraunces</option>
+            <option value="Poppins">Poppins</option>
+          </select></div>
+      </div>
+
+      <div class="field"><label for="se-vibe">Describe your page <span style="color:var(--text-3)">(AI brief)</span></label>
+        <textarea id="se-vibe" rows="4" placeholder="e.g. A cozy Ethiopian coffee house — warm earthy colors, show my menu and opening hours first, friendly tone, button says 'Order coffee'"></textarea>
+        <div class="mgr-note" style="text-align:left;margin-top:6px">Tell the AI what you want — look &amp; feel, colors, wording, which sections to show. It builds the whole page; you review and Save.</div>
+        <div class="se-ai-row" style="grid-template-columns:1fr">
+          <button type="button" class="se-ai-btn se-ai-btn-primary" id="se-gen-full">✨ Create my page with AI</button>
+        </div>
+        <div class="se-ai-row">
+          <button type="button" class="se-ai-btn" id="se-gen-page">🎨 Only theme</button>
+          <button type="button" class="se-ai-btn" id="se-gen-content">✍️ Only text</button>
+        </div>
+        <div class="mgr-note se-ai-note hidden" id="se-ai-note" style="text-align:left;margin-top:6px"></div></div>
+
+      <div class="field"><label for="se-tagline">Tagline</label>
+        <input id="se-tagline" type="text" maxlength="255" placeholder="Up to 30% off new arrivals"></div>
+      <div class="field"><label for="se-about">About <span style="color:var(--text-3)">(shown on your store & website)</span></label>
+        <textarea id="se-about" rows="3" maxlength="500" placeholder="A sentence or two about your business"></textarea></div>
+      <div class="field"><label for="se-cta">Button text <span style="color:var(--text-3)">(hero call-to-action)</span></label>
+        <input id="se-cta" type="text" maxlength="32" placeholder="Order on Telegram"></div>
+      <div class="field"><label for="se-hours">Opening hours <span style="color:var(--text-3)">(optional)</span></label>
+        <input id="se-hours" type="text" maxlength="255" placeholder="Mon–Sat, 9 AM – 6 PM"></div>
+      <div class="field"><label for="se-address">Address <span style="color:var(--text-3)">(optional)</span></label>
+        <input id="se-address" type="text" maxlength="255" placeholder="Bole Rd, Addis Ababa"></div>
+      <div class="field"><label for="se-map">Map pin <span style="color:var(--text-3)">(paste a Google Maps link or lat,lng)</span></label>
+        <input id="se-map" type="text" placeholder="https://maps.google.com/…  or  9.0123, 38.7456">
+        <div class="mgr-note" style="text-align:left;margin-top:6px">Adds a “Get directions” button to your store &amp; website.</div></div>
+
+      <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:8px"><div class="sec-title">Sections</div></div>
+      <div class="mgr-note" style="text-align:left;margin-top:0;margin-bottom:8px">Toggle and reorder what shows in your store.</div>
+      <div class="lcard" id="se-sections"></div>
+
+      <div class="err-inline hidden" id="se-err"></div>
+      <div class="wiz-actions"><button class="onb-btn" id="se-save">Save changes</button></div>
+    </div>
+  </div>
+
+  <!-- WEBSITE EDITOR (SEO landing page config) -->
+  <div id="website-editor" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="we-back">‹ Back</button>
+      <div class="mgr-title">Website</div>
+      <button class="mgr-refresh" id="we-view" title="View website">↗</button>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Your public, search-friendly website. Share the link or connect a domain.</div>
+
+      <div class="ag-toggle-row">
+        <div><div class="ag-toggle-label">Published</div>
+          <div class="mgr-note" style="text-align:left;margin:0">Let search engines list your site.</div></div>
+        <label class="switch"><input type="checkbox" id="we-published"><span class="slider"></span></label>
+      </div>
+
+      <div id="we-publish-info" class="se-publish-info hidden">
+        <div class="field" style="margin-top:0"><label for="we-url">Your website</label>
+          <div class="copy-row"><input id="we-url" type="text" readonly>
+            <button class="copy-btn" id="we-copy">Copy</button></div></div>
+        <div class="mgr-note" style="text-align:left">Submit this link to <b>Google Search Console</b> to get indexed faster.</div>
+      </div>
+
+      <div class="field"><label for="we-vibe">Describe your website <span style="color:var(--text-3)">(AI brief, optional)</span></label>
+        <textarea id="we-vibe" rows="3" placeholder="e.g. Target customers searching for 'dental clinic Addis Ababa' — professional tone, mention same-day appointments"></textarea></div>
+      <div class="se-ai-row" style="grid-template-columns:1fr">
+        <button type="button" class="se-ai-btn se-ai-btn-primary" id="we-gen-seo">✨ Generate my website content</button>
+      </div>
+      <div class="mgr-note se-ai-note hidden" id="we-ai-note" style="text-align:left;margin:6px 0 4px"></div>
+
+      <div class="field"><label for="we-title">SEO title <span style="color:var(--text-3)">(≤70 chars)</span></label>
+        <input id="we-title" type="text" maxlength="70" placeholder="Acme — Best Shop in Addis Ababa"></div>
+      <div class="field"><label for="we-meta">Meta description <span style="color:var(--text-3)">(≤160 chars)</span></label>
+        <textarea id="we-meta" rows="2" maxlength="160" placeholder="Shows under your title in Google results."></textarea></div>
+      <div class="field"><label for="we-headline">Hero headline</label>
+        <input id="we-headline" type="text" maxlength="255" placeholder="Traditional &amp; modern fashion, delivered."></div>
+      <div class="field"><label for="we-sub">Hero subheadline <span style="color:var(--text-3)">(optional)</span></label>
+        <textarea id="we-sub" rows="2" maxlength="512" placeholder="One line about what you offer."></textarea></div>
+      <div class="field"><label for="we-keywords">Keywords <span style="color:var(--text-3)">(comma-separated)</span></label>
+        <input id="we-keywords" type="text" placeholder="addis fashion, habesha dress"></div>
+      <div class="field"><label>Social image <span style="color:var(--text-3)">(shown when shared)</span></label>
+        <input type="file" id="we-og-file" accept="image/png,image/jpeg,image/webp" style="display:none">
+        <div class="cat-image-row">
+          <div class="cat-image-preview" id="we-og-preview"></div>
+          <button type="button" class="onb-btn-ghost" id="we-og-btn">Upload image</button>
+          <button type="button" class="cat-image-remove hidden" id="we-og-remove">Remove</button>
+        </div></div>
+
+      <div class="err-inline hidden" id="we-err"></div>
+      <div class="wiz-actions"><button class="onb-btn" id="we-save">Save changes</button></div>
+
+      <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:18px"><div class="sec-title">Custom domain</div></div>
+      <div id="dom-panel"></div>
+    </div>
+  </div>
+
+  <!-- TRANSFER BUSINESS (hand ownership to another person) -->
+  <div id="transfer-editor" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="tr-back">‹ Back</button>
+      <div class="mgr-title">Transfer business</div>
+      <span></span>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Hand this business — its bots, catalog, storefront and wallet — to another person. They must accept before ownership moves, and you can cancel until they do.</div>
+
+      <div id="tr-pending" class="bl-credit hidden"></div>
+
+      <div id="tr-form">
+        <div class="field"><label for="tr-kind">Send to</label>
+          <select id="tr-kind" class="bl-select">
+            <option value="telegram_username">Telegram username</option>
+            <option value="telegram_id">Telegram ID</option>
+            <option value="email">Email</option>
+          </select></div>
+        <div class="field"><label for="tr-value">Recipient</label>
+          <input id="tr-value" type="text" placeholder="@username" autocapitalize="off"></div>
+        <div class="mgr-note" style="text-align:left;margin-top:0">⚠️ After they accept, you lose access to this business. This can't be undone.</div>
+        <div class="err-inline hidden" id="tr-err"></div>
+        <div class="wiz-actions"><button class="onb-btn" id="tr-send">Send transfer request</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BILLING EDITOR (who pays, free cap, pricing + per-customer usage) -->
+  <div id="billing-editor" class="hidden">
+    <div class="mgr-bar">
+      <button class="mgr-back" id="bl-back">‹ Back</button>
+      <div class="mgr-title">Billing</div>
+      <span style="width:18px"></span>
+    </div>
+    <div class="mgr-body">
+      <div class="mgr-intro">Choose who pays for each message, set a free monthly cap per customer, and your customer-pays pricing.</div>
+
+      <div class="field"><label for="bl-policy">Who pays per message</label>
+        <select id="bl-policy" class="bl-select">
+          <option value="business_pays">Business pays (default)</option>
+          <option value="user_pays">Customer pays</option>
+          <option value="both">Both</option>
+        </select></div>
+      <div class="field"><label for="bl-limit">Free monthly limit per customer <span style="color:var(--text-3)">(ETG · blank = unlimited)</span></label>
+        <input id="bl-limit" type="number" min="0" placeholder="e.g. 100"></div>
+      <div class="field"><label for="bl-action">When the free limit is reached</label>
+        <select id="bl-action" class="bl-select">
+          <option value="block">Block until next month</option>
+          <option value="user_pays">Switch to customer-pays</option>
+        </select></div>
+      <div class="field"><label for="bl-price">Service price charged to customer <span style="color:var(--text-3)">(ETG)</span></label>
+        <input id="bl-price" type="number" min="0" placeholder="0"></div>
+      <div class="field"><label for="bl-markup">Your markup per message <span style="color:var(--text-3)">(ETG profit)</span></label>
+        <input id="bl-markup" type="number" min="0" placeholder="0"></div>
+      <div class="err-inline hidden" id="bl-err"></div>
+      <div class="wiz-actions"><button class="onb-btn" id="bl-save">Save changes</button></div>
+
+      <div class="sec-head" style="padding-left:0;padding-right:0;margin-top:18px"><div class="sec-title">Per-customer usage · this month</div></div>
+      <div class="mgr-note" style="text-align:left;margin-top:0;margin-bottom:8px">Top up a customer's balance after they pay you (Telebirr, cash, etc.).</div>
+      <div class="adm-toolbar" style="padding:0 0 10px"><input id="bl-usage-search" type="text" placeholder="Search customer…" autocapitalize="off"></div>
+      <div id="bl-credit" class="bl-credit hidden">
+        <div class="bl-credit-name" id="bl-credit-name"></div>
+        <div class="copy-row">
+          <input id="bl-credit-amount" type="number" min="1" placeholder="ETG to add">
+          <button class="copy-btn" id="bl-credit-save">Add</button>
+        </div>
+        <div class="err-inline hidden" id="bl-credit-err"></div>
+        <button class="onb-btn-ghost" id="bl-credit-cancel" style="margin-top:4px">Cancel</button>
+      </div>
+      <div class="lcard" id="bl-usage-list"></div>
+    </div>
+  </div>
+
+  <!-- RECHARGE SHEET — package picker + Chapa checkout redirect -->
+  <div id="recharge-sheet" class="sheet-overlay hidden" role="dialog" aria-modal="true">
+    <div class="sheet-card">
+      <div class="sheet-handle"></div>
+      <div class="sheet-title">Top up ETG</div>
+      <div class="sheet-sub">Packages are priced in Ethiopian Birr (ETB). Choose a tier:</div>
+      <div id="pkg-list" class="pkg-list"></div>
+      <div class="err-inline hidden" id="rch-err"></div>
+      <button class="onb-btn-ghost" id="rch-cancel" style="margin-top:8px">Cancel</button>
+    </div>
+  </div>
+
+  <script src="../shared/tg.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

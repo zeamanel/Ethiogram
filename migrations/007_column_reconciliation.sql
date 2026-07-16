@@ -1,0 +1,757 @@
+-- 007_column_reconciliation.sql
+-- Idempotent: adds every column the ORM expects to pre-existing tables
+-- that drifted from app/db/models.py. ADD COLUMN IF NOT EXISTS skips
+-- columns already present. NOT NULL is applied only when a safe DEFAULT
+-- exists (so it works on populated tables); otherwise the column is added
+-- nullable and the application supplies the value on write.
+-- Re-run after 006. Safe to re-run. Does not drop or alter existing columns.
+
+-- ai_models
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "model_id" VARCHAR(128);
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "display_name" VARCHAR(128);
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "provider" modelprovider;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "tier" modeltier DEFAULT 'standard' NOT NULL;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "etg_cost_per_1k_input" INTEGER DEFAULT 1 NOT NULL;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "etg_cost_per_1k_output" INTEGER DEFAULT 2 NOT NULL;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "context_window" INTEGER DEFAULT 128000 NOT NULL;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "supports_vision" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "supports_function_calling" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "is_enabled" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "is_default" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "is_fallback" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "is_emergency" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "notes" TEXT;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE ai_models ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- etg_packages
+ALTER TABLE etg_packages ADD COLUMN IF NOT EXISTS "name" VARCHAR(64);
+ALTER TABLE etg_packages ADD COLUMN IF NOT EXISTS "etg_amount" INTEGER;
+ALTER TABLE etg_packages ADD COLUMN IF NOT EXISTS "bonus_etg" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE etg_packages ADD COLUMN IF NOT EXISTS "price_usd" FLOAT;
+ALTER TABLE etg_packages ADD COLUMN IF NOT EXISTS "price_etb" FLOAT;
+ALTER TABLE etg_packages ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE etg_packages ADD COLUMN IF NOT EXISTS "display_order" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE etg_packages ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE etg_packages ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE etg_packages ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- usage_pricing
+ALTER TABLE usage_pricing ADD COLUMN IF NOT EXISTS "action_type" VARCHAR(64);
+ALTER TABLE usage_pricing ADD COLUMN IF NOT EXISTS "etg_cost" INTEGER;
+ALTER TABLE usage_pricing ADD COLUMN IF NOT EXISTS "description" VARCHAR(255);
+ALTER TABLE usage_pricing ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE usage_pricing ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE usage_pricing ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE usage_pricing ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- users
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "telegram_id" BIGINT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "username" VARCHAR(64);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "email" VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "phone" VARCHAR(32);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "full_name" VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "hashed_password" VARCHAR(255);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "role" userrole DEFAULT 'owner' NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "is_verified" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "language_code" VARCHAR(8) DEFAULT 'en' NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "referral_code" VARCHAR(16);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "referred_by_id" UUID;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "avatar_url" VARCHAR(512);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "suspended_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "suspension_reason" TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMP WITH TIME ZONE;
+
+-- admin_audit_log
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS "admin_id" UUID;
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS "action" VARCHAR(128);
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS "target_type" VARCHAR(64);
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS "target_id" VARCHAR(255);
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS "old_value" JSONB;
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS "new_value" JSONB;
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS "reason" TEXT;
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS "ip_address" VARCHAR(45);
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS "user_agent" VARCHAR(512);
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE admin_audit_log ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- businesses
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "owner_id" UUID;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "name" VARCHAR(255);
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "slug" VARCHAR(128);
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "description" TEXT;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "category" VARCHAR(64);
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "logo_url" VARCHAR(512);
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "brand_primary_color" VARCHAR(7) DEFAULT '#1a73e8' NOT NULL;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "brand_secondary_color" VARCHAR(7) DEFAULT '#ffffff' NOT NULL;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "country_code" VARCHAR(2) DEFAULT 'ET' NOT NULL;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "timezone" VARCHAR(64) DEFAULT 'Africa/Addis_Ababa' NOT NULL;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "currency" VARCHAR(3) DEFAULT 'ETB' NOT NULL;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "languages" JSONB DEFAULT '["am", "en"]'::jsonb NOT NULL;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "latitude" FLOAT;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "longitude" FLOAT;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "address" TEXT;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "phone" VARCHAR(32);
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "email" VARCHAR(255);
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "website_url" VARCHAR(512);
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "mcp_enabled" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "is_suspended" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "suspended_reason" TEXT;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE businesses ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMP WITH TIME ZONE;
+
+-- creator_profiles
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "user_id" UUID;
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "display_name" VARCHAR(128);
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "bio" TEXT;
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "website_url" VARCHAR(512);
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "github_url" VARCHAR(512);
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "is_verified" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "is_trusted" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "total_agents_published" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "total_revenue_etg" BIGINT DEFAULT 0 NOT NULL;
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "total_unlocks" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "average_rating" FLOAT;
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "payout_method" VARCHAR(64);
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "payout_details_encrypted" TEXT;
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE creator_profiles ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- notifications
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "user_id" UUID;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "notification_type" VARCHAR(64);
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "title" VARCHAR(255);
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "body" TEXT;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "data" JSONB;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "sent_via" JSONB DEFAULT '[]'::jsonb NOT NULL;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "is_read" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "read_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- platform_settings
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS "key" VARCHAR(128);
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS "value" TEXT;
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS "value_type" VARCHAR(16) DEFAULT 'string' NOT NULL;
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS "description" VARCHAR(255);
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS "is_public" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS "updated_by_id" UUID;
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE platform_settings ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- user_sessions
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS "user_id" UUID;
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS "access_token_jti" VARCHAR(64);
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS "refresh_token" VARCHAR(512);
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS "refresh_token_jti" VARCHAR(64);
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS "expires_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS "revoked_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS "ip_address" VARCHAR(45);
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS "user_agent" VARCHAR(512);
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS "platform" VARCHAR(32) DEFAULT 'web' NOT NULL;
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- agents
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "creator_id" UUID;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "name" VARCHAR(128);
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "tagline" VARCHAR(255);
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "description" TEXT;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "category" VARCHAR(64);
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "tags" JSONB DEFAULT '[]'::jsonb NOT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "capabilities" JSONB DEFAULT '[]'::jsonb NOT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "encrypted_system_prompt" TEXT;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "encryption_key_ref" VARCHAR(128) DEFAULT 'shared-key-v1' NOT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "child_schema" JSONB;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "setup_guide" TEXT;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "price_etg" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "preferred_model_id" VARCHAR(128);
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "status" agentstatus DEFAULT 'draft' NOT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "is_featured" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "is_staff_pick" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "cover_image_url" VARCHAR(512);
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "demo_video_url" VARCHAR(512);
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "total_unlocks" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "total_active_trials" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "average_rating" FLOAT;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "review_count" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "rejection_reason" TEXT;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "reviewed_by_id" UUID;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "reviewed_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS "deleted_at" TIMESTAMP WITH TIME ZONE;
+
+-- bots
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "bot_username" VARCHAR(128);
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "bot_display_name" VARCHAR(255);
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "encrypted_token" TEXT;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "token_hash" VARCHAR(64);
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "webhook_url" VARCHAR(512);
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "webhook_secret" VARCHAR(128);
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "platform" platform DEFAULT 'telegram' NOT NULL;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "status" botstatus DEFAULT 'active' NOT NULL;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "grace_period_started_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "suspended_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "suspension_reason" TEXT;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "total_messages_processed" BIGINT DEFAULT 0 NOT NULL;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "total_etg_consumed" BIGINT DEFAULT 0 NOT NULL;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "last_message_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE bots ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- business_brain_configs
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "persona_name" VARCHAR(128) DEFAULT 'Assistant' NOT NULL;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "persona_tone" VARCHAR(64) DEFAULT 'friendly' NOT NULL;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "system_prompt_extra" TEXT;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "rag_top_k" INTEGER DEFAULT 5 NOT NULL;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "rag_similarity_threshold" FLOAT DEFAULT 0.75 NOT NULL;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "max_history_messages" INTEGER DEFAULT 20 NOT NULL;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "fallback_message" TEXT DEFAULT 'I don''t have information about that. Please contact us directly.' NOT NULL;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "handoff_message" TEXT DEFAULT 'Let me connect you with a human agent.' NOT NULL;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "out_of_hours_message" TEXT;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "collect_customer_name" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "collect_customer_phone" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE business_brain_configs ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- custom_domains
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS "domain" VARCHAR(255);
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS "domain_type" VARCHAR(16) DEFAULT 'subdomain' NOT NULL;
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS "dns_verification_token" VARCHAR(64);
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS "is_verified" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS "verified_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS "ssl_issued_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS "ssl_expires_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS "paid_until" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE custom_domains ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- knowledge_documents
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "filename" VARCHAR(255);
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "file_type" VARCHAR(16);
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "file_size_bytes" INTEGER;
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "gcs_path" VARCHAR(512);
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "status" documentstatus DEFAULT 'pending' NOT NULL;
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "extracted_text" TEXT;
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "chunk_count" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "error_message" TEXT;
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "processed_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "uploaded_by_id" UUID;
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE knowledge_documents ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- landing_pages
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "title" VARCHAR(255);
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "meta_description" VARCHAR(512);
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "hero_headline" VARCHAR(255);
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "hero_subheadline" VARCHAR(512);
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "sections" JSONB;
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "seo_keywords" JSONB;
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "og_image_url" VARCHAR(512);
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "is_published" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "published_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "last_generated_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "total_views" BIGINT DEFAULT 0 NOT NULL;
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "total_clicks" BIGINT DEFAULT 0 NOT NULL;
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- live_sessions
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS "platform" liveplatform;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS "firebase_room_id" VARCHAR(128);
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS "overlay_url" VARCHAR(512);
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS "started_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS "ended_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS "peak_viewers" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS "total_orders" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS "total_revenue" FLOAT DEFAULT 0.0 NOT NULL;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE live_sessions ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- mcp_listings
+ALTER TABLE mcp_listings ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE mcp_listings ADD COLUMN IF NOT EXISTS "structured_data" JSONB;
+ALTER TABLE mcp_listings ADD COLUMN IF NOT EXISTS "search_keywords" JSONB;
+ALTER TABLE mcp_listings ADD COLUMN IF NOT EXISTS "ai_search_score" FLOAT;
+ALTER TABLE mcp_listings ADD COLUMN IF NOT EXISTS "is_published" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE mcp_listings ADD COLUMN IF NOT EXISTS "last_indexed_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE mcp_listings ADD COLUMN IF NOT EXISTS "total_fetches" BIGINT DEFAULT 0 NOT NULL;
+ALTER TABLE mcp_listings ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE mcp_listings ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE mcp_listings ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- mini_app_configs
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "theme_primary" VARCHAR(7) DEFAULT '#1a73e8' NOT NULL;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "theme_secondary" VARCHAR(7) DEFAULT '#ffffff' NOT NULL;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "theme_accent" VARCHAR(7) DEFAULT '#fbbc04' NOT NULL;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "font_family" VARCHAR(64) DEFAULT 'Inter' NOT NULL;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "hero_image_url" VARCHAR(512);
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "layout_config" JSONB;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "ui_child_prompt" TEXT;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "show_categories" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "show_search" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "show_cart" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "custom_sections" JSONB;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "is_published" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "published_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE mini_app_configs ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- payment_integrations
+ALTER TABLE payment_integrations ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE payment_integrations ADD COLUMN IF NOT EXISTS "provider" paymentprovider;
+ALTER TABLE payment_integrations ADD COLUMN IF NOT EXISTS "encrypted_api_key" TEXT;
+ALTER TABLE payment_integrations ADD COLUMN IF NOT EXISTS "encrypted_secret_key" TEXT;
+ALTER TABLE payment_integrations ADD COLUMN IF NOT EXISTS "encrypted_webhook_secret" TEXT;
+ALTER TABLE payment_integrations ADD COLUMN IF NOT EXISTS "public_key" VARCHAR(255);
+ALTER TABLE payment_integrations ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE payment_integrations ADD COLUMN IF NOT EXISTS "is_verified" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE payment_integrations ADD COLUMN IF NOT EXISTS "verified_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE payment_integrations ADD COLUMN IF NOT EXISTS "extra_config" JSONB;
+ALTER TABLE payment_integrations ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE payment_integrations ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE payment_integrations ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- recharge_orders
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "etg_package_id" UUID;
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "etg_amount" INTEGER;
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "fiat_amount" FLOAT;
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "fiat_currency" VARCHAR(3);
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "payment_provider" paymentprovider;
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "payment_reference" VARCHAR(255);
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "status" paymentstatus DEFAULT 'pending' NOT NULL;
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "webhook_payload" JSONB;
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "completed_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "bonus_etg" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE recharge_orders ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- subscriptions
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS "plan" subscriptionplan;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS "started_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS "expires_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS "payment_provider" paymentprovider;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS "payment_reference" VARCHAR(255);
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS "cancelled_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS "cancel_reason" TEXT;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- token_wallets
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "balance" BIGINT DEFAULT 0 NOT NULL;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "escrow_balance" BIGINT DEFAULT 0 NOT NULL;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "lifetime_recharged" BIGINT DEFAULT 0 NOT NULL;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "lifetime_spent" BIGINT DEFAULT 0 NOT NULL;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "auto_recharge_enabled" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "auto_recharge_threshold" INTEGER DEFAULT 500 NOT NULL;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "auto_recharge_amount" INTEGER DEFAULT 5000 NOT NULL;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "auto_recharge_provider" VARCHAR(32);
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "monthly_spend_limit" INTEGER;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "current_month_spend" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "spend_limit_reset_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "subscription_plan" subscriptionplan DEFAULT 'free' NOT NULL;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE token_wallets ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- usage_daily_aggregates
+ALTER TABLE usage_daily_aggregates ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE usage_daily_aggregates ADD COLUMN IF NOT EXISTS "date" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE usage_daily_aggregates ADD COLUMN IF NOT EXISTS "action_type" VARCHAR(64);
+ALTER TABLE usage_daily_aggregates ADD COLUMN IF NOT EXISTS "total_events" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE usage_daily_aggregates ADD COLUMN IF NOT EXISTS "total_etg" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE usage_daily_aggregates ADD COLUMN IF NOT EXISTS "total_input_tokens" BIGINT DEFAULT 0 NOT NULL;
+ALTER TABLE usage_daily_aggregates ADD COLUMN IF NOT EXISTS "total_output_tokens" BIGINT DEFAULT 0 NOT NULL;
+ALTER TABLE usage_daily_aggregates ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE usage_daily_aggregates ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE usage_daily_aggregates ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- agent_reports
+ALTER TABLE agent_reports ADD COLUMN IF NOT EXISTS "agent_id" UUID;
+ALTER TABLE agent_reports ADD COLUMN IF NOT EXISTS "reported_by_id" UUID;
+ALTER TABLE agent_reports ADD COLUMN IF NOT EXISTS "reason" VARCHAR(64);
+ALTER TABLE agent_reports ADD COLUMN IF NOT EXISTS "details" TEXT;
+ALTER TABLE agent_reports ADD COLUMN IF NOT EXISTS "is_resolved" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE agent_reports ADD COLUMN IF NOT EXISTS "resolved_by_id" UUID;
+ALTER TABLE agent_reports ADD COLUMN IF NOT EXISTS "resolved_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE agent_reports ADD COLUMN IF NOT EXISTS "resolution_notes" TEXT;
+ALTER TABLE agent_reports ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE agent_reports ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE agent_reports ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- child_agents
+ALTER TABLE child_agents ADD COLUMN IF NOT EXISTS "agent_id" UUID;
+ALTER TABLE child_agents ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE child_agents ADD COLUMN IF NOT EXISTS "display_name" VARCHAR(128);
+ALTER TABLE child_agents ADD COLUMN IF NOT EXISTS "child_data" JSONB;
+ALTER TABLE child_agents ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE child_agents ADD COLUMN IF NOT EXISTS "assigned_to_bot_id" UUID;
+ALTER TABLE child_agents ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE child_agents ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE child_agents ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- etg_transactions
+ALTER TABLE etg_transactions ADD COLUMN IF NOT EXISTS "wallet_id" UUID;
+ALTER TABLE etg_transactions ADD COLUMN IF NOT EXISTS "amount" INTEGER;
+ALTER TABLE etg_transactions ADD COLUMN IF NOT EXISTS "balance_before" BIGINT;
+ALTER TABLE etg_transactions ADD COLUMN IF NOT EXISTS "balance_after" BIGINT;
+ALTER TABLE etg_transactions ADD COLUMN IF NOT EXISTS "transaction_type" VARCHAR(32);
+ALTER TABLE etg_transactions ADD COLUMN IF NOT EXISTS "description" VARCHAR(255);
+ALTER TABLE etg_transactions ADD COLUMN IF NOT EXISTS "reference_id" VARCHAR(255);
+ALTER TABLE etg_transactions ADD COLUMN IF NOT EXISTS "reference_type" VARCHAR(64);
+ALTER TABLE etg_transactions ADD COLUMN IF NOT EXISTS "admin_id" UUID;
+ALTER TABLE etg_transactions ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE etg_transactions ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE etg_transactions ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- knowledge_chunks
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS "document_id" UUID;
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS "content" TEXT;
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS "token_count" INTEGER;
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS "chunk_index" INTEGER;
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS "embedding_model" VARCHAR(64) DEFAULT 'text-embedding-004' NOT NULL;
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS "metadata" JSONB;
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- knowledge_items
+ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS "item_type" knowledgeitemtype;
+ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS "title" VARCHAR(255);
+ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS "body" TEXT;
+ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS "data" JSONB;
+ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS "source_document_id" UUID;
+ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE knowledge_items ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- mcp_fetch_logs
+ALTER TABLE mcp_fetch_logs ADD COLUMN IF NOT EXISTS "listing_id" UUID;
+ALTER TABLE mcp_fetch_logs ADD COLUMN IF NOT EXISTS "fetcher_name" VARCHAR(64);
+ALTER TABLE mcp_fetch_logs ADD COLUMN IF NOT EXISTS "fetcher_ip" VARCHAR(45);
+ALTER TABLE mcp_fetch_logs ADD COLUMN IF NOT EXISTS "user_agent" VARCHAR(512);
+ALTER TABLE mcp_fetch_logs ADD COLUMN IF NOT EXISTS "endpoint" VARCHAR(64);
+ALTER TABLE mcp_fetch_logs ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE mcp_fetch_logs ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE mcp_fetch_logs ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- support_tickets
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "user_id" UUID;
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "related_agent_id" UUID;
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "category" VARCHAR(64);
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "subject" VARCHAR(255);
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "status" ticketstatus DEFAULT 'open' NOT NULL;
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "priority" VARCHAR(16) DEFAULT 'normal' NOT NULL;
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "assigned_to_id" UUID;
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "ai_suggested_answer" TEXT;
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "resolved_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- token_escrow
+ALTER TABLE token_escrow ADD COLUMN IF NOT EXISTS "wallet_id" UUID;
+ALTER TABLE token_escrow ADD COLUMN IF NOT EXISTS "amount" INTEGER;
+ALTER TABLE token_escrow ADD COLUMN IF NOT EXISTS "reason" VARCHAR(255);
+ALTER TABLE token_escrow ADD COLUMN IF NOT EXISTS "release_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE token_escrow ADD COLUMN IF NOT EXISTS "status" escrowstatus DEFAULT 'holding' NOT NULL;
+ALTER TABLE token_escrow ADD COLUMN IF NOT EXISTS "released_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE token_escrow ADD COLUMN IF NOT EXISTS "dispute_reason" TEXT;
+ALTER TABLE token_escrow ADD COLUMN IF NOT EXISTS "dispute_opened_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE token_escrow ADD COLUMN IF NOT EXISTS "resolved_by_id" UUID;
+ALTER TABLE token_escrow ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE token_escrow ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE token_escrow ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- wallet_alerts
+ALTER TABLE wallet_alerts ADD COLUMN IF NOT EXISTS "wallet_id" UUID;
+ALTER TABLE wallet_alerts ADD COLUMN IF NOT EXISTS "alert_type" alerttype;
+ALTER TABLE wallet_alerts ADD COLUMN IF NOT EXISTS "balance_at_alert" INTEGER;
+ALTER TABLE wallet_alerts ADD COLUMN IF NOT EXISTS "sent_via" JSONB DEFAULT '[]'::jsonb NOT NULL;
+ALTER TABLE wallet_alerts ADD COLUMN IF NOT EXISTS "acknowledged_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE wallet_alerts ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE wallet_alerts ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE wallet_alerts ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- agent_trials
+ALTER TABLE agent_trials ADD COLUMN IF NOT EXISTS "agent_id" UUID;
+ALTER TABLE agent_trials ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE agent_trials ADD COLUMN IF NOT EXISTS "child_agent_id" UUID;
+ALTER TABLE agent_trials ADD COLUMN IF NOT EXISTS "expires_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE agent_trials ADD COLUMN IF NOT EXISTS "is_converted" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE agent_trials ADD COLUMN IF NOT EXISTS "converted_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE agent_trials ADD COLUMN IF NOT EXISTS "warning_sent_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE agent_trials ADD COLUMN IF NOT EXISTS "critical_sent_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE agent_trials ADD COLUMN IF NOT EXISTS "expired_notified_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE agent_trials ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE agent_trials ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE agent_trials ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- agent_unlocks
+ALTER TABLE agent_unlocks ADD COLUMN IF NOT EXISTS "agent_id" UUID;
+ALTER TABLE agent_unlocks ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE agent_unlocks ADD COLUMN IF NOT EXISTS "child_agent_id" UUID;
+ALTER TABLE agent_unlocks ADD COLUMN IF NOT EXISTS "etg_paid" INTEGER;
+ALTER TABLE agent_unlocks ADD COLUMN IF NOT EXISTS "escrow_id" UUID;
+ALTER TABLE agent_unlocks ADD COLUMN IF NOT EXISTS "payment_reference" VARCHAR(255);
+ALTER TABLE agent_unlocks ADD COLUMN IF NOT EXISTS "is_refunded" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE agent_unlocks ADD COLUMN IF NOT EXISTS "refunded_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE agent_unlocks ADD COLUMN IF NOT EXISTS "refund_reason" TEXT;
+ALTER TABLE agent_unlocks ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE agent_unlocks ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE agent_unlocks ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- conversations
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "bot_id" UUID;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "platform" platform DEFAULT 'telegram' NOT NULL;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "customer_platform_id" VARCHAR(128);
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "customer_name" VARCHAR(255);
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "customer_username" VARCHAR(128);
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "customer_phone" VARCHAR(32);
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "detected_language" VARCHAR(8) DEFAULT 'en' NOT NULL;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "is_active" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "last_message_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "total_messages" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "total_etg_spent" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "child_agent_id" UUID;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "context_data" JSONB;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- live_products
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "session_id" UUID;
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "knowledge_item_id" UUID;
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "name" VARCHAR(255);
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "price" FLOAT;
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "image_url" VARCHAR(512);
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "promo_code" VARCHAR(32);
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "promo_discount_pct" FLOAT;
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "is_current" BOOLEAN DEFAULT false NOT NULL;
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "activated_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "deactivated_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "views_while_active" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "orders_while_active" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE live_products ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- ticket_messages
+ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS "ticket_id" UUID;
+ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS "sender_id" UUID;
+ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS "role" VARCHAR(16);
+ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS "content" TEXT;
+ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS "attachments" JSONB;
+ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- agent_reviews
+ALTER TABLE agent_reviews ADD COLUMN IF NOT EXISTS "agent_id" UUID;
+ALTER TABLE agent_reviews ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE agent_reviews ADD COLUMN IF NOT EXISTS "unlock_id" UUID;
+ALTER TABLE agent_reviews ADD COLUMN IF NOT EXISTS "rating" INTEGER;
+ALTER TABLE agent_reviews ADD COLUMN IF NOT EXISTS "review_text" TEXT;
+ALTER TABLE agent_reviews ADD COLUMN IF NOT EXISTS "is_visible" BOOLEAN DEFAULT true NOT NULL;
+ALTER TABLE agent_reviews ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE agent_reviews ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE agent_reviews ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- chat_messages
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "conversation_id" UUID;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "role" messagerole;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "content" TEXT;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "model_used" VARCHAR(64);
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "input_tokens" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "output_tokens" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "etg_charged" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "chunks_retrieved" JSONB;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "media_type" VARCHAR(32);
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "media_url" VARCHAR(512);
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "telegram_message_id" BIGINT;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "latency_ms" INTEGER;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- orders
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "order_number" VARCHAR(16);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customer_platform_id" VARCHAR(128);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "customer_name" VARCHAR(255);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "items" JSONB;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "subtotal" FLOAT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "platform_fee" FLOAT DEFAULT 0.0 NOT NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "total" FLOAT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "currency" VARCHAR(3) DEFAULT 'ETB' NOT NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "payment_provider" paymentprovider;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "payment_reference" VARCHAR(255);
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "payment_status" paymentstatus DEFAULT 'pending' NOT NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "order_status" orderstatus DEFAULT 'pending' NOT NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "paid_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "fulfilled_at" TIMESTAMP WITH TIME ZONE;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "notes" TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "delivery_address" JSONB;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "conversation_id" UUID;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- usage_events
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS "business_id" UUID;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS "bot_id" UUID;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS "conversation_id" UUID;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS "action_type" VARCHAR(64);
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS "model_id" VARCHAR(128);
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS "model_tier" modeltier;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS "input_tokens" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS "output_tokens" INTEGER DEFAULT 0 NOT NULL;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS "etg_charged" INTEGER;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS "latency_ms" INTEGER;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS "id" UUID DEFAULT gen_random_uuid() NOT NULL;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS "created_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS "updated_at" TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL;
+
+-- ── Indexes (re-run now that columns exist) ──────────────────────────────────
+CREATE UNIQUE INDEX IF NOT EXISTS ix_ai_models_model_id ON ai_models (model_id);
+CREATE INDEX IF NOT EXISTS ix_ai_models_id ON ai_models (id);
+CREATE INDEX IF NOT EXISTS ix_etg_packages_id ON etg_packages (id);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_usage_pricing_action_type ON usage_pricing (action_type);
+CREATE INDEX IF NOT EXISTS ix_usage_pricing_id ON usage_pricing (id);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username ON users (username);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_users_email ON users (email);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_users_referral_code ON users (referral_code);
+CREATE INDEX IF NOT EXISTS ix_users_id ON users (id);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_users_telegram_id ON users (telegram_id);
+CREATE INDEX IF NOT EXISTS ix_admin_audit_log_action ON admin_audit_log (action);
+CREATE INDEX IF NOT EXISTS ix_admin_audit_log_id ON admin_audit_log (id);
+CREATE INDEX IF NOT EXISTS ix_admin_audit_log_admin_id ON admin_audit_log (admin_id);
+CREATE INDEX IF NOT EXISTS ix_businesses_id ON businesses (id);
+CREATE INDEX IF NOT EXISTS ix_businesses_owner_id ON businesses (owner_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_businesses_slug ON businesses (slug);
+CREATE INDEX IF NOT EXISTS ix_creator_profiles_id ON creator_profiles (id);
+CREATE INDEX IF NOT EXISTS ix_notifications_user_id ON notifications (user_id);
+CREATE INDEX IF NOT EXISTS ix_notifications_id ON notifications (id);
+CREATE INDEX IF NOT EXISTS ix_platform_settings_id ON platform_settings (id);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_platform_settings_key ON platform_settings (key);
+CREATE INDEX IF NOT EXISTS ix_user_sessions_id ON user_sessions (id);
+CREATE INDEX IF NOT EXISTS ix_user_sessions_access_token_jti ON user_sessions (access_token_jti);
+CREATE INDEX IF NOT EXISTS ix_user_sessions_user_id ON user_sessions (user_id);
+CREATE INDEX IF NOT EXISTS ix_user_sessions_refresh_token_jti ON user_sessions (refresh_token_jti);
+CREATE INDEX IF NOT EXISTS ix_agents_creator_id ON agents (creator_id);
+CREATE INDEX IF NOT EXISTS ix_agents_category ON agents (category);
+CREATE INDEX IF NOT EXISTS ix_agents_id ON agents (id);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_bots_token_hash ON bots (token_hash);
+CREATE INDEX IF NOT EXISTS ix_bots_business_id ON bots (business_id);
+CREATE INDEX IF NOT EXISTS ix_bots_id ON bots (id);
+CREATE INDEX IF NOT EXISTS ix_business_brain_configs_id ON business_brain_configs (id);
+CREATE INDEX IF NOT EXISTS ix_custom_domains_business_id ON custom_domains (business_id);
+CREATE INDEX IF NOT EXISTS ix_custom_domains_id ON custom_domains (id);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_custom_domains_domain ON custom_domains (domain);
+CREATE INDEX IF NOT EXISTS ix_knowledge_documents_business_id ON knowledge_documents (business_id);
+CREATE INDEX IF NOT EXISTS ix_knowledge_documents_id ON knowledge_documents (id);
+CREATE INDEX IF NOT EXISTS ix_landing_pages_id ON landing_pages (id);
+CREATE INDEX IF NOT EXISTS ix_live_sessions_id ON live_sessions (id);
+CREATE INDEX IF NOT EXISTS ix_live_sessions_business_id ON live_sessions (business_id);
+CREATE INDEX IF NOT EXISTS ix_mcp_listings_id ON mcp_listings (id);
+CREATE INDEX IF NOT EXISTS ix_mini_app_configs_id ON mini_app_configs (id);
+CREATE INDEX IF NOT EXISTS ix_payment_integrations_id ON payment_integrations (id);
+CREATE INDEX IF NOT EXISTS ix_payment_integrations_business_id ON payment_integrations (business_id);
+CREATE INDEX IF NOT EXISTS ix_recharge_orders_payment_reference ON recharge_orders (payment_reference);
+CREATE INDEX IF NOT EXISTS ix_recharge_orders_id ON recharge_orders (id);
+CREATE INDEX IF NOT EXISTS ix_recharge_orders_business_id ON recharge_orders (business_id);
+CREATE INDEX IF NOT EXISTS ix_subscriptions_business_id ON subscriptions (business_id);
+CREATE INDEX IF NOT EXISTS ix_subscriptions_id ON subscriptions (id);
+CREATE INDEX IF NOT EXISTS ix_token_wallets_id ON token_wallets (id);
+CREATE INDEX IF NOT EXISTS ix_usage_daily_aggregates_business_id ON usage_daily_aggregates (business_id);
+CREATE INDEX IF NOT EXISTS ix_usage_daily_aggregates_id ON usage_daily_aggregates (id);
+CREATE INDEX IF NOT EXISTS ix_agent_reports_agent_id ON agent_reports (agent_id);
+CREATE INDEX IF NOT EXISTS ix_agent_reports_id ON agent_reports (id);
+CREATE INDEX IF NOT EXISTS ix_child_agents_agent_id ON child_agents (agent_id);
+CREATE INDEX IF NOT EXISTS ix_child_agents_id ON child_agents (id);
+CREATE INDEX IF NOT EXISTS ix_child_agents_business_id ON child_agents (business_id);
+CREATE INDEX IF NOT EXISTS ix_etg_transactions_id ON etg_transactions (id);
+CREATE INDEX IF NOT EXISTS ix_etg_transactions_wallet_id ON etg_transactions (wallet_id);
+CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_business_id ON knowledge_chunks (business_id);
+CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_id ON knowledge_chunks (id);
+CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_document_id ON knowledge_chunks (document_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_business ON knowledge_chunks (business_id);
+CREATE INDEX IF NOT EXISTS ix_knowledge_items_id ON knowledge_items (id);
+CREATE INDEX IF NOT EXISTS ix_knowledge_items_business_id ON knowledge_items (business_id);
+CREATE INDEX IF NOT EXISTS ix_mcp_fetch_logs_id ON mcp_fetch_logs (id);
+CREATE INDEX IF NOT EXISTS ix_mcp_fetch_logs_listing_id ON mcp_fetch_logs (listing_id);
+CREATE INDEX IF NOT EXISTS ix_support_tickets_id ON support_tickets (id);
+CREATE INDEX IF NOT EXISTS ix_support_tickets_user_id ON support_tickets (user_id);
+CREATE INDEX IF NOT EXISTS ix_token_escrow_id ON token_escrow (id);
+CREATE INDEX IF NOT EXISTS ix_token_escrow_wallet_id ON token_escrow (wallet_id);
+CREATE INDEX IF NOT EXISTS ix_wallet_alerts_wallet_id ON wallet_alerts (wallet_id);
+CREATE INDEX IF NOT EXISTS ix_wallet_alerts_id ON wallet_alerts (id);
+CREATE INDEX IF NOT EXISTS ix_agent_trials_id ON agent_trials (id);
+CREATE INDEX IF NOT EXISTS ix_agent_trials_business_id ON agent_trials (business_id);
+CREATE INDEX IF NOT EXISTS ix_agent_trials_agent_id ON agent_trials (agent_id);
+CREATE INDEX IF NOT EXISTS ix_agent_unlocks_agent_id ON agent_unlocks (agent_id);
+CREATE INDEX IF NOT EXISTS ix_agent_unlocks_business_id ON agent_unlocks (business_id);
+CREATE INDEX IF NOT EXISTS ix_agent_unlocks_id ON agent_unlocks (id);
+CREATE INDEX IF NOT EXISTS ix_conversations_bot_id ON conversations (bot_id);
+CREATE INDEX IF NOT EXISTS ix_conversations_id ON conversations (id);
+CREATE INDEX IF NOT EXISTS ix_conversations_business_id ON conversations (business_id);
+CREATE INDEX IF NOT EXISTS ix_conversations_customer_platform_id ON conversations (customer_platform_id);
+CREATE INDEX IF NOT EXISTS ix_live_products_id ON live_products (id);
+CREATE INDEX IF NOT EXISTS ix_live_products_session_id ON live_products (session_id);
+CREATE INDEX IF NOT EXISTS ix_ticket_messages_id ON ticket_messages (id);
+CREATE INDEX IF NOT EXISTS ix_ticket_messages_ticket_id ON ticket_messages (ticket_id);
+CREATE INDEX IF NOT EXISTS ix_agent_reviews_business_id ON agent_reviews (business_id);
+CREATE INDEX IF NOT EXISTS ix_agent_reviews_id ON agent_reviews (id);
+CREATE INDEX IF NOT EXISTS ix_agent_reviews_agent_id ON agent_reviews (agent_id);
+CREATE INDEX IF NOT EXISTS ix_chat_messages_id ON chat_messages (id);
+CREATE INDEX IF NOT EXISTS ix_chat_messages_conversation_id ON chat_messages (conversation_id);
+CREATE INDEX IF NOT EXISTS ix_orders_payment_reference ON orders (payment_reference);
+CREATE INDEX IF NOT EXISTS ix_orders_business_id ON orders (business_id);
+CREATE INDEX IF NOT EXISTS ix_orders_id ON orders (id);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_orders_order_number ON orders (order_number);
+CREATE INDEX IF NOT EXISTS ix_orders_customer_platform_id ON orders (customer_platform_id);
+CREATE INDEX IF NOT EXISTS ix_usage_events_business_id ON usage_events (business_id);
+CREATE INDEX IF NOT EXISTS idx_usage_events_business_created ON usage_events (business_id, created_at);
+CREATE INDEX IF NOT EXISTS ix_usage_events_action_type ON usage_events (action_type);
+CREATE INDEX IF NOT EXISTS ix_usage_events_id ON usage_events (id);

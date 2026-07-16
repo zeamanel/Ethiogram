@@ -26,7 +26,10 @@ CREATE TABLE IF NOT EXISTS mini_app_configs (
 CREATE INDEX IF NOT EXISTS idx_mini_app_configs_business_id ON mini_app_configs(business_id);
 
 -- ── landing_pages ─────────────────────────────────────────────────────────────
-CREATE TYPE landing_page_status AS ENUM ('draft', 'published', 'archived');
+DO $$ BEGIN
+  CREATE TYPE landing_page_status AS ENUM ('draft', 'published', 'archived');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS landing_pages (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -49,7 +52,10 @@ CREATE INDEX IF NOT EXISTS idx_landing_pages_slug ON landing_pages(slug);
 CREATE INDEX IF NOT EXISTS idx_landing_pages_status ON landing_pages(status);
 
 -- ── live_commerce_sessions ────────────────────────────────────────────────────
-CREATE TYPE live_session_status AS ENUM ('scheduled', 'live', 'ended');
+DO $$ BEGIN
+  CREATE TYPE live_session_status AS ENUM ('scheduled', 'live', 'ended');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS live_commerce_sessions (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -76,7 +82,10 @@ CREATE INDEX IF NOT EXISTS idx_live_sessions_status ON live_commerce_sessions(st
 CREATE INDEX IF NOT EXISTS idx_live_sessions_scheduled_at ON live_commerce_sessions(scheduled_at);
 
 -- ── mcp_tool_registry ─────────────────────────────────────────────────────────
-CREATE TYPE mcp_tool_status AS ENUM ('active', 'deprecated', 'beta');
+DO $$ BEGIN
+  CREATE TYPE mcp_tool_status AS ENUM ('active', 'deprecated', 'beta');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS mcp_tool_registry (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -111,7 +120,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_business_mcp_tools_unique
 CREATE INDEX IF NOT EXISTS idx_business_mcp_tools_business_id ON business_mcp_tools(business_id);
 
 -- ── appointment_slots ─────────────────────────────────────────────────────────
-CREATE TYPE slot_status AS ENUM ('available', 'booked', 'cancelled', 'blocked');
+DO $$ BEGIN
+  CREATE TYPE slot_status AS ENUM ('available', 'booked', 'cancelled', 'blocked');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS appointment_slots (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

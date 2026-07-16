@@ -34,13 +34,25 @@ _POLL_INTERVAL = 15  # seconds
 
 
 async def dispatch_pending() -> int:
-    """Process up to _BATCH_SIZE unsent notifications. Returns count dispatched."""
+    """Dispatch up to _BATCH_SIZE not-yet-finished notifications.
+
+    Selection is on ``dispatched_at IS NULL`` — the terminal flag set once every
+    intended channel has been delivered — NOT on ``is_read`` (the user's
+    dashboard read flag, which was the old re-dispatch bug). Per channel:
+      1. only channels not already in ``sent_via`` are attempted,
+      2. on success the channel is appended to ``sent_via``,
+      3. once all intended channels are recorded, ``dispatched_at`` is set so
+         the row drops out of future polls.
+    A channel that fails (e.g. a Telegram outage) is NOT marked, so the row
+    stays selectable and is retried on the next poll. Returns the count of
+    notifications that became fully dispatched this pass.
+    """
     dispatched = 0
 
     async with get_db_context() as db:
         result = await db.execute(
             select(Notification)
-            .where(Notification.is_read.is_(False))
+            .where(Notification.dispatched_at.is_(None))
             .order_by(Notification.created_at.asc())
             .limit(_BATCH_SIZE)
             .with_for_update(skip_locked=True)
@@ -52,10 +64,12 @@ async def dispatch_pending() -> int:
 
         for notif in notifications:
             try:
-                sent_channels = await _dispatch_notification(notif, db)
-                if sent_channels:
-                    notif.sent_via = list(set((notif.sent_via or []) + sent_channels))
-                dispatched += 1
+                newly_sent, fully_done = await _dispatch_notification(notif, db)
+                if newly_sent:
+                    notif.sent_via = list(set((notif.sent_via or []) + newly_sent))
+                if fully_done:
+                    notif.dispatched_at = datetime.now(timezone.utc)
+                    dispatched += 1
             except Exception as exc:
                 logger.error(
                     "Notification dispatch failed",
@@ -66,26 +80,36 @@ async def dispatch_pending() -> int:
     return dispatched
 
 
-async def _dispatch_notification(notif: Notification, db: AsyncSession) -> list[str]:
-    """Dispatch a single notification. Returns list of channels used."""
-    sent: list[str] = []
+async def _dispatch_notification(notif: Notification, db: AsyncSession) -> tuple[list[str], bool]:
+    """Deliver any not-yet-sent intended channels for one notification.
+
+    Returns ``(newly_sent_channels, fully_done)`` where ``fully_done`` is True
+    once every intended channel has been delivered (so the caller can set the
+    terminal ``dispatched_at``).
+    """
+    already = set(notif.sent_via or [])
+    newly: list[str] = []
 
     user_result = await db.execute(select(User).where(User.id == notif.user_id))
     user = user_result.scalar_one_or_none()
-    if user is None:
-        return sent
 
-    # Telegram channel
-    if user.telegram_id and "telegram" not in (notif.sent_via or []):
-        tg_sent = await _send_telegram(user, notif, db)
-        if tg_sent:
-            sent.append("telegram")
+    # Intended channels for this notification.
+    intended = {"dashboard"}  # always — a DB flag the dashboard reads
+    if user is not None and user.telegram_id:
+        intended.add("telegram")
 
-    # Dashboard is always marked (it's just a DB flag read by the frontend)
-    if "dashboard" not in (notif.sent_via or []):
-        sent.append("dashboard")
+    # Telegram: best-effort. Not appended on failure, so it's retried next poll.
+    if "telegram" in intended and "telegram" not in already:
+        if await _send_telegram(user, notif, db):
+            newly.append("telegram")
 
-    return sent
+    # Dashboard: always succeeds (nothing to send; it's just the flag).
+    if "dashboard" not in already:
+        newly.append("dashboard")
+
+    delivered = already | set(newly)
+    fully_done = intended.issubset(delivered)
+    return newly, fully_done
 
 
 async def _send_telegram(

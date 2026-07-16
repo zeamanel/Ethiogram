@@ -141,6 +141,10 @@ class User(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.owner, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Global end-user wallet (reserved for the end-user recharge phase; per-business
+    # billing currently uses Conversation.etg_balance).
+    etg_balance: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     language_code: Mapped[str] = mapped_column(String(8), default="en", nullable=False)
     referral_code: Mapped[Optional[str]] = mapped_column(String(16), unique=True, nullable=True, index=True)
     referred_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -224,6 +228,13 @@ class Business(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     is_suspended: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     suspended_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Billing policy — who pays per message, free-tier cap, and user-pays pricing.
+    billing_policy: Mapped[str] = mapped_column(String(16), default="business_pays", nullable=False)
+    per_user_monthly_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    per_user_limit_action: Mapped[str] = mapped_column(String(16), default="block", nullable=False)
+    service_price: Mapped[int] = mapped_column(Integer, default=0, nullable=False)   # ETG charged to the end-user
+    business_markup: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # ETG profit credited to the business
+
     owner: Mapped["User"] = relationship("User", back_populates="businesses")
     bots: Mapped[list["Bot"]] = relationship("Bot", back_populates="business")
     brain_config: Mapped[Optional["BusinessBrainConfig"]] = relationship("BusinessBrainConfig", back_populates="business", uselist=False)
@@ -234,6 +245,7 @@ class Business(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     wallet: Mapped[Optional["TokenWallet"]] = relationship("TokenWallet", back_populates="business", uselist=False)
     payment_integrations: Mapped[list["PaymentIntegration"]] = relationship("PaymentIntegration", back_populates="business")
     orders: Mapped[list["Order"]] = relationship("Order", back_populates="business")
+    bookings: Mapped[list["Booking"]] = relationship("Booking", back_populates="business")
     mini_app_config: Mapped[Optional["MiniAppConfig"]] = relationship("MiniAppConfig", back_populates="business", uselist=False)
     landing_page: Mapped[Optional["LandingPage"]] = relationship("LandingPage", back_populates="business", uselist=False)
     mcp_listing: Mapped[Optional["McpListing"]] = relationship("McpListing", back_populates="business", uselist=False)
@@ -274,7 +286,7 @@ class BusinessBrainConfig(Base, UUIDMixin, TimestampMixin):
     persona_tone: Mapped[str] = mapped_column(String(64), default="friendly", nullable=False)
     system_prompt_extra: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     rag_top_k: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
-    rag_similarity_threshold: Mapped[float] = mapped_column(Float, default=0.75, nullable=False)
+    rag_similarity_threshold: Mapped[float] = mapped_column(Float, default=0.3, nullable=False)
     max_history_messages: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
     fallback_message: Mapped[str] = mapped_column(Text, default="I don't have information about that. Please contact us directly.", nullable=False)
     handoff_message: Mapped[str] = mapped_column(Text, default="Let me connect you with a human agent.", nullable=False)
@@ -352,6 +364,10 @@ class Conversation(Base, UUIDMixin, TimestampMixin):
     last_message_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     total_messages: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     total_etg_spent: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Per-business end-user billing ledger (user_pays / free-tier cap).
+    etg_balance: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    monthly_etg_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    monthly_reset_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     child_agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("child_agents.id"), nullable=True)
     context_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
@@ -462,7 +478,13 @@ class ChildAgent(Base, UUIDMixin, TimestampMixin):
     agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True)
     business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
     display_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    # Non-sensitive, owner-filled config (products, hours, rules, tone). Rendered
+    # into the system prompt.
     child_data: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    # Sensitive config (calendar/API credentials). Fernet-encrypted JSON blob —
+    # NEVER stored plaintext and NEVER rendered into the prompt; decrypted only
+    # in code and exposed to the agent under the "_secrets" key.
+    child_secrets: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     assigned_to_bot_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("bots.id"), nullable=True)
 
@@ -626,6 +648,7 @@ class UsageEvent(Base, UUIDMixin, TimestampMixin):
     input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     etg_charged: Mapped[int] = mapped_column(Integer, nullable=False)
+    payer: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)   # business | user
     latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     __table_args__ = (
@@ -737,6 +760,65 @@ class Order(Base, UUIDMixin, TimestampMixin):
     business: Mapped["Business"] = relationship("Business", back_populates="orders")
 
 
+# Booking lifecycle (stored as a plain string like billing_policy — avoids a
+# Postgres enum type and the SQLite enum quirks in tests).
+BOOKING_STATUSES = ("confirmed", "cancelled", "completed", "no_show")
+
+
+class Booking(Base, UUIDMixin, TimestampMixin):
+    """A native appointment record. Owned by Ethiogram (not just a calendar
+    event) so the owner dashboard, reminders, and reschedule/cancel can work
+    without the business wiring Google Calendar. ``calendar_event_id`` is set
+    only when the booking is also mirrored to an external calendar."""
+    __tablename__ = "bookings"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("conversations.id"), nullable=True)
+    customer_platform_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    customer_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    customer_phone: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    service_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="confirmed", nullable=False, index=True)
+    price: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(16), default="telegram", nullable=False)
+    calendar_event_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    reminder_24h_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    reminder_1h_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    business: Mapped["Business"] = relationship("Business", back_populates="bookings")
+
+    __table_args__ = (
+        Index("idx_bookings_business_starts", "business_id", "starts_at"),
+        Index("idx_bookings_status_starts", "status", "starts_at"),
+    )
+
+
+# How an owner names the recipient of a business transfer, and the lifecycle.
+TRANSFER_KINDS = ("telegram_username", "telegram_id", "email")
+TRANSFER_STATUSES = ("pending", "accepted", "declined", "cancelled", "expired")
+
+
+class BusinessTransfer(Base, UUIDMixin, TimestampMixin):
+    """A pending hand-off of a business to another person (by Telegram or email).
+    Ownership only moves when the recipient accepts — so a mistaken target, or a
+    recipient who hasn't signed up yet, never loses or strands the business."""
+    __tablename__ = "business_transfers"
+
+    business_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("businesses.id", ondelete="CASCADE"), nullable=False, index=True)
+    from_user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    to_kind: Mapped[str] = mapped_column(String(16), nullable=False)        # telegram_username | telegram_id | email
+    to_value: Mapped[str] = mapped_column(String(255), nullable=False, index=True)  # normalized identifier
+    to_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending", nullable=False, index=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+
+
 # ---------------------------------------------------------------------------
 # System 8 — Presence
 # ---------------------------------------------------------------------------
@@ -749,6 +831,8 @@ class MiniAppConfig(Base, UUIDMixin, TimestampMixin):
     theme_secondary: Mapped[str] = mapped_column(String(7), default="#ffffff", nullable=False)
     theme_accent: Mapped[str] = mapped_column(String(7), default="#fbbc04", nullable=False)
     font_family: Mapped[str] = mapped_column(String(64), default="Inter", nullable=False)
+    font_heading: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    font_body: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     hero_image_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     layout_config: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     ui_child_prompt: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -908,6 +992,11 @@ class Notification(Base, UUIDMixin, TimestampMixin):
     sent_via: Mapped[list] = mapped_column(JSONB, default=[], nullable=False)
     is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set once every intended delivery channel has been handled. The dispatch
+    # worker selects on `dispatched_at IS NULL`, so this is the terminal flag
+    # that stops a row being re-processed (distinct from is_read, the user's
+    # dashboard read flag).
+    dispatched_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
 
 
 class AdminAuditLog(Base, UUIDMixin, TimestampMixin):

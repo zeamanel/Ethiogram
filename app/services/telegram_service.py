@@ -1,5 +1,4 @@
 # app/services/telegram_service.py
-import hashlib
 import hmac
 import json
 from dataclasses import dataclass, field
@@ -15,7 +14,12 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 _TELEGRAM_API_BASE = "https://api.telegram.org/bot{token}"
-_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+
+
+def _timeout() -> httpx.Timeout:
+    # Read from settings so it can be raised for local dev over a slow VPN
+    # (TELEGRAM_CONNECT_TIMEOUT / TELEGRAM_READ_TIMEOUT) without code changes.
+    return httpx.Timeout(settings.telegram_read_timeout, connect=settings.telegram_connect_timeout)
 
 
 @dataclass
@@ -35,6 +39,7 @@ class MessageEnvelope:
     message_id: int
     timestamp: datetime
     raw: dict = field(repr=False)         # original update payload
+    chat_type: str = "private"            # private | group | supergroup | channel
 
 
 class TelegramService:
@@ -49,7 +54,7 @@ class TelegramService:
 
     async def _post(self, token: str, method: str, payload: dict) -> dict:
         url = self._url(token, method)
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_timeout()) as client:
             response = await client.post(url, json=payload)
         data = response.json()
         if not data.get("ok"):
@@ -65,7 +70,7 @@ class TelegramService:
 
     async def _get(self, token: str, method: str) -> dict:
         url = self._url(token, method)
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_timeout()) as client:
             response = await client.get(url)
         data = response.json()
         if not data.get("ok"):
@@ -118,6 +123,7 @@ class TelegramService:
         parse_mode: str = "HTML",
         reply_to_message_id: Optional[int] = None,
         disable_web_page_preview: bool = True,
+        reply_markup: Optional[dict] = None,
     ) -> dict:
         payload: dict = {
             "chat_id": chat_id,
@@ -127,6 +133,8 @@ class TelegramService:
         }
         if reply_to_message_id:
             payload["reply_to_message_id"] = reply_to_message_id
+        if reply_markup is not None:     # ReplyKeyboardMarkup / inline / remove
+            payload["reply_markup"] = reply_markup
         return await self._post(token, "sendMessage", payload)
 
     async def send_message_with_buttons(
@@ -153,8 +161,11 @@ class TelegramService:
     async def send_typing_action(self, token: str, chat_id: int | str) -> None:
         try:
             await self._post(token, "sendChatAction", {"chat_id": chat_id, "action": "typing"})
-        except TelegramAPIError:
-            pass  # non-critical, never block message processing
+        except Exception as exc:
+            # Fire-and-forget: a network/timeout/API error on the typing
+            # indicator must never crash the webhook (which would 500 ->
+            # Telegram retry -> re-charge). Swallow everything.
+            logger.debug("send_typing_action failed (non-critical)", error=str(exc))
 
     async def send_photo(
         self,
@@ -223,15 +234,17 @@ class TelegramService:
     # ------------------------------------------------------------------
 
     def verify_webhook_signature(
-        self, request_body: bytes, secret_token: str, provided_hash: str
+        self, secret_token: str, provided_token: str
     ) -> bool:
-        """Verify the X-Telegram-Bot-Api-Secret-Token header."""
-        expected = hmac.new(
-            secret_token.encode("utf-8"),
-            request_body,
-            hashlib.sha256,
-        ).hexdigest()
-        return hmac.compare_digest(expected, provided_hash)
+        """
+        Verify the ``X-Telegram-Bot-Api-Secret-Token`` header.
+
+        Telegram returns the secret_token (set via setWebhook) verbatim in this
+        header — it is NOT an HMAC of the request body. Compare in constant time.
+        """
+        if not provided_token:
+            return False
+        return hmac.compare_digest(secret_token, provided_token)
 
     # ------------------------------------------------------------------
     # Update parsing → MessageEnvelope
@@ -258,10 +271,16 @@ class TelegramService:
 
         chat = message.get("chat", {})
         chat_id = str(chat.get("id", ""))
+        chat_type = chat.get("type", "private")
         message_id: int = message.get("message_id", 0)
 
-        # Resolve customer identity
-        customer_id = str(sender.get("id", chat_id))
+        # Resolve the conversation identity. In a group/supergroup the bot serves
+        # the GROUP (replies go to the group, one conversation per group), so the
+        # chat id is the identity. In private chats the chat id == the user id.
+        if chat_type in ("group", "supergroup"):
+            customer_id = chat_id
+        else:
+            customer_id = str(sender.get("id", chat_id))
         first = sender.get("first_name", "")
         last = sender.get("last_name", "")
         customer_name = f"{first} {last}".strip() or None
@@ -296,6 +315,7 @@ class TelegramService:
             message_id=message_id,
             timestamp=timestamp,
             raw=body,
+            chat_type=chat_type,
         )
 
     def _extract_media(self, message: dict) -> tuple[Optional[str], Optional[str], Optional[str]]:

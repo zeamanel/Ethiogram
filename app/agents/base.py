@@ -23,6 +23,18 @@ from app.services.telegram_service import MessageEnvelope
 logger = get_logger(__name__)
 
 
+def _humanize_value(v) -> str:
+    """Render a JSON value as readable prose for the system prompt (no raw
+    Python/JSON repr like ['a','b'] or {'k': 'v'})."""
+    if isinstance(v, bool):
+        return "yes" if v else "no"
+    if isinstance(v, dict):
+        return "; ".join(f"{k.replace('_', ' ')}: {_humanize_value(val)}" for k, val in v.items())
+    if isinstance(v, (list, tuple)):
+        return ", ".join(_humanize_value(x) for x in v)
+    return str(v)
+
+
 @dataclass
 class AgentResponse:
     text: str
@@ -78,16 +90,28 @@ class BaseAgent:
         # 3. Build prompt
         system_prompt = self.build_system_prompt(brain_config, child_data, chunks)
 
+        # 3b. Inject the structured catalog (knowledge_items). Unlike documents,
+        # these are curated rows (products, services, FAQs) the bot should always
+        # see — they are not retrieved by similarity, they are appended verbatim.
+        if brain_config:
+            items = await rag_service.get_knowledge_items(
+                str(conversation.business_id), db, active_only=True
+            )
+            items_block = rag_service.format_knowledge_items_for_prompt(items)
+            if items_block:
+                system_prompt = system_prompt + "\n\n" + items_block
+
         # 4. Assemble messages: history + current turn
         messages = history + [{"role": "user", "content": text or ""}]
 
-        # 5. Model call with failover
+        # 5. Model call with failover (Amharic speakers route to Gemini first)
         response_text, tokens, model_id = await model_router.execute_with_fallback(
             messages=messages,
             system_prompt=system_prompt,
             business_id=str(conversation.business_id) if conversation.business_id else None,
             agent_model_id=agent_model_id,
             business_preferred_model_id=business_preferred_model_id,
+            language=getattr(conversation, "detected_language", None),
         )
 
         logger.info(
@@ -149,11 +173,16 @@ class BaseAgent:
             if father_prompt:
                 parts.append(f"\n{father_prompt}")
 
-            # Business-specific context filled by the owner (Child layer)
+            # Business-specific context filled by the owner (Child layer).
+            # Only non-"_" keys are rendered, so reserved/sensitive slots
+            # (_father_prompt, _secrets, ...) never reach the model prompt.
             child_context = {k: v for k, v in child_data.items() if not k.startswith("_")}
             if child_context:
-                ctx_lines = [f"  {k}: {v}" for k, v in child_context.items()]
-                parts.append("Business-specific context:\n" + "\n".join(ctx_lines))
+                lines = [
+                    f"- {k.replace('_', ' ').strip().capitalize()}: {_humanize_value(v)}"
+                    for k, v in child_context.items()
+                ]
+                parts.append("Business-specific details:\n" + "\n".join(lines))
 
         # RAG context
         if chunks:
@@ -199,3 +228,7 @@ class BaseAgent:
             elif msg.role == MessageRole.assistant:
                 history.append({"role": "assistant", "content": msg.content})
         return history
+
+
+# Default general-purpose Q&A agent (used directly and as the router fallback).
+base_agent = BaseAgent()

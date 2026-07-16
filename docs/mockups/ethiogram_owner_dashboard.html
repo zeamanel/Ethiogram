@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ethiogram — Owner Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    /* Palette — "Highland Dusk": deep ink, warm parchment, ETG amber, teff green */
+    --ink:          #14110D;   /* near-black warm */
+    --ink-2:        #1E1A14;
+    --surface:      #FBF8F1;   /* warm parchment */
+    --surface-2:    #F3EEE2;
+    --card:         #FFFFFF;
+    --line:         #E5DECF;
+    --line-soft:    #EFE9DB;
+    --text:         #1E1A14;
+    --text-2:       #6B6356;
+    --text-3:       #9A9183;
+    --amber:        #D97A1B;   /* ETG token — the hero color */
+    --amber-deep:   #B85F10;
+    --amber-soft:   #FDF1E2;
+    --green:        #3D7A4E;   /* teff/highland green — positive */
+    --green-soft:   #EAF2EC;
+    --red:          #C0492F;
+    --red-soft:     #FBEDE9;
+    --blue:         #2F5E8C;
+    --blue-soft:    #EAF0F6;
+    --radius:       14px;
+    --radius-sm:    10px;
+  }
+
+  body {
+    background: var(--surface);
+    font-family: 'Inter', sans-serif;
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+
+  .app { display: flex; min-height: 100vh; }
+
+  /* ───────────────────── SIDEBAR ───────────────────── */
+  .sidebar {
+    width: 248px;
+    background: var(--ink);
+    color: #C9C1B2;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 22px 16px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 11px;
+    padding: 4px 8px 22px;
+  }
+  .brand-mark {
+    width: 34px; height: 34px;
+    border-radius: 9px;
+    background: linear-gradient(140deg, var(--amber), #E89A3C);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Sora', sans-serif; font-weight: 800;
+    color: var(--ink); font-size: 17px;
+    box-shadow: 0 4px 14px rgba(217,122,27,0.35);
+  }
+  .brand-name {
+    font-family: 'Sora', sans-serif; font-weight: 700;
+    font-size: 16px; color: #F7F3EA; letter-spacing: -0.01em;
+  }
+  .brand-sub { font-size: 10.5px; color: #6E6557; letter-spacing: 0.04em; text-transform: uppercase; margin-top: 1px; }
+
+  .nav-group { margin-top: 8px; }
+  .nav-label {
+    font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #5E564A; padding: 14px 10px 7px; font-weight: 600;
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 11px;
+    padding: 9px 10px; border-radius: 9px;
+    font-size: 13.5px; font-weight: 450; color: #B5AC9C;
+    cursor: pointer; transition: all 0.15s; margin-bottom: 1px;
+    position: relative;
+  }
+  .nav-item:hover { background: rgba(255,255,255,0.04); color: #EDE7DA; }
+  .nav-item.active { background: rgba(217,122,27,0.13); color: #F4C089; font-weight: 500; }
+  .nav-item.active::before {
+    content: ''; position: absolute; left: -16px; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 18px; background: var(--amber); border-radius: 0 3px 3px 0;
+  }
+  .nav-ic { width: 17px; height: 17px; opacity: 0.85; flex-shrink: 0; }
+  .nav-badge {
+    margin-left: auto; font-size: 10px; font-weight: 600;
+    background: var(--amber); color: var(--ink);
+    padding: 1px 7px; border-radius: 20px;
+  }
+
+  .sidebar-foot { margin-top: auto; padding-top: 16px; }
+  .owner-card {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px; border-radius: 11px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+  .owner-avatar {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: linear-gradient(135deg, #3D7A4E, #5a9e6c);
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-weight: 600; font-size: 13px; flex-shrink: 0;
+  }
+  .owner-name { font-size: 12.5px; font-weight: 500; color: #EDE7DA; }
+  .owner-biz { font-size: 10.5px; color: #6E6557; }
+
+  /* ───────────────────── MAIN ───────────────────── */
+  .main { flex: 1; min-width: 0; }
+
+  .topbar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px 30px;
+    border-bottom: 1px solid var(--line);
+    background: rgba(251,248,241,0.85);
+    backdrop-filter: blur(10px);
+    position: sticky; top: 0; z-index: 20;
+  }
+  .topbar h1 {
+    font-family: 'Sora', sans-serif; font-size: 19px; font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .topbar-sub { font-size: 12.5px; color: var(--text-2); margin-top: 1px; }
+  .topbar-spacer { flex: 1; }
+
+  .search-pill {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--line);
+    padding: 8px 13px; border-radius: 10px; width: 240px;
+    color: var(--text-3); font-size: 13px;
+  }
+  .topbar-btn {
+    width: 38px; height: 38px; border-radius: 10px;
+    background: var(--card); border: 1px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--text-2); position: relative;
+    transition: all 0.15s;
+  }
+  .topbar-btn:hover { border-color: var(--amber); color: var(--amber); }
+  .dot {
+    position: absolute; top: 8px; right: 9px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--red); border: 1.5px solid var(--card);
+  }
+
+  .content { padding: 26px 30px 60px; max-width: 1240px; }
+
+  /* ── ETG WALLET — THE HERO ── */
+  .wallet-hero {
+    background: linear-gradient(135deg, var(--ink) 0%, #2A2218 55%, #3a2c18 100%);
+    border-radius: 18px;
+    padding: 26px 28px;
+    color: #F7F3EA;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 22px;
+  }
+  .wallet-hero::after {
+    content: ''; position: absolute; right: -60px; top: -60px;
+    width: 280px; height: 280px;
+    background: radial-gradient(circle, rgba(217,122,27,0.28), transparent 65%);
+    pointer-events: none;
+  }
+  .wallet-grid {
+    display: grid; grid-template-columns: 1.4fr 1px 1fr 1fr;
+    gap: 26px; align-items: center; position: relative;
+  }
+  .wallet-divider { background: rgba(255,255,255,0.1); height: 70px; }
+  .wallet-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: #A99B82; font-weight: 600; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 7px;
+  }
+  .wallet-balance {
+    font-family: 'Sora', sans-serif; font-weight: 800;
+    font-size: 42px; letter-spacing: -0.03em; line-height: 1;
+    display: flex; align-items: baseline; gap: 9px;
+  }
+  .wallet-balance .unit { font-size: 16px; font-weight: 600; color: var(--amber); letter-spacing: 0; }
+  .wallet-meta { font-size: 12.5px; color: #B5AC9C; margin-top: 9px; }
+  .wallet-meta b { color: #F4C089; font-weight: 600; }
+  .wallet-stat-num {
+    font-family: 'Sora', sans-serif; font-weight: 700; font-size: 23px;
+    letter-spacing: -0.02em;
+  }
+  .wallet-stat-num.amber { color: #F4C089; }
+  .wallet-stat-sub { font-size: 11.5px; color: #8E8472; margin-top: 3px; }
+  .wallet-actions { display: flex; gap: 10px; margin-top: 18px; position: relative; }
+  .btn {
+    font-family: 'Inter', sans-serif; font-weight: 600; font-size: 13px;
+    padding: 10px 18px; border-radius: 10px; border: none; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 7px; transition: all 0.16s;
+  }
+  .btn-amber { background: var(--amber); color: #1a1206; }
+  .btn-amber:hover { background: #E89A3C; transform: translateY(-1px); }
+  .btn-ghost-light { background: rgba(255,255,255,0.08); color: #EDE7DA; border: 1px solid rgba(255,255,255,0.14); }
+  .btn-ghost-light:hover { background: rgba(255,255,255,0.14); }
+
+  .runway-bar {
+    margin-top: 16px; height: 5px; border-radius: 3px;
+    background: rgba(255,255,255,0.1); overflow: hidden; position: relative;
+  }
+  .runway-fill { height: 100%; width: 62%; background: linear-gradient(90deg, var(--amber), #E89A3C); border-radius: 3px; }
+
+  /* ── STAT CARDS ── */
+  .stat-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+    margin-bottom: 22px;
+  }
+  .stat-card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 17px 18px;
+  }
+  .stat-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }
+  .stat-ic {
+    width: 34px; height: 34px; border-radius: 9px;
+    display: flex; align-items: center; justify-content: center; font-size: 16px;
+  }
+  .ic-amber { background: var(--amber-soft); }
+  .ic-green { background: var(--green-soft); }
+  .ic-blue  { background: var(--blue-soft); }
+  .ic-red   { background: var(--red-soft); }
+  .stat-trend { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 20px; }
+  .trend-up { color: var(--green); background: var(--green-soft); }
+  .trend-down { color: var(--red); background: var(--red-soft); }
+  .stat-value {
+    font-family: 'Sora', sans-serif; font-weight: 700; font-size: 26px;
+    letter-spacing: -0.02em; line-height: 1;
+  }
+  .stat-name { font-size: 12.5px; color: var(--text-2); margin-top: 5px; }
+
+  /* ── TWO COLUMN ── */
+  .cols { display: grid; grid-template-columns: 1.55fr 1fr; gap: 18px; }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); overflow: hidden;
+  }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 18px 14px; border-bottom: 1px solid var(--line-soft);
+  }
+  .panel-title { font-family: 'Sora', sans-serif; font-weight: 600; font-size: 14.5px; }
+  .panel-link { font-size: 12px; color: var(--amber-deep); font-weight: 500; cursor: pointer; }
+
+  /* usage chart */
+  .chart-wrap { padding: 18px; }
+  .chart {
+    height: 150px; display: flex; align-items: flex-end; gap: 7px;
+    padding-top: 10px;
+  }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; }
+  .bar-stack { width: 100%; max-width: 30px; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; height: 120px; }
+  .bar { width: 100%; border-radius: 3px 3px 0 0; }
+  .bar.qa { background: var(--amber); }
+  .bar.ocr { background: var(--blue); border-radius: 0; }
+  .bar.book { background: var(--green); border-radius: 3px 3px 0 0; }
+  .bar-day { font-size: 10.5px; color: var(--text-3); font-weight: 500; }
+  .chart-legend { display: flex; gap: 16px; padding: 14px 18px 0; }
+  .leg { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-2); }
+  .leg-dot { width: 9px; height: 9px; border-radius: 2px; }
+
+  /* brain status */
+  .brain-list { padding: 8px 10px; }
+  .brain-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 10px; border-radius: 10px; transition: background 0.15s;
+  }
+  .brain-item:hover { background: var(--surface-2); }
+  .brain-ic {
+    width: 36px; height: 36px; border-radius: 9px;
+    display: flex; align-items: center; justify-content: center; font-size: 16px;
+    flex-shrink: 0;
+  }
+  .brain-info { flex: 1; min-width: 0; }
+  .brain-name { font-size: 13px; font-weight: 500; }
+  .brain-meta { font-size: 11.5px; color: var(--text-3); margin-top: 1px; }
+  .brain-count { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 600; color: var(--text-2); }
+  .pill-status {
+    font-size: 10.5px; font-weight: 600; padding: 2px 8px; border-radius: 20px;
+  }
+  .ps-live { background: var(--green-soft); color: var(--green); }
+  .ps-sync { background: var(--amber-soft); color: var(--amber-deep); }
+
+  /* orders / activity */
+  .activity { padding: 6px 10px 12px; }
+  .act-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 11px 10px; border-radius: 10px;
+  }
+  .act-item:not(:last-child) { border-bottom: 1px solid var(--line-soft); }
+  .act-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .act-body { flex: 1; min-width: 0; }
+  .act-text { font-size: 13px; }
+  .act-text b { font-weight: 600; }
+  .act-time { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+  .act-amt { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; font-weight: 600; }
+
+  .section-gap { height: 18px; }
+
+  /* bots strip */
+  .bots-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+  .bot-card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 16px 17px;
+  }
+  .bot-head { display: flex; align-items: center; gap: 11px; margin-bottom: 13px; }
+  .bot-avatar {
+    width: 40px; height: 40px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Sora', sans-serif; font-weight: 700; color: white; font-size: 15px;
+  }
+  .bot-name { font-size: 13.5px; font-weight: 600; }
+  .bot-handle { font-size: 11.5px; color: var(--text-3); }
+  .bot-stats { display: flex; gap: 16px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
+  .bot-stat-v { font-family: 'Sora', sans-serif; font-weight: 700; font-size: 16px; }
+  .bot-stat-l { font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
+
+  .live-tag {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10.5px; font-weight: 600; color: var(--green);
+  }
+  .live-pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+  /* responsive */
+  @media (max-width: 1080px) {
+    .wallet-grid { grid-template-columns: 1fr 1fr; gap: 18px; }
+    .wallet-divider { display: none; }
+    .cols { grid-template-columns: 1fr; }
+    .stat-row { grid-template-columns: 1fr 1fr; }
+    .bots-strip { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 720px) {
+    .sidebar { display: none; }
+    .stat-row { grid-template-columns: 1fr 1fr; }
+  }
+
+  /* entrance */
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  .wallet-hero { animation: rise 0.5s ease both; }
+  .stat-row { animation: rise 0.5s 0.06s ease both; }
+  .cols { animation: rise 0.5s 0.12s ease both; }
+  .bots-strip { animation: rise 0.5s 0.18s ease both; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">E</div>
+      <div>
+        <div class="brand-name">Ethiogram</div>
+        <div class="brand-sub">Owner Console</div>
+      </div>
+    </div>
+
+    <nav>
+      <div class="nav-group">
+        <div class="nav-item active">
+          <span class="nav-ic">▦</span> Overview
+        </div>
+        <div class="nav-item">
+          <span class="nav-ic">🧠</span> Business Brain
+          <span class="nav-badge">3</span>
+        </div>
+        <div class="nav-item">
+          <span class="nav-ic">💬</span> Conversations
+        </div>
+        <div class="nav-item">
+          <span class="nav-ic">🛍</span> Orders
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-label">Grow</div>
+        <div class="nav-item">
+          <span class="nav-ic">🤖</span> Agents
+        </div>
+        <div class="nav-item">
+          <span class="nav-ic">📱</span> Mini App
+        </div>
+        <div class="nav-item">
+          <span class="nav-ic">🌐</span> Landing Page
+        </div>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-label">Account</div>
+        <div class="nav-item">
+          <span class="nav-ic">⛁</span> Wallet &amp; Billing
+        </div>
+        <div class="nav-item">
+          <span class="nav-ic">🔗</span> Bots
+        </div>
+        <div class="nav-item">
+          <span class="nav-ic">⚙</span> Settings
+        </div>
+      </div>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="owner-card">
+        <div class="owner-avatar">ZT</div>
+        <div>
+          <div class="owner-name">Zeaman T.</div>
+          <div class="owner-biz">Selam Store</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <div>
+        <h1>Good morning, Zeaman</h1>
+        <div class="topbar-sub">Selam Store · Bole, Addis Ababa</div>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="search-pill">
+        <span>⌕</span> Search…
+      </div>
+      <div class="topbar-btn">🔔<span class="dot"></span></div>
+    </div>
+
+    <div class="content">
+
+      <!-- WALLET HERO -->
+      <div class="wallet-hero">
+        <div class="wallet-grid">
+          <div>
+            <div class="wallet-label">⛁ ETG Wallet Balance</div>
+            <div class="wallet-balance">2,340 <span class="unit">ETG</span></div>
+            <div class="wallet-meta">≈ <b>18 days</b> of runway at your current pace · ~131 ETG/day</div>
+            <div class="runway-bar"><div class="runway-fill"></div></div>
+            <div class="wallet-actions">
+              <button class="btn btn-amber">＋ Recharge</button>
+              <button class="btn btn-ghost-light">Auto-recharge: On</button>
+            </div>
+          </div>
+          <div class="wallet-divider"></div>
+          <div>
+            <div class="wallet-label">Spent Today</div>
+            <div class="wallet-stat-num amber">141 ETG</div>
+            <div class="wallet-stat-sub">47 messages handled</div>
+          </div>
+          <div>
+            <div class="wallet-label">This Month</div>
+            <div class="wallet-stat-num">3,890 ETG</div>
+            <div class="wallet-stat-sub">1,240 messages</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STAT CARDS -->
+      <div class="stat-row">
+        <div class="stat-card">
+          <div class="stat-top">
+            <div class="stat-ic ic-amber">💬</div>
+            <span class="stat-trend trend-up">↑ 12%</span>
+          </div>
+          <div class="stat-value">47</div>
+          <div class="stat-name">Messages today</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-top">
+            <div class="stat-ic ic-green">🛍</div>
+            <span class="stat-trend trend-up">↑ 8%</span>
+          </div>
+          <div class="stat-value">2,150 <span style="font-size:14px;color:var(--text-3)">ETB</span></div>
+          <div class="stat-name">Orders today (3)</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-top">
+            <div class="stat-ic ic-blue">👥</div>
+            <span class="stat-trend trend-up">↑ 5</span>
+          </div>
+          <div class="stat-value">38</div>
+          <div class="stat-name">Customers reached</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-top">
+            <div class="stat-ic ic-red">⚡</div>
+            <span class="stat-trend trend-down">2.1s</span>
+          </div>
+          <div class="stat-value">99.2<span style="font-size:14px;color:var(--text-3)">%</span></div>
+          <div class="stat-name">Bot uptime</div>
+        </div>
+      </div>
+
+      <!-- TWO COLUMN -->
+      <div class="cols">
+        <!-- usage chart -->
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">ETG Usage · Last 7 days</div>
+            <div class="panel-link">View report →</div>
+          </div>
+          <div class="chart-wrap">
+            <div class="chart">
+              <div class="bar-col"><div class="bar-stack"><div class="bar book" style="height:8px"></div><div class="bar ocr" style="height:14px"></div><div class="bar qa" style="height:46px"></div></div><div class="bar-day">Mon</div></div>
+              <div class="bar-col"><div class="bar-stack"><div class="bar book" style="height:12px"></div><div class="bar ocr" style="height:10px"></div><div class="bar qa" style="height:58px"></div></div><div class="bar-day">Tue</div></div>
+              <div class="bar-col"><div class="bar-stack"><div class="bar book" style="height:6px"></div><div class="bar ocr" style="height:20px"></div><div class="bar qa" style="height:40px"></div></div><div class="bar-day">Wed</div></div>
+              <div class="bar-col"><div class="bar-stack"><div class="bar book" style="height:16px"></div><div class="bar ocr" style="height:16px"></div><div class="bar qa" style="height:66px"></div></div><div class="bar-day">Thu</div></div>
+              <div class="bar-col"><div class="bar-stack"><div class="bar book" style="height:10px"></div><div class="bar ocr" style="height:24px"></div><div class="bar qa" style="height:54px"></div></div><div class="bar-day">Fri</div></div>
+              <div class="bar-col"><div class="bar-stack"><div class="bar book" style="height:20px"></div><div class="bar ocr" style="height:28px"></div><div class="bar qa" style="height:78px"></div></div><div class="bar-day">Sat</div></div>
+              <div class="bar-col"><div class="bar-stack"><div class="bar book" style="height:14px"></div><div class="bar ocr" style="height:18px"></div><div class="bar qa" style="height:50px"></div></div><div class="bar-day">Sun</div></div>
+            </div>
+            <div class="chart-legend">
+              <div class="leg"><span class="leg-dot" style="background:var(--amber)"></span> Q&amp;A messages</div>
+              <div class="leg"><span class="leg-dot" style="background:var(--blue)"></span> Receipt OCR</div>
+              <div class="leg"><span class="leg-dot" style="background:var(--green)"></span> Bookings</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- brain status -->
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">Business Brain</div>
+            <div class="panel-link">Manage →</div>
+          </div>
+          <div class="brain-list">
+            <div class="brain-item">
+              <div class="brain-ic ic-amber">📄</div>
+              <div class="brain-info">
+                <div class="brain-name">Product catalog.pdf</div>
+                <div class="brain-meta">142 items · embedded</div>
+              </div>
+              <span class="pill-status ps-live">Live</span>
+            </div>
+            <div class="brain-item">
+              <div class="brain-ic ic-green">❓</div>
+              <div class="brain-info">
+                <div class="brain-name">FAQs</div>
+                <div class="brain-meta">28 questions answered</div>
+              </div>
+              <span class="brain-count">28</span>
+            </div>
+            <div class="brain-item">
+              <div class="brain-ic ic-blue">🕐</div>
+              <div class="brain-info">
+                <div class="brain-name">Hours &amp; delivery</div>
+                <div class="brain-meta">Updated 2 days ago</div>
+              </div>
+              <span class="pill-status ps-live">Live</span>
+            </div>
+            <div class="brain-item">
+              <div class="brain-ic ic-amber">📋</div>
+              <div class="brain-info">
+                <div class="brain-name">Price list.xlsx</div>
+                <div class="brain-meta">Embedding… 60%</div>
+              </div>
+              <span class="pill-status ps-sync">Syncing</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-gap"></div>
+
+      <!-- ACTIVITY ROW -->
+      <div class="cols">
+        <!-- recent orders -->
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">Recent Orders</div>
+            <div class="panel-link">All orders →</div>
+          </div>
+          <div class="activity">
+            <div class="act-item">
+              <span class="act-dot" style="background:var(--green)"></span>
+              <div class="act-body">
+                <div class="act-text"><b>ETH-A3F2B1</b> · Habesha Kemis + Sneakers</div>
+                <div class="act-time">@selamesha · paid via Chapa · 12 min ago</div>
+              </div>
+              <span class="act-amt" style="color:var(--green)">2,150 ETB</span>
+            </div>
+            <div class="act-item">
+              <span class="act-dot" style="background:var(--amber)"></span>
+              <div class="act-body">
+                <div class="act-text"><b>ETH-C8D1A4</b> · Leather Tote Bag</div>
+                <div class="act-time">@dawit_b · awaiting payment · 38 min ago</div>
+              </div>
+              <span class="act-amt" style="color:var(--amber-deep)">2,400 ETB</span>
+            </div>
+            <div class="act-item">
+              <span class="act-dot" style="background:var(--green)"></span>
+              <div class="act-body">
+                <div class="act-text"><b>ETH-9B2E7C</b> · Silver Necklace</div>
+                <div class="act-time">@hana.m · paid via Telebirr · 1 hr ago</div>
+              </div>
+              <span class="act-amt" style="color:var(--green)">650 ETB</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- agents -->
+        <div class="panel">
+          <div class="panel-head">
+            <div class="panel-title">Active Agents</div>
+            <div class="panel-link">Gallery →</div>
+          </div>
+          <div class="brain-list">
+            <div class="brain-item">
+              <div class="brain-ic ic-green">🧾</div>
+              <div class="brain-info">
+                <div class="brain-name">The Accountant</div>
+                <div class="brain-meta">Reads receipts · 9 today</div>
+              </div>
+              <span class="pill-status ps-live">Active</span>
+            </div>
+            <div class="brain-item">
+              <div class="brain-ic ic-blue">📅</div>
+              <div class="brain-info">
+                <div class="brain-name">The Concierge</div>
+                <div class="brain-meta">Trial · 11 days left</div>
+              </div>
+              <span class="pill-status ps-sync">Trial</span>
+            </div>
+            <div class="brain-item">
+              <div class="brain-ic ic-amber">💬</div>
+              <div class="brain-info">
+                <div class="brain-name">Business Q&amp;A</div>
+                <div class="brain-meta">Always on · core</div>
+              </div>
+              <span class="pill-status ps-live">Active</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- BOTS STRIP -->
+      <div class="bots-strip">
+        <div class="bot-card">
+          <div class="bot-head">
+            <div class="bot-avatar" style="background:linear-gradient(135deg,#D97A1B,#E89A3C)">S</div>
+            <div>
+              <div class="bot-name">Selam Store</div>
+              <div class="bot-handle">@selamstore_bot</div>
+            </div>
+            <span class="live-tag"><span class="live-pulse"></span> Live</span>
+          </div>
+          <div class="bot-stats">
+            <div><div class="bot-stat-v">1.2K</div><div class="bot-stat-l">Messages</div></div>
+            <div><div class="bot-stat-v">38</div><div class="bot-stat-l">Today</div></div>
+            <div><div class="bot-stat-v">4.9★</div><div class="bot-stat-l">Rating</div></div>
+          </div>
+        </div>
+        <div class="bot-card">
+          <div class="bot-head">
+            <div class="bot-avatar" style="background:linear-gradient(135deg,#3D7A4E,#5a9e6c)">W</div>
+            <div>
+              <div class="bot-name">WhatsApp Line</div>
+              <div class="bot-handle">+251 9•• ••• •••</div>
+            </div>
+            <span class="live-tag" style="color:var(--text-3)">Soon</span>
+          </div>
+          <div class="bot-stats">
+            <div><div class="bot-stat-v" style="color:var(--text-3)">—</div><div class="bot-stat-l">Coming soon</div></div>
+          </div>
+        </div>
+        <div class="bot-card" style="border-style:dashed; display:flex; align-items:center; justify-content:center; color:var(--text-2); cursor:pointer;">
+          <div style="text-align:center">
+            <div style="font-size:22px; margin-bottom:4px;">＋</div>
+            <div style="font-size:13px; font-weight:500;">Connect another bot</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

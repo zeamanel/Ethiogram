@@ -1,6 +1,4 @@
 # tests/test_webhook.py
-import hashlib
-import hmac
 import json
 import uuid
 import pytest
@@ -26,11 +24,24 @@ SAMPLE_UPDATE = {
 }
 
 
-def _make_telegram_signature(body: bytes, secret: str) -> str:
-    """Compute Telegram webhook HMAC-SHA256 signature."""
-    secret_key = hmac.new(b"WebAppData", secret.encode(), hashlib.sha256).digest()
-    sig = hmac.new(secret_key, body, hashlib.sha256).hexdigest()
-    return sig
+class TestWebhookSignature:
+    """
+    Telegram echoes the secret_token (set via setWebhook) verbatim in the
+    X-Telegram-Bot-Api-Secret-Token header — it is NOT an HMAC of the body.
+    Verification must be a constant-time comparison of header == stored secret.
+    """
+
+    async def test_matching_secret_token_passes(self):
+        from app.api.webhooks import _verify_signature
+        assert _verify_signature("d5860f4e_secret_token", "d5860f4e_secret_token") is True
+
+    async def test_mismatched_secret_token_fails(self):
+        from app.api.webhooks import _verify_signature
+        assert _verify_signature("correct_secret", "wrong_secret") is False
+
+    async def test_missing_header_fails(self):
+        from app.api.webhooks import _verify_signature
+        assert _verify_signature("correct_secret", "") is False
 
 
 class TestWebhookUnknownHash:

@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ethiogram — Owner Console (Telegram)</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --ink:        #14110D;
+    --ink-2:      #1E1A14;
+    --surface:    #FBF8F1;
+    --surface-2:  #F3EEE2;
+    --card:       #FFFFFF;
+    --line:       #E8E1D2;
+    --line-soft:  #F0EADC;
+    --text:       #1E1A14;
+    --text-2:     #6B6356;
+    --text-3:     #9A9183;
+    --amber:      #D97A1B;
+    --amber-deep: #B85F10;
+    --amber-soft: #FDF1E2;
+    --green:      #3D7A4E;
+    --green-soft: #EAF2EC;
+    --red:        #C0492F;
+    --red-soft:   #FBEDE9;
+    --blue:       #2F5E8C;
+    --blue-soft:  #EAF0F6;
+  }
+
+  body {
+    background: #0A0908;
+    font-family: 'Inter', sans-serif;
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    display: flex; align-items: flex-start; justify-content: center;
+    min-height: 100vh; padding: 30px 16px;
+    gap: 40px; flex-wrap: wrap;
+  }
+
+  /* phone shell */
+  .phone {
+    width: 390px; height: 844px;
+    background: var(--surface);
+    border-radius: 46px;
+    border: 1.5px solid rgba(255,255,255,0.14);
+    overflow: hidden; position: relative;
+    box-shadow: 0 0 0 9px #16120D, 0 0 0 10px rgba(255,255,255,0.05),
+                0 40px 90px rgba(0,0,0,0.7), 0 0 130px rgba(217,122,27,0.07);
+    display: flex; flex-direction: column;
+  }
+
+  /* telegram header bar */
+  .tg-bar {
+    background: var(--ink);
+    padding: 14px 18px 13px;
+    display: flex; align-items: center; gap: 13px;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .tg-notch {
+    position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+    width: 130px; height: 26px; background: #0A0908;
+    border-radius: 0 0 16px 16px; z-index: 5;
+  }
+  .tg-back { color: #5E89C7; font-size: 22px; margin-top: 8px; }
+  .tg-title-wrap { margin-top: 8px; flex: 1; }
+  .tg-title { font-family:'Sora',sans-serif; font-size: 15px; font-weight: 600; color: #F7F3EA; }
+  .tg-sub { font-size: 11px; color: #8E8472; margin-top: 1px; }
+  .tg-close { color: #8E8472; font-size: 13px; margin-top: 8px; font-weight: 500; }
+  .tg-mini-badge {
+    margin-top: 8px; font-size: 9.5px; color: #6E6557;
+    display: flex; align-items: center; gap: 4px;
+  }
+
+  /* scroll area */
+  .screen { flex: 1; overflow-y: auto; overflow-x: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .screen::-webkit-scrollbar { display: none; }
+
+  /* greeting */
+  .greet { padding: 18px 18px 6px; }
+  .greet-hi { font-family:'Sora',sans-serif; font-size: 21px; font-weight: 700; letter-spacing: -0.02em; }
+  .greet-sub { font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
+
+  /* WALLET — hero card */
+  .wallet {
+    margin: 14px 16px 0;
+    background: linear-gradient(140deg, var(--ink) 0%, #2A2218 55%, #3a2c18 100%);
+    border-radius: 20px; padding: 20px;
+    color: #F7F3EA; position: relative; overflow: hidden;
+  }
+  .wallet::after {
+    content:''; position: absolute; right:-50px; top:-50px;
+    width: 200px; height: 200px;
+    background: radial-gradient(circle, rgba(217,122,27,0.3), transparent 65%);
+  }
+  .wallet-label {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: #A99B82; font-weight: 600; display:flex; align-items:center; gap:6px;
+  }
+  .wallet-bal {
+    font-family:'Sora',sans-serif; font-weight: 800; font-size: 38px;
+    letter-spacing: -0.03em; line-height: 1; margin-top: 9px;
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .wallet-bal .u { font-size: 14px; font-weight: 600; color: var(--amber); }
+  .wallet-runway { font-size: 12px; color: #B5AC9C; margin-top: 8px; }
+  .wallet-runway b { color: #F4C089; font-weight: 600; }
+  .runway-bar { margin-top: 13px; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.12); overflow: hidden; }
+  .runway-fill { height:100%; width: 62%; background: linear-gradient(90deg, var(--amber), #E89A3C); }
+  .wallet-btns { display: flex; gap: 9px; margin-top: 16px; position: relative; }
+  .wbtn {
+    flex: 1; text-align: center; font-weight: 600; font-size: 13px;
+    padding: 11px; border-radius: 11px; border: none; cursor: pointer;
+  }
+  .wbtn-amber { background: var(--amber); color: #1a1206; }
+  .wbtn-ghost { background: rgba(255,255,255,0.08); color: #EDE7DA; border: 1px solid rgba(255,255,255,0.14); }
+
+  /* quick stats — 2x2 */
+  .qstats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 16px; }
+  .qstat { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 15px; }
+  .qstat-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .qstat-ic { width: 30px; height: 30px; border-radius: 8px; display:flex; align-items:center; justify-content:center; font-size:14px; }
+  .ic-amber { background: var(--amber-soft); }
+  .ic-green { background: var(--green-soft); }
+  .ic-blue  { background: var(--blue-soft); }
+  .ic-red   { background: var(--red-soft); }
+  .qstat-trend { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 20px; }
+  .t-up { color: var(--green); background: var(--green-soft); }
+  .qstat-val { font-family:'Sora',sans-serif; font-weight: 700; font-size: 22px; letter-spacing: -0.02em; line-height: 1; }
+  .qstat-name { font-size: 11.5px; color: var(--text-2); margin-top: 4px; }
+
+  /* section header */
+  .sec-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 18px 10px;
+  }
+  .sec-title { font-family:'Sora',sans-serif; font-size: 14.5px; font-weight: 600; }
+  .sec-link { font-size: 12px; color: var(--amber-deep); font-weight: 500; }
+
+  /* usage mini chart */
+  .chart-card { margin: 0 16px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+  .chart { height: 90px; display: flex; align-items: flex-end; gap: 6px; }
+  .bcol { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .bstack { width: 100%; max-width: 22px; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; height: 72px; }
+  .b { width: 100%; }
+  .b.qa { background: var(--amber); border-radius: 3px 3px 0 0; }
+  .b.ocr { background: var(--blue); }
+  .b.bk { background: var(--green); border-radius: 3px 3px 0 0; }
+  .bday { font-size: 9.5px; color: var(--text-3); }
+  .clegend { display: flex; gap: 13px; margin-top: 12px; }
+  .cleg { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-2); }
+  .cdot { width: 8px; height: 8px; border-radius: 2px; }
+
+  /* list cards */
+  .lcard { margin: 0 16px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .litem { display: flex; align-items: center; gap: 12px; padding: 13px 14px; }
+  .litem:not(:last-child) { border-bottom: 1px solid var(--line-soft); }
+  .lic { width: 36px; height: 36px; border-radius: 9px; display:flex; align-items:center; justify-content:center; font-size: 15px; flex-shrink: 0; }
+  .linfo { flex: 1; min-width: 0; }
+  .lname { font-size: 13px; font-weight: 500; }
+  .lmeta { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+  .lcount { font-family:'JetBrains Mono',monospace; font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+  .lpill { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 20px; }
+  .pl-live { background: var(--green-soft); color: var(--green); }
+  .pl-sync { background: var(--amber-soft); color: var(--amber-deep); }
+  .lamt { font-family:'JetBrains Mono',monospace; font-size: 12px; font-weight: 600; }
+
+  .gap { height: 18px; }
+  .gap-sm { height: 10px; }
+
+  /* bottom tab bar */
+  .tabbar {
+    flex-shrink: 0;
+    background: var(--card);
+    border-top: 1px solid var(--line);
+    display: flex; padding: 8px 6px 22px;
+  }
+  .tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 5px; cursor: pointer; }
+  .tab-ic { font-size: 19px; opacity: 0.5; }
+  .tab-lbl { font-size: 9.5px; color: var(--text-3); font-weight: 500; }
+  .tab.active .tab-ic { opacity: 1; }
+  .tab.active .tab-lbl { color: var(--amber-deep); font-weight: 600; }
+
+  /* floating recharge alert (low balance example) */
+  .alert-strip {
+    margin: 16px 16px 0;
+    background: var(--amber-soft);
+    border: 1px solid #F2D5AE;
+    border-radius: 13px; padding: 12px 14px;
+    display: flex; align-items: center; gap: 11px;
+  }
+  .alert-ic { font-size: 17px; }
+  .alert-txt { flex: 1; font-size: 12px; color: #7A4E12; }
+  .alert-txt b { font-weight: 600; }
+  .alert-btn { font-size: 11.5px; font-weight: 600; color: #1a1206; background: var(--amber); padding: 6px 12px; border-radius: 8px; border: none; }
+
+  /* live pulse */
+  .live-tag { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600; color: var(--green); }
+  .live-pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+  /* caption for the two-phone layout */
+  .caption { max-width: 300px; color: #8A8278; padding-top: 30px; }
+  .caption h2 { font-family:'Sora',sans-serif; color:#F4EFE6; font-size: 21px; font-weight: 800; letter-spacing:-0.02em; line-height:1.25; }
+  .caption h2 span { color: var(--amber); }
+  .caption p { font-size: 13px; line-height: 1.6; margin-top: 12px; color:#7A7368; }
+  .cap-feat { display:flex; flex-direction:column; gap: 12px; margin-top: 22px; }
+  .cap-item { display:flex; gap:11px; align-items:flex-start; }
+  .cap-dot { width: 26px; height:26px; border-radius:7px; display:flex; align-items:center; justify-content:center; font-size:12px; flex-shrink:0; margin-top:1px; }
+  .cap-item .ct { font-size: 12.5px; font-weight:600; color:#CFC8BE; }
+  .cap-item .cs { font-size: 11px; color:#615B52; margin-top:1px; }
+
+  @keyframes rise { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+  .phone { animation: rise 0.55s ease both; }
+  .caption { animation: rise 0.55s 0.15s ease both; }
+</style>
+</head>
+<body>
+
+  <!-- PHONE -->
+  <div class="phone">
+
+    <!-- Telegram header -->
+    <div class="tg-bar">
+      <div class="tg-notch"></div>
+      <div class="tg-back">‹</div>
+      <div class="tg-title-wrap">
+        <div class="tg-title">Ethiogram</div>
+        <div class="tg-mini-badge">⬡ mini app</div>
+      </div>
+      <div class="tg-close">✕</div>
+    </div>
+
+    <div class="screen">
+
+      <!-- greeting -->
+      <div class="greet">
+        <div class="greet-hi">Selam, Zeaman 👋</div>
+        <div class="greet-sub">Selam Store · Bole, Addis Ababa</div>
+      </div>
+
+      <!-- WALLET -->
+      <div class="wallet">
+        <div class="wallet-label">⛁ ETG Wallet</div>
+        <div class="wallet-bal">2,340 <span class="u">ETG</span></div>
+        <div class="wallet-runway">≈ <b>18 days</b> of runway · ~131 ETG/day</div>
+        <div class="runway-bar"><div class="runway-fill"></div></div>
+        <div class="wallet-btns">
+          <button class="wbtn wbtn-amber">＋ Recharge</button>
+          <button class="wbtn wbtn-ghost">Auto-recharge: On</button>
+        </div>
+      </div>
+
+      <!-- quick stats -->
+      <div class="qstats">
+        <div class="qstat">
+          <div class="qstat-top">
+            <div class="qstat-ic ic-amber">💬</div>
+            <span class="qstat-trend t-up">↑ 12%</span>
+          </div>
+          <div class="qstat-val">47</div>
+          <div class="qstat-name">Messages today</div>
+        </div>
+        <div class="qstat">
+          <div class="qstat-top">
+            <div class="qstat-ic ic-green">🛍</div>
+            <span class="qstat-trend t-up">↑ 8%</span>
+          </div>
+          <div class="qstat-val">3</div>
+          <div class="qstat-name">Orders · 2,150 ETB</div>
+        </div>
+        <div class="qstat">
+          <div class="qstat-top">
+            <div class="qstat-ic ic-blue">👥</div>
+            <span class="qstat-trend t-up">↑ 5</span>
+          </div>
+          <div class="qstat-val">38</div>
+          <div class="qstat-name">Customers reached</div>
+        </div>
+        <div class="qstat">
+          <div class="qstat-top">
+            <div class="qstat-ic ic-amber">💸</div>
+            <span class="qstat-trend t-up">141</span>
+          </div>
+          <div class="qstat-val">141 <span style="font-size:12px;color:var(--text-3)">ETG</span></div>
+          <div class="qstat-name">Spent today</div>
+        </div>
+      </div>
+
+      <!-- usage chart -->
+      <div class="sec-head">
+        <div class="sec-title">ETG Usage · 7 days</div>
+        <div class="sec-link">Report →</div>
+      </div>
+      <div class="chart-card">
+        <div class="chart">
+          <div class="bcol"><div class="bstack"><div class="b bk" style="height:6px"></div><div class="b ocr" style="height:11px"></div><div class="b qa" style="height:34px"></div></div><div class="bday">M</div></div>
+          <div class="bcol"><div class="bstack"><div class="b bk" style="height:9px"></div><div class="b ocr" style="height:8px"></div><div class="b qa" style="height:42px"></div></div><div class="bday">T</div></div>
+          <div class="bcol"><div class="bstack"><div class="b bk" style="height:5px"></div><div class="b ocr" style="height:15px"></div><div class="b qa" style="height:30px"></div></div><div class="bday">W</div></div>
+          <div class="bcol"><div class="bstack"><div class="b bk" style="height:12px"></div><div class="b ocr" style="height:12px"></div><div class="b qa" style="height:48px"></div></div><div class="bday">T</div></div>
+          <div class="bcol"><div class="bstack"><div class="b bk" style="height:8px"></div><div class="b ocr" style="height:18px"></div><div class="b qa" style="height:40px"></div></div><div class="bday">F</div></div>
+          <div class="bcol"><div class="bstack"><div class="b bk" style="height:15px"></div><div class="b ocr" style="height:20px"></div><div class="b qa" style="height:56px"></div></div><div class="bday">S</div></div>
+          <div class="bcol"><div class="bstack"><div class="b bk" style="height:10px"></div><div class="b ocr" style="height:13px"></div><div class="b qa" style="height:37px"></div></div><div class="bday">S</div></div>
+        </div>
+        <div class="clegend">
+          <div class="cleg"><span class="cdot" style="background:var(--amber)"></span> Q&amp;A</div>
+          <div class="cleg"><span class="cdot" style="background:var(--blue)"></span> OCR</div>
+          <div class="cleg"><span class="cdot" style="background:var(--green)"></span> Bookings</div>
+        </div>
+      </div>
+
+      <div class="gap"></div>
+
+      <!-- recent orders -->
+      <div class="sec-head">
+        <div class="sec-title">Recent Orders</div>
+        <div class="sec-link">All →</div>
+      </div>
+      <div class="lcard">
+        <div class="litem">
+          <div class="lic ic-green">🧾</div>
+          <div class="linfo">
+            <div class="lname">ETH-A3F2B1</div>
+            <div class="lmeta">Kemis + Sneakers · Chapa · 12m</div>
+          </div>
+          <span class="lamt" style="color:var(--green)">2,150</span>
+        </div>
+        <div class="litem">
+          <div class="lic ic-amber">🧾</div>
+          <div class="linfo">
+            <div class="lname">ETH-C8D1A4</div>
+            <div class="lmeta">Leather Tote · awaiting pay · 38m</div>
+          </div>
+          <span class="lamt" style="color:var(--amber-deep)">2,400</span>
+        </div>
+        <div class="litem">
+          <div class="lic ic-green">🧾</div>
+          <div class="linfo">
+            <div class="lname">ETH-9B2E7C</div>
+            <div class="lmeta">Silver Necklace · Telebirr · 1h</div>
+          </div>
+          <span class="lamt" style="color:var(--green)">650</span>
+        </div>
+      </div>
+
+      <div class="gap"></div>
+
+      <!-- business brain -->
+      <div class="sec-head">
+        <div class="sec-title">Business Brain</div>
+        <div class="sec-link">Manage →</div>
+      </div>
+      <div class="lcard">
+        <div class="litem">
+          <div class="lic ic-amber">📄</div>
+          <div class="linfo">
+            <div class="lname">Product catalog.pdf</div>
+            <div class="lmeta">142 items · embedded</div>
+          </div>
+          <span class="lpill pl-live">Live</span>
+        </div>
+        <div class="litem">
+          <div class="lic ic-blue">📋</div>
+          <div class="linfo">
+            <div class="lname">Price list.xlsx</div>
+            <div class="lmeta">Embedding… 60%</div>
+          </div>
+          <span class="lpill pl-sync">Syncing</span>
+        </div>
+        <div class="litem">
+          <div class="lic ic-green">❓</div>
+          <div class="linfo">
+            <div class="lname">FAQs</div>
+            <div class="lmeta">28 questions</div>
+          </div>
+          <span class="lcount">28</span>
+        </div>
+      </div>
+
+      <div class="gap"></div>
+
+      <!-- active agents -->
+      <div class="sec-head">
+        <div class="sec-title">Active Agents</div>
+        <div class="sec-link">Gallery →</div>
+      </div>
+      <div class="lcard">
+        <div class="litem">
+          <div class="lic ic-green">🧾</div>
+          <div class="linfo">
+            <div class="lname">The Accountant</div>
+            <div class="lmeta">Reads receipts · 9 today</div>
+          </div>
+          <span class="lpill pl-live">Active</span>
+        </div>
+        <div class="litem">
+          <div class="lic ic-blue">📅</div>
+          <div class="linfo">
+            <div class="lname">The Concierge</div>
+            <div class="lmeta">Trial · 11 days left</div>
+          </div>
+          <span class="lpill pl-sync">Trial</span>
+        </div>
+      </div>
+
+      <div class="gap"></div>
+
+      <!-- bot status -->
+      <div class="sec-head">
+        <div class="sec-title">My Bot</div>
+        <div class="sec-link">Settings →</div>
+      </div>
+      <div class="lcard">
+        <div class="litem">
+          <div class="lic" style="background:linear-gradient(135deg,#D97A1B,#E89A3C); color:white; font-family:'Sora'; font-weight:700;">S</div>
+          <div class="linfo">
+            <div class="lname">@selamstore_bot</div>
+            <div class="lmeta">1.2K messages · 4.9★</div>
+          </div>
+          <span class="live-tag"><span class="live-pulse"></span> Live</span>
+        </div>
+      </div>
+
+      <div class="gap"></div>
+
+    </div>
+
+    <!-- bottom tabs -->
+    <div class="tabbar">
+      <div class="tab active"><div class="tab-ic">▦</div><div class="tab-lbl">Home</div></div>
+      <div class="tab"><div class="tab-ic">🧠</div><div class="tab-lbl">Brain</div></div>
+      <div class="tab"><div class="tab-ic">🛍</div><div class="tab-lbl">Orders</div></div>
+      <div class="tab"><div class="tab-ic">⛁</div><div class="tab-lbl">Wallet</div></div>
+      <div class="tab"><div class="tab-ic">⚙</div><div class="tab-lbl">More</div></div>
+    </div>
+
+  </div>
+
+  <!-- CAPTION -->
+  <div class="caption">
+    <h2>The whole business,<br><span>inside Telegram.</span></h2>
+    <p>Owners tap the menu button on @ethiogram_bot and their full console opens — no app to install, no browser, no login. It opens where they already are.</p>
+    <div class="cap-feat">
+      <div class="cap-item">
+        <div class="cap-dot" style="background:rgba(217,122,27,0.15)">⛁</div>
+        <div><div class="ct">Wallet-first</div><div class="cs">Runway in days, not just token counts</div></div>
+      </div>
+      <div class="cap-item">
+        <div class="cap-dot" style="background:rgba(61,122,78,0.13)">🧠</div>
+        <div><div class="ct">Brain at a glance</div><div class="cs">See what's embedded, what's still syncing</div></div>
+      </div>
+      <div class="cap-item">
+        <div class="cap-dot" style="background:rgba(47,94,140,0.13)">🛍</div>
+        <div><div class="ct">Orders as they land</div><div class="cs">Every sale, payment method, customer</div></div>
+      </div>
+      <div class="cap-item">
+        <div class="cap-dot" style="background:rgba(217,122,27,0.15)">🔔</div>
+        <div><div class="ct">Recharge before zero</div><div class="cs">Low-balance nudge keeps the bot alive</div></div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

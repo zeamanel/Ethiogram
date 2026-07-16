@@ -14,7 +14,11 @@ from app.core.exceptions import (
     TokenExpiredError,
     TokenInvalidError,
 )
-from app.core.security import decode_access_token, verify_admin_secret_header
+from app.core.security import (
+    decode_access_token,
+    is_super_admin_telegram_id,
+    verify_admin_secret_header,
+)
 from app.db.models import User, UserRole
 from app.db.session import get_db
 
@@ -53,5 +57,19 @@ async def get_current_admin(
     return user
 
 
+async def get_current_admin_user(
+    user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    """Admin gate for the Mini App admin dashboard — a logged-in user whose
+    is_admin flag is set (or legacy role='admin'). No server secret header, so
+    the Telegram-authenticated admin can use it directly."""
+    if not (getattr(user, "is_admin", False)
+            or user.role == UserRole.admin
+            or (user.telegram_id and is_super_admin_telegram_id(user.telegram_id))):
+        raise AdminRequiredError()
+    return user
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentAdmin = Annotated[User, Depends(get_current_admin)]
+CurrentAdminUser = Annotated[User, Depends(get_current_admin_user)]

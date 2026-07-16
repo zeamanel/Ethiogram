@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>My Account · Ethiogram</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div id="loading" class="center-state">
+    <div class="spinner"></div>
+    <div class="cs-text">Loading your account…</div>
+  </div>
+
+  <div id="error" class="center-state hidden">
+    <div class="cs-emoji">😕</div>
+    <div class="cs-text" id="error-text">Couldn't load your account.</div>
+  </div>
+
+  <main id="account" class="hidden">
+    <header class="a-head">
+      <div class="a-avatar" id="a-avatar">🙂</div>
+      <div>
+        <div class="a-name" id="a-name">—</div>
+        <div class="a-sub" id="a-username"></div>
+      </div>
+    </header>
+
+    <section class="a-card">
+      <div class="a-row">
+        <span class="a-label">💎 ETG balance</span>
+        <span class="a-value" id="a-balance">0</span>
+      </div>
+      <div class="a-row">
+        <span class="a-label">🌍 Language</span>
+        <span class="a-value" id="a-lang">en</span>
+      </div>
+    </section>
+
+    <section class="a-card">
+      <div class="a-card-title">🎁 Invite &amp; earn</div>
+      <div class="a-muted">Share your link — when friends join, you both benefit.</div>
+      <div class="a-ref" id="a-ref-link">—</div>
+      <button class="a-btn" id="a-copy">Copy invite link</button>
+    </section>
+
+    <section class="a-card">
+      <div class="a-card-title">🏢 My businesses</div>
+      <div id="a-biz-list" class="a-biz-list"></div>
+      <button class="a-btn a-btn-ghost" id="a-dashboard">Open Dashboard</button>
+    </section>
+
+    <section class="a-card a-links">
+      <a href="../legal/privacy.html" target="_blank" rel="noopener">🔐 Privacy Policy</a>
+      <a href="../legal/terms.html" target="_blank" rel="noopener">📄 Terms of Service</a>
+    </section>
+
+    <div class="a-foot">Ethiogram — run your business on Telegram.</div>
+  </main>
+
+  <script src="../shared/tg.js"></script>
+  <script src="account.js"></script>
+</body>
+</html>

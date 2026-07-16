@@ -17,11 +17,14 @@ from app.core.security import (
     encrypt_api_key,
     encrypt_agent_prompt,
     decrypt_agent_prompt,
+    decrypt_child_secrets,
+    encrypt_child_secrets,
     generate_order_id,
     generate_referral_code,
     hash_bot_token,
     hash_password,
     mask_sensitive,
+    verify_admin_secret_header,
     verify_password,
 )
 
@@ -151,3 +154,47 @@ class TestGenerators:
         masked = mask_sensitive("1234567890:ABCDEF", visible_chars=4)
         assert masked.endswith("CDEF")
         assert "1234567890" not in masked
+
+
+class TestChildSecrets:
+    def test_roundtrip(self):
+        data = {"calendar_id": "cal@x.com", "credentials_json": '{"token":"abc"}'}
+        blob = encrypt_child_secrets(data)
+        assert decrypt_child_secrets(blob) == data
+
+    def test_ciphertext_does_not_leak_values(self):
+        blob = encrypt_child_secrets({"api_key": "sk-SENSITIVE-123"})
+        assert "sk-SENSITIVE-123" not in blob
+        assert "api_key" not in blob
+
+    def test_empty_and_none(self):
+        assert decrypt_child_secrets(None) == {}
+        assert decrypt_child_secrets("") == {}
+        assert decrypt_child_secrets(encrypt_child_secrets({})) == {}
+
+
+class TestAdminSecretHeader:
+    """verify_admin_secret_header must compare against the secret VALUE
+    (admin_secret_value), not the header NAME (admin_secret_header), and
+    fail closed when no secret is configured."""
+
+    def test_unset_secret_fails_closed(self, monkeypatch):
+        monkeypatch.setattr(settings, "admin_secret_value", None)
+        # The header NAME used to pass under the old bug — it must not now.
+        assert verify_admin_secret_header(settings.admin_secret_header) is False
+        assert verify_admin_secret_header("anything") is False
+
+    def test_correct_value_passes(self, monkeypatch):
+        monkeypatch.setattr(settings, "admin_secret_value", "long-random-secret")
+        assert verify_admin_secret_header("long-random-secret") is True
+
+    def test_header_name_is_rejected(self, monkeypatch):
+        # Regression: sending the public header name must never authenticate.
+        monkeypatch.setattr(settings, "admin_secret_value", "long-random-secret")
+        assert verify_admin_secret_header(settings.admin_secret_header) is False
+
+    def test_wrong_and_empty_values_rejected(self, monkeypatch):
+        monkeypatch.setattr(settings, "admin_secret_value", "long-random-secret")
+        assert verify_admin_secret_header("wrong") is False
+        assert verify_admin_secret_header("") is False
+        assert verify_admin_secret_header(None) is False

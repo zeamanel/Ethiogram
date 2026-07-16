@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentAdmin, CurrentUser
@@ -19,7 +19,7 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.logging import get_logger
-from app.core.security import decrypt_agent_prompt, encrypt_agent_prompt
+from app.core.security import decrypt_agent_prompt, encrypt_agent_prompt, encrypt_child_secrets
 from app.db.models import (
     Agent,
     AgentReview,
@@ -97,17 +97,43 @@ class PublishAgentRequest(BaseModel):
 class StartTrialRequest(BaseModel):
     business_id: uuid.UUID
     child_data: Optional[dict] = None
+    child_secrets: Optional[dict] = None   # credentials/API keys — encrypted at rest
 
 
 class UnlockRequest(BaseModel):
     business_id: uuid.UUID
     child_data: Optional[dict] = None
+    child_secrets: Optional[dict] = None   # credentials/API keys — encrypted at rest
 
 
 class ChildAgentUpdateRequest(BaseModel):
-    child_data: dict
+    # All fields optional → partial updates. A pause/resume or rename does not
+    # require resending the whole child_data config.
+    child_data: Optional[dict] = None
+    child_secrets: Optional[dict] = None   # credentials/API keys — encrypted at rest
     display_name: Optional[str] = None
     is_active: Optional[bool] = None
+    # Bind this agent to ONE of the business's bots ("" = run on all bots).
+    # None (omitted) = unchanged — standard partial-PATCH semantics.
+    assigned_bot_id: Optional[str] = None
+
+
+class ChildAgentDetailResponse(BaseModel):
+    """A deployed agent's editable config. NEVER includes secret values —
+    only a boolean saying whether credentials are configured."""
+    id: str
+    agent_id: str
+    agent_name: str
+    category: str
+    display_name: Optional[str]
+    is_active: bool
+    status: str                      # "trial" | "unlocked"
+    days_left: Optional[int] = None  # remaining trial days (trials only)
+    child_data: dict
+    child_schema: Optional[dict] = None   # author's field contract (for the UI)
+    setup_guide: Optional[str] = None
+    has_secrets: bool
+    assigned_bot_id: Optional[str] = None   # None = runs on all the business's bots
 
 
 class ReviewRequest(BaseModel):
@@ -257,13 +283,36 @@ async def start_trial(
     if existing.scalar_one_or_none() is not None:
         raise AlreadyExistsError("AgentTrial")
 
-    child = ChildAgent(
-        agent_id=agent_id,
-        business_id=body.business_id,
-        child_data=body.child_data or {},
-    )
-    db.add(child)
-    await db.flush()
+    # Reuse an existing ChildAgent for this (agent, business) if one is already
+    # deployed (e.g. a prior unlock or a retried trial) — inserting a duplicate
+    # would violate uq_child_agent_business and surface as a 500.
+    child = (await db.execute(
+        select(ChildAgent).where(
+            ChildAgent.agent_id == agent_id,
+            ChildAgent.business_id == body.business_id,
+        )
+    )).scalar_one_or_none()
+    if child is None:
+        # Enforce the per-business deployment cap (was dead config until now).
+        deployed = await db.scalar(select(func.count(ChildAgent.id)).where(
+            ChildAgent.business_id == body.business_id))
+        if (deployed or 0) >= settings.max_child_agents_per_bot:
+            raise ValidationError(
+                f"Agent limit reached ({settings.max_child_agents_per_bot}). "
+                "Remove an agent before deploying another.")
+        child = ChildAgent(
+            agent_id=agent_id,
+            business_id=body.business_id,
+            child_data=body.child_data or {},
+            child_secrets=encrypt_child_secrets(body.child_secrets) if body.child_secrets else None,
+        )
+        db.add(child)
+        await db.flush()
+    else:
+        if body.child_data:
+            child.child_data = body.child_data
+        if body.child_secrets:
+            child.child_secrets = encrypt_child_secrets(body.child_secrets)
 
     expires_at = datetime.now(timezone.utc) + timedelta(days=settings.trial_duration_days)
     trial = AgentTrial(
@@ -336,11 +385,15 @@ async def unlock_agent(
             agent_id=agent_id,
             business_id=body.business_id,
             child_data=body.child_data or {},
+            child_secrets=encrypt_child_secrets(body.child_secrets) if body.child_secrets else None,
         )
         db.add(child)
         await db.flush()
-    elif body.child_data:
-        child.child_data = body.child_data
+    else:
+        if body.child_data:
+            child.child_data = body.child_data
+        if body.child_secrets:
+            child.child_secrets = encrypt_child_secrets(body.child_secrets)
 
     unlock = AgentUnlock(
         agent_id=agent_id,
@@ -381,6 +434,34 @@ async def unlock_agent(
 # Child Agent management
 # ---------------------------------------------------------------------------
 
+@router.get("/child/{child_agent_id}", response_model=ChildAgentDetailResponse)
+async def get_child_agent(
+    child_agent_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> ChildAgentDetailResponse:
+    """Fetch a deployed agent's editable config to populate the manage UI.
+    Secret credentials are never returned — only has_secrets."""
+    child = await _get_owned_child_agent(child_agent_id, current_user.id, db)
+    father = await db.get(Agent, child.agent_id)
+    status, days_left = await _child_status(child, db)
+    return ChildAgentDetailResponse(
+        id=str(child.id),
+        agent_id=str(child.agent_id),
+        agent_name=father.name if father else "Agent",
+        category=father.category if father else "",
+        display_name=child.display_name,
+        is_active=child.is_active,
+        status=status,
+        days_left=days_left,
+        child_data=child.child_data or {},
+        child_schema=father.child_schema if father else None,
+        setup_guide=father.setup_guide if father else None,
+        has_secrets=child.child_secrets is not None,
+        assigned_bot_id=str(child.assigned_to_bot_id) if child.assigned_to_bot_id else None,
+    )
+
+
 @router.patch("/child/{child_agent_id}", status_code=204)
 async def update_child_agent(
     child_agent_id: uuid.UUID,
@@ -389,11 +470,41 @@ async def update_child_agent(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     child = await _get_owned_child_agent(child_agent_id, current_user.id, db)
-    child.child_data = body.child_data
+    if body.child_data is not None:
+        child.child_data = body.child_data
+    if body.child_secrets is not None:
+        child.child_secrets = encrypt_child_secrets(body.child_secrets)
     if body.display_name is not None:
         child.display_name = body.display_name
     if body.is_active is not None:
         child.is_active = body.is_active
+    if body.assigned_bot_id is not None:
+        if body.assigned_bot_id == "":
+            child.assigned_to_bot_id = None          # back to "all bots"
+        else:
+            from app.db.models import Bot
+            try:
+                bot_uuid = uuid.UUID(body.assigned_bot_id)
+            except ValueError:
+                raise ValidationError("assigned_bot_id must be a bot UUID or empty")
+            bot_ok = await db.scalar(select(Bot.id).where(
+                Bot.id == bot_uuid, Bot.business_id == child.business_id))
+            if bot_ok is None:
+                raise NotFoundError("Bot", body.assigned_bot_id)
+            child.assigned_to_bot_id = bot_uuid
+
+
+@router.delete("/child/{child_agent_id}/secrets", status_code=204)
+async def disconnect_child_secrets(
+    child_agent_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Clear a deployed agent's credentials. A dedicated endpoint because the
+    partial PATCH treats child_secrets=None as 'unchanged', so it can't express
+    'remove'. Setting the column NULL makes has_secrets False again. Idempotent."""
+    child = await _get_owned_child_agent(child_agent_id, current_user.id, db)
+    child.child_secrets = None
 
 
 # ---------------------------------------------------------------------------
@@ -498,10 +609,37 @@ async def _assert_owns_business(
         select(Business.id).where(
             Business.id == business_id,
             Business.owner_id == user_id,
+            Business.is_suspended.is_(False),
+            Business.deleted_at.is_(None),
         )
     )
     if result.scalar_one_or_none() is None:
         raise NotFoundError("Business", str(business_id))
+
+
+async def _child_status(child: ChildAgent, db: AsyncSession) -> tuple[str, Optional[int]]:
+    """Classify a deployed agent as unlocked/trial and compute remaining trial days."""
+    unlocked = await db.scalar(
+        select(func.count(AgentUnlock.id)).where(
+            AgentUnlock.child_agent_id == child.id,
+            AgentUnlock.is_refunded.is_(False),
+        )
+    ) or 0
+    if unlocked:
+        return "unlocked", None
+    trial = (await db.execute(
+        select(AgentTrial)
+        .where(AgentTrial.child_agent_id == child.id)
+        .order_by(AgentTrial.created_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+    days_left = None
+    if trial and trial.expires_at:
+        exp = trial.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        days_left = max(0, (exp - datetime.now(timezone.utc)).days)
+    return "trial", days_left
 
 
 async def _get_owned_child_agent(

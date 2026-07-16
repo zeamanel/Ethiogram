@@ -1,7 +1,9 @@
 # app/api/webhooks.py
-import hashlib
 import hmac
-from datetime import datetime, timezone
+import json
+import secrets as _secrets
+import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
@@ -11,31 +13,87 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.logging import get_logger
 from app.db.models import (
+    Agent,
+    AiModel,
     AlertType,
     Bot,
     BotStatus,
     Business,
     BusinessBrainConfig,
     ChatMessage,
+    ChildAgent,
     Conversation,
     EtgTransaction,
+    KnowledgeItem,
+    KnowledgeItemType,
     MessageRole,
     Platform,
     TokenWallet,
     UsageEvent,
+    User,
     WalletAlert,
 )
 from app.db.session import get_db, get_redis
+from app.services import owner_bot_menu
+from app.services.storage_service import storage_service
 from app.services.telegram_service import MessageEnvelope, telegram_service
-from app.core.security import decrypt
+from app.core.security import decrypt, decrypt_agent_prompt, decrypt_child_secrets
+
+import re as _re
+
+import httpx as _httpx
 
 logger = get_logger(__name__)
 
 router = APIRouter(tags=["webhooks"])
 
-# ETG costs (fallback if Redis/DB pricing unavailable)
-_ETG_COST_BASE_REPLY = 2
-_ETG_COST_RAG_SEARCH = 1
+# Fallback per-1k-token ETG prices when a model isn't in the AiModel catalog
+# (matches the AiModel column defaults). Real charging reads each model's own
+# etg_cost_per_1k_input / etg_cost_per_1k_output so cheap and expensive models
+# cost proportionally — not a flat constant.
+_DEFAULT_ETG_PER_1K_INPUT = 1
+_DEFAULT_ETG_PER_1K_OUTPUT = 2
+
+
+def _ceil_div(a: int, b: int) -> int:
+    return -(-a // b)
+
+
+async def _model_price(db: AsyncSession, redis, model_id: str | None) -> tuple[int, int]:
+    """(etg_per_1k_input, etg_per_1k_output) for a model, cached in Redis for
+    5 min. Falls back to the column defaults when the model isn't catalogued."""
+    default = (_DEFAULT_ETG_PER_1K_INPUT, _DEFAULT_ETG_PER_1K_OUTPUT)
+    if not model_id:
+        return default
+    key = f"modelprice:{model_id}"
+    try:
+        cached = await redis.get(key)
+        if cached:
+            i, o = str(cached).split(",")
+            return (int(i), int(o))
+    except Exception:
+        pass
+    row = (await db.execute(
+        select(AiModel.etg_cost_per_1k_input, AiModel.etg_cost_per_1k_output)
+        .where(AiModel.model_id == model_id)
+    )).first()
+    price = (row[0], row[1]) if row else default
+    try:
+        await redis.setex(key, 300, f"{price[0]},{price[1]}")
+    except Exception:
+        pass
+    return price
+
+
+async def _reply_cost(db: AsyncSession, redis, model_id: str | None,
+                      input_t: int, output_t: int) -> int:
+    """ETG charged for one reply, grounded in the model's real per-1k price.
+    Free OpenRouter models (':free') are zero-rated. Paid replies cost at least 1."""
+    if (model_id or "").endswith(":free"):
+        return 0
+    in_per_1k, out_per_1k = await _model_price(db, redis, model_id)
+    cost = _ceil_div(input_t * in_per_1k, 1000) + _ceil_div(output_t * out_per_1k, 1000)
+    return max(1, cost)
 
 # Wallet alert thresholds
 _THRESHOLD_LOW = 500
@@ -56,42 +114,116 @@ async def telegram_webhook(
     Receives every Telegram update for every registered bot.
     ALWAYS returns 200 — Telegram retries on any non-200 response.
     """
+    print(f"[WEBHOOK] update received for token_hash={token_hash[:8]}…", flush=True)
     body_bytes = await request.body()
+    print(f"[WEBHOOK] body read ({len(body_bytes)} bytes); looking up bot…", flush=True)
+    logger.info("Looking up bot by token_hash", token_hash=token_hash[:12])
+
+    # 0. Master/platform bot → the menu/command layer (language screen + main
+    # menu), NOT a business AI bot. Detected by the master token's hash.
+    from app.core.security import hash_bot_token
+    if settings.master_bot_token and token_hash == hash_bot_token(settings.master_bot_token):
+        try:
+            envelope = telegram_service.parse_incoming_update(json.loads(body_bytes), token_hash)
+        except Exception:
+            return JSONResponse({"ok": True})
+        if envelope is not None:
+            try:
+                from app.services.platform_menu import handle_platform_update
+                await handle_platform_update(envelope, db, await get_redis())
+            except Exception as exc:
+                logger.error("Platform menu handler failed", error=f"{type(exc).__name__}: {exc}")
+        return JSONResponse({"ok": True})
 
     # 1. Look up bot by token_hash — silent 200 on miss (security: no info leak)
-    bot_result = await db.execute(
-        select(Bot)
-        .where(Bot.token_hash == token_hash)
-        .join(Bot.business)
-    )
-    bot = bot_result.scalar_one_or_none()
-    if bot is None:
+    try:
+        bot_result = await db.execute(
+            select(Bot)
+            .where(Bot.token_hash == token_hash)
+            .join(Bot.business)
+            # Suspended/deleted business → no bot match → silent drop below (the
+            # bot stops responding, IO-free; no lazy load of bot.business).
+            .where(Business.is_suspended.is_(False), Business.deleted_at.is_(None))
+        )
+        bot = bot_result.scalar_one_or_none()
+    except Exception as exc:
+        print(f"[WEBHOOK] bot lookup FAILED: {type(exc).__name__}: {exc}", flush=True)
+        logger.error("Bot lookup query failed", token_hash=token_hash[:12],
+                     error=f"{type(exc).__name__}: {exc}", exc_info=True)
         return JSONResponse({"ok": True})
+
+    print(f"[WEBHOOK] bot lookup done: found={bot is not None}", flush=True)
+    if bot is None:
+        logger.warning("Bot not found for token_hash — dropping update",
+                       token_hash=token_hash[:12])
+        return JSONResponse({"ok": True})
+
+    # Capture identifiers as plain strings up front. After a rollback in the
+    # post-reply error handler, the ORM objects are expired, so touching
+    # bot.id/business_id there would trigger a lazy reload — which in async mode
+    # raises MissingGreenlet and turns a swallowed failure into a 500 (-> Telegram
+    # retry). Using this local keeps the handler IO-free.
+    bot_id_str = str(bot.id)
+
+    logger.info(
+        "Bot fetched",
+        bot_id=str(bot.id),
+        business_id=str(bot.business_id),
+        bot_status=bot.status.value,
+        bot_username=bot.bot_username,
+    )
 
     # 2. Verify Telegram signature
     secret_header = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-    if bot.webhook_secret and not _verify_signature(body_bytes, bot.webhook_secret, secret_header):
-        logger.warning("Webhook signature mismatch", token_hash=token_hash)
+    if bot.webhook_secret and not _verify_signature(bot.webhook_secret, secret_header):
+        logger.warning("Webhook signature mismatch — dropping update",
+                       bot_id=str(bot.id), token_hash=token_hash[:12],
+                       header_present=bool(secret_header))
         return JSONResponse({"ok": True})
 
     # 3. Parse update
     try:
         body = await request.json()
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to parse webhook JSON — dropping update",
+                       bot_id=str(bot.id), error=str(exc))
         return JSONResponse({"ok": True})
 
     envelope = telegram_service.parse_incoming_update(body, token_hash)
     if envelope is None:
+        logger.info("Update has no processable message (envelope=None) — dropping",
+                    bot_id=str(bot.id), update_keys=list(body.keys()) if isinstance(body, dict) else None)
         return JSONResponse({"ok": True})
 
     envelope.business_id = str(bot.business_id)
     envelope.bot_id = str(bot.id)
 
+    logger.info(
+        "Webhook update received",
+        bot_id=str(bot.id),
+        business_id=str(bot.business_id),
+        customer_id=envelope.customer_id,
+        bot_status=bot.status.value,
+        has_text=bool(envelope.text),
+    )
+
     # 4. Suspended bot — silent drop
     if bot.status == BotStatus.suspended:
+        logger.info("Dropping update: bot suspended", bot_id=str(bot.id))
         return JSONResponse({"ok": True})
 
     redis = await get_redis()
+
+    # Idempotency: Telegram resends the same update_id on every retry. Accept
+    # each update at most once, so a downstream error can never re-invoke the
+    # (paid) model call for the same message.
+    update_id = body.get("update_id")
+    if update_id is not None:
+        dedup_key = f"tg:update:{bot.id}:{update_id}"
+        if not await redis.set(dedup_key, "1", nx=True, ex=3600):
+            logger.info("Duplicate update_id — already processed, skipping",
+                        bot_id=str(bot.id), update_id=update_id)
+            return JSONResponse({"ok": True})
 
     # Decrypt token once for all sends in this request
     try:
@@ -100,14 +232,51 @@ async def telegram_webhook(
         logger.error("Token decryption failed", bot_id=str(bot.id), error=str(exc))
         return JSONResponse({"ok": True})
 
-    # 5. Paused bot — inform customer, do not process
-    if bot.status in (BotStatus.paused, BotStatus.grace):
+    # 5. Paused / grace bot — block, but self-heal a GRACE bot whose wallet was
+    # recharged (grace = ran out of ETG, not an admin pause).
+    if await _bot_should_block(bot, db, redis):
         await _send_paused_message(raw_token, envelope)
         return JSONResponse({"ok": True})
 
-    # 6. Balance check (Redis-cached)
+    logger.info("Processing update", bot_id=str(bot.id), status=bot.status.value)
+
+    # Load the business's billing policy (who pays per message).
+    business = await db.get(Business, bot.business_id)
+    business_pays_cost = (business is None) or business.billing_policy in ("business_pays", "both")
+
+    # Group handling: a business enables group support by deploying the Community
+    # Assistant. In a group we only respond when addressed (mention/reply), and
+    # we route to that deployed agent (runs on its cheap/free model). If not
+    # addressed or not deployed, ignore the message entirely (no cost).
+    group_data = None
+    if envelope.chat_type in ("group", "supergroup"):
+        if not _is_addressed(envelope, bot):
+            return JSONResponse({"ok": True})
+        group_data = await _load_child_data(str(bot.business_id), "GroupAgent", db, bot_id=bot.id)
+        if group_data is None:
+            return JSONResponse({"ok": True})
+
+    # Owner Add-Product: a captioned photo (or /addproduct) from the OWNER writes
+    # to the catalog. Runs before the balance gate so it works with no credit.
+    if envelope.chat_type == "private" and await _maybe_handle_add_product(
+        envelope, bot, business, raw_token, db, redis
+    ):
+        return JSONResponse({"ok": True})
+
+    # Owner management menu on the business's own bot: /start, /menu, or a menu
+    # tap from the OWNER opens management tools (not the customer AI). Cheap text
+    # gate first, so we only run the ownership lookup for actual owner commands.
+    if envelope.chat_type == "private" and owner_bot_menu.is_owner_command(envelope.text) \
+            and await _sender_is_owner(envelope, business, db):
+        if await owner_bot_menu.handle(envelope, bot, business, raw_token, db, redis):
+            return JSONResponse({"ok": True})
+
+    # 6. Balance check (Redis-cached). Only gates when the BUSINESS pays the
+    # platform cost; in user_pays the business wallet isn't used for messages.
     balance = await _get_balance(str(bot.business_id), redis, db)
-    if balance <= 0:
+    logger.info("Balance checked", business_id=str(bot.business_id), balance=balance)
+    if business_pays_cost and balance <= 0:
+        logger.info("Zero balance: not processing", business_id=str(bot.business_id), balance=balance)
         await _handle_zero_balance(bot, raw_token, envelope, db, redis)
         return JSONResponse({"ok": True})
 
@@ -117,44 +286,109 @@ async def telegram_webhook(
     # 8. Get or create Conversation
     conversation = await _get_or_create_conversation(envelope, bot, db)
 
+    # 8b. Voice note → transcribe to text so the rest of the pipeline (language
+    # detection, booking intent, the agents) treats it like a typed message.
+    # Ethiopian customers speak far more than they type — this is first-class.
+    if envelope.media_type in ("voice", "audio") and envelope.media_file_id:
+        handled = await _maybe_transcribe_voice(envelope, raw_token, bot)
+        if handled is False:                 # couldn't transcribe → polite reply
+            return JSONResponse({"ok": True})
+
     # 9. Detect language (simple heuristic; full service in later phase)
     language = _detect_language(envelope.text or "")
     if language != conversation.detected_language:
         conversation.detected_language = language
 
-    # 10. Build response via agent (base Q&A until agents layer is built)
+    # 9b0. /balance command — let the customer check their balance for free.
+    if business is not None and (envelope.text or "").strip().lower() in ("/balance", "balance"):
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id, _balance_message(business, conversation))
+        return JSONResponse({"ok": True})
+
+    # 9c. Per-user billing precheck — decide who pays this message and enforce
+    # the free-tier cap / user balance before spending on a model call.
+    payer = "business"
+    if business is not None:
+        _apply_monthly_reset(conversation, datetime.now(timezone.utc))
+        payer, block = _decide_payer(business, conversation)
+        if block == "recharge":
+            await telegram_service.send_message(
+                raw_token, envelope.customer_id, _recharge_message(business, conversation))
+            return JSONResponse({"ok": True})
+        if block == "limit":
+            await telegram_service.send_message(
+                raw_token, envelope.customer_id,
+                "You've reached this month's free message limit. Please try again next month.")
+            return JSONResponse({"ok": True})
+
+    # 9b. Booking sub-flow (Concierge with a configured calendar): present real
+    # slots on booking intent, or confirm a tapped slot. Handles its own reply.
+    if await _maybe_handle_booking(envelope, bot, raw_token, conversation, db, redis, body):
+        return JSONResponse({"ok": True})
+
+    # 10. Build response: classify intent → route to the right agent
     brain_config = await _get_brain_config(str(bot.business_id), db)
     response_text, tokens_used, model_id = await _process_message(
-        envelope, conversation, brain_config, db
+        envelope, conversation, brain_config, db, raw_token, group_child_data=group_data
+    )
+    logger.info(
+        "Reply generated",
+        bot_id=str(bot.id),
+        model_id=model_id,
+        response_chars=len(response_text or ""),
     )
 
     # 11. Send reply
     try:
         await telegram_service.send_message(raw_token, envelope.customer_id, response_text)
+        logger.info(
+            "Reply sent to customer",
+            bot_id=str(bot.id),
+            customer_id=envelope.customer_id,
+            model_id=model_id,
+        )
     except Exception as exc:
-        logger.error("Failed to send reply", bot_id=str(bot.id), error=str(exc))
+        logger.error("Failed to send reply", bot_id=str(bot.id), error=str(exc), exc_info=True)
         return JSONResponse({"ok": True})
 
-    # 12. Persist chat messages
-    await _save_messages(envelope, response_text, model_id, tokens_used, conversation, db)
+    # 11b. If the conversation references a catalog product that has a photo,
+    # send the image too. Best-effort — a failure must never break the reply.
+    try:
+        await _maybe_send_product_images(
+            envelope, bot, raw_token, response_text, db)
+    except Exception as exc:
+        logger.warning("Product image send failed", bot_id=str(bot.id), error=str(exc))
 
-    # Update conversation stats
-    conversation.total_messages += 2
-    conversation.last_message_at = datetime.now(timezone.utc)
-    bot.total_messages_processed += 1
-    bot.last_message_at = datetime.now(timezone.utc)
+    # 12-14. Persist, update stats, meter ETG, and check alerts.
+    # These run AFTER the reply has been delivered, so a failure here must NOT
+    # propagate: a non-200 response makes Telegram retry the update and
+    # re-invoke the paid model call. Roll back to leave the session clean
+    # (get_db commits on return) and still return 200.
+    try:
+        await _save_messages(envelope, response_text, model_id, tokens_used, conversation, db)
 
-    # 13. Meter ETG usage
-    etg_charged = await _charge_etg(
-        str(bot.business_id), str(bot.id), str(conversation.id),
-        model_id, tokens_used, balance, redis, db
-    )
-    conversation.total_etg_spent += etg_charged
-    bot.total_etg_consumed += etg_charged
+        # Update conversation stats
+        conversation.total_messages += 2
+        conversation.last_message_at = datetime.now(timezone.utc)
+        bot.total_messages_processed += 1
+        bot.last_message_at = datetime.now(timezone.utc)
 
-    # 14. Post-charge alert checks
-    new_balance = balance - etg_charged
-    await _check_wallet_alerts(str(bot.business_id), new_balance, bot, redis, db)
+        # 13. Meter ETG usage per the billing policy (business/user/both pay).
+        etg_charged = await _charge_etg(
+            business, conversation, str(bot.id), model_id, tokens_used, payer, redis, db
+        )
+        conversation.total_etg_spent += etg_charged
+        bot.total_etg_consumed += etg_charged
+
+        # 14. Post-charge alert checks (re-read the actual business balance)
+        new_balance = await _get_balance(str(bot.business_id), redis, db)
+        await _check_wallet_alerts(str(bot.business_id), new_balance, bot, redis, db)
+    except Exception as exc:
+        await db.rollback()
+        logger.error(
+            "Post-reply persistence/metering failed (reply already sent) — returning 200",
+            bot_id=bot_id_str, error=f"{type(exc).__name__}: {exc}", exc_info=True,
+        )
 
     return JSONResponse({"ok": True})
 
@@ -163,11 +397,42 @@ async def telegram_webhook(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _verify_signature(body: bytes, secret: str, provided: str) -> bool:
+def _verify_signature(secret: str, provided: str) -> bool:
+    """
+    Telegram echoes the ``secret_token`` set via setWebhook *verbatim* in the
+    ``X-Telegram-Bot-Api-Secret-Token`` header — it is NOT an HMAC of the body.
+    Verify with a constant-time comparison of the header against the stored secret.
+    """
     if not provided:
         return False
-    expected = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, provided)
+    return hmac.compare_digest(secret, provided)
+
+
+async def _bot_should_block(bot: Bot, db: AsyncSession, redis) -> bool:
+    """True if the bot must NOT process this message (send the paused notice).
+
+    A GRACE bot ran out of ETG automatically — if the wallet has since been
+    recharged, reactivate it and let it through (False), so a business isn't
+    stranded after paying. A PAUSED bot is an admin/manual stop and stays
+    blocked. Active bots pass straight through.
+    """
+    if bot.status == BotStatus.grace:
+        fresh = await db.scalar(
+            select(TokenWallet.balance).where(TokenWallet.business_id == bot.business_id))
+        if fresh and fresh > 0:
+            bot.status = BotStatus.active
+            bot.grace_period_started_at = None
+            await redis.delete(f"wallet:alert_sent:{str(bot.business_id)}")
+            await redis.delete(f"wallet:balance:{str(bot.business_id)}")   # bust stale 0
+            logger.info("Bot reactivated from grace (wallet recharged)",
+                        bot_id=str(bot.id), balance=int(fresh))
+            return False
+        logger.info("Dropping update: bot in grace, wallet empty", bot_id=str(bot.id))
+        return True
+    if bot.status == BotStatus.paused:
+        logger.info("Dropping update: bot paused", bot_id=str(bot.id))
+        return True
+    return False
 
 
 async def _send_paused_message(token: str, envelope: MessageEnvelope) -> None:
@@ -252,43 +517,725 @@ async def _get_brain_config(
     return result.scalar_one_or_none()
 
 
+# Map a marketplace father Agent to the local agent class that implements it,
+# by keyword on its category / tags / capabilities.
+_ACCOUNTANT_KEYWORDS = ("account", "receipt", "expense", "finance", "invoice", "bookkeep")
+_CONCIERGE_KEYWORDS = ("concierge", "booking", "appointment", "schedule", "reserv", "calendar")
+_GROUP_KEYWORDS = ("group", "community", "moderation", "channel")
+
+
+def _agent_type_for(agent: Agent) -> str:
+    """Classify a father Agent into the local agent class name that runs it."""
+    hay = " ".join([
+        agent.category or "",
+        " ".join(agent.tags or []),
+        " ".join(agent.capabilities or []),
+    ]).lower()
+    if any(k in hay for k in _ACCOUNTANT_KEYWORDS):
+        return "AccountantAgent"
+    if any(k in hay for k in _CONCIERGE_KEYWORDS):
+        return "ConciergeAgent"
+    if any(k in hay for k in _GROUP_KEYWORDS):
+        return "GroupAgent"
+    return "BaseAgent"
+
+
+def _is_addressed(envelope, bot) -> bool:
+    """True if a group message is aimed at the bot — @mentions it or replies to
+    one of its messages. (With Telegram privacy mode ON, the bot only receives
+    these anyway; this stays correct if the owner turns privacy mode off.)"""
+    raw = envelope.raw or {}
+    msg = raw.get("message") or {}
+    username = (bot.bot_username or "").lower()
+    if not username:
+        return False
+    reply = (msg.get("reply_to_message") or {}).get("from") or {}
+    if reply.get("is_bot") and (reply.get("username") or "").lower() == username:
+        return True
+    text = (msg.get("text") or msg.get("caption") or "").lower()
+    return f"@{username}" in text
+
+
+# ── Add Product: owner sends a captioned photo → a catalog item ───────────────
+
+_ADDP_TITLE = _re.compile(r"(?im)^\s*title\s*[:\-]\s*(.+)$")
+_ADDP_PRICE = _re.compile(r"(?im)^\s*price\s*[:\-]\s*(.+)$")
+_ADDP_CATEGORY = _re.compile(r"(?im)^\s*categor(?:y|ies)\s*[:\-]\s*(.+)$")
+_ADDP_TYPE = _re.compile(r"(?im)^\s*type\s*[:\-]\s*(.+)$")
+_ADDP_DURATION = _re.compile(r"(?im)^\s*duration\s*[:\-]\s*(.+)$")
+
+
+async def _sender_is_owner(envelope: MessageEnvelope, business, db: AsyncSession) -> bool:
+    """True if the message sender (private chat) is the business owner."""
+    if business is None:
+        return False
+    try:
+        tg_id = int(envelope.customer_id)
+    except (TypeError, ValueError):
+        return False
+    owner_tg = await db.scalar(select(User.telegram_id).where(User.id == business.owner_id))
+    return owner_tg is not None and owner_tg == tg_id
+
+
+def _parse_product_caption(text: str | None) -> "dict | None":
+    """Parse an Add-Product caption. Requires a Title: line. The remaining
+    non-key lines become the description."""
+    if not text:
+        return None
+    t = _ADDP_TITLE.search(text)
+    if not t:
+        return None
+    title = t.group(1).strip()
+    if not title:
+        return None
+    p = _ADDP_PRICE.search(text)
+    c = _ADDP_CATEGORY.search(text)
+    ty = _ADDP_TYPE.search(text)
+    d = _ADDP_DURATION.search(text)
+    duration = d.group(1).strip()[:64] if d else None
+
+    # A "Type: service" line OR any "Duration:" line makes it a service.
+    kind = "product"
+    if (ty and "serv" in ty.group(1).strip().lower()) or duration:
+        kind = "service"
+
+    key_lines = (_ADDP_TITLE, _ADDP_PRICE, _ADDP_CATEGORY, _ADDP_TYPE, _ADDP_DURATION)
+    body_lines = [ln.strip() for ln in text.splitlines()
+                  if ln.strip() and not any(rx.match(ln) for rx in key_lines)]
+    return {
+        "kind": kind,
+        "title": title[:255],
+        "price": (p.group(1).strip()[:64] if p else None),
+        "category": (c.group(1).strip()[:64] if c else None),
+        "duration": duration,
+        "body": (" ".join(body_lines)[:500] or None),
+    }
+
+
+async def _maybe_handle_add_product(envelope, bot, business, raw_token, db, redis) -> bool:
+    """Owner-only: a captioned `Title: … / Price: …` message becomes a catalog
+    item. A `Type: service` line or a `Duration:` line makes it a service
+    (image optional — services often have none); otherwise it's a product and
+    a photo's image is stored. A bare /addproduct (owner) replies with how-to."""
+    text = envelope.text or ""
+    is_command = text.strip().lower().startswith(("/addproduct", "/addservice"))
+    parsed = _parse_product_caption(text)
+    has_photo = envelope.media_type == "photo" and bool(envelope.media_file_id)
+
+    # Nothing for us unless it's a parseable item caption or the /add* help.
+    if not parsed and not is_command:
+        return False
+    if not await _sender_is_owner(envelope, business, db):
+        return False   # never let a customer write to the catalog
+
+    # /addproduct or /addservice with no parseable caption → instructions.
+    if not parsed:
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "📦 *Add a product*: send a *photo* captioned like:\n"
+            "Title: Blue Summer Dress\nPrice: 1200 ETB\nCategory: Dresses\n\n"
+            "🔧 *Add a service*: send a message (photo optional) like:\n"
+            "Title: Home Cleaning\nType: service\nPrice: 800 ETB\nDuration: 2 hours\n\n"
+            "I'll add it to your store. You can edit the details later in your dashboard.")
+        return True
+
+    is_service = parsed["kind"] == "service"
+    noun = "service" if is_service else "product"
+
+    # Download the photo and store it in the public bucket (when one was sent).
+    image_url = None
+    if has_photo:
+        try:
+            url = await telegram_service.get_file_download_url(raw_token, envelope.media_file_id)
+            async with _httpx.AsyncClient(timeout=30) as client:
+                data = (await client.get(url)).content
+            path = f"items/{business.id}/{uuid.uuid4().hex}.jpg"
+            image_url = await storage_service.upload_public(data, path, content_type="image/jpeg")
+        except Exception as exc:
+            logger.error("Add-item image upload failed", business_id=str(business.id),
+                         error=f"{type(exc).__name__}: {exc}")
+
+    item_data: dict = {}
+    if parsed["price"]:    item_data["price"] = parsed["price"]
+    if parsed["category"]: item_data["category"] = parsed["category"]
+    if parsed["duration"]: item_data["duration"] = parsed["duration"]
+    if image_url:          item_data["image_url"] = image_url
+    db.add(KnowledgeItem(
+        business_id=business.id,
+        item_type=KnowledgeItemType.service if is_service else KnowledgeItemType.product,
+        title=parsed["title"], body=parsed["body"], data=(item_data or None), is_active=True,
+    ))
+    await db.flush()
+    from app.api.miniapp import bust_storefront_cache
+    await bust_storefront_cache(business.id, db, redis)
+
+    reply = f'✅ Added "{parsed["title"]}" to your {noun}s'
+    reply += f' — {parsed["price"]}.' if parsed["price"] else "."
+    if is_service and parsed["duration"]:
+        reply += f'\n⏱ Duration: {parsed["duration"]}'
+    if has_photo and not image_url:
+        reply += "\n(Couldn't save the image — you can add it later in the dashboard.)"
+    if not parsed["price"]:
+        reply += "\nTip: add a 'Price:' line to set the price."
+    if not is_service:
+        reply += "\nTip: add 'Type: service' or a 'Duration:' line to list a service instead."
+    reply += "\nEdit details anytime in your Mini App dashboard."
+    await telegram_service.send_message(raw_token, envelope.customer_id, reply)
+    logger.info(f"{noun.capitalize()} added via bot", business_id=str(business.id),
+                title=parsed["title"], kind=parsed["kind"])
+    return True
+
+
+async def _maybe_send_product_images(envelope, bot, raw_token, reply_text, db) -> int:
+    """Send the photo for any catalog product the conversation references.
+
+    Matches active products that HAVE an image against the customer's message +
+    the bot's reply (whole-word, case-insensitive), preferring the most specific
+    (longest) title, and sends up to 2 photos so a "do you have the blue dress?"
+    gets the picture, not just the text. Returns how many photos were sent."""
+    haystack = f"{envelope.text or ''} {reply_text or ''}".lower()
+    if len(haystack.strip()) < 3:
+        return 0
+
+    rows = (await db.execute(
+        select(KnowledgeItem.title, KnowledgeItem.data).where(
+            KnowledgeItem.business_id == bot.business_id,
+            KnowledgeItem.item_type == KnowledgeItemType.product,
+            KnowledgeItem.is_active.is_(True),
+        )
+    )).all()
+
+    matches = []
+    for title, data in rows:
+        image_url = (data or {}).get("image_url")
+        if not title or not image_url or len(title.strip()) < 3:
+            continue
+        if _re.search(r"\b" + _re.escape(title.strip().lower()) + r"\b", haystack):
+            matches.append((title.strip(), image_url, (data or {}).get("price")))
+
+    # Longest title first (most specific), de-duplicate by image URL.
+    matches.sort(key=lambda m: len(m[0]), reverse=True)
+    seen, sent = set(), 0
+    for title, image_url, price in matches:
+        if image_url in seen:
+            continue
+        seen.add(image_url)
+        raw_caption = title + (f" — {price}" if price else "")
+        caption = raw_caption.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        try:
+            await telegram_service.send_photo(raw_token, envelope.customer_id, image_url, caption=caption)
+            sent += 1
+        except Exception as exc:
+            logger.warning("send_photo failed", bot_id=str(bot.id), error=str(exc))
+        if sent >= 2:
+            break
+    if sent:
+        logger.info("Product images sent", bot_id=str(bot.id), count=sent)
+    return sent
+
+
+_VOICE_FAIL_MSG = (
+    "🎤 ይቅርታ፣ የድምጽ መልዕክቱን መስማት አልቻልኩም። እባክዎ እንደገና ይሞክሩ ወይም በጽሁፍ ይላኩ።\n"
+    "Sorry, I couldn't hear that voice message. Please try again or type it."
+)
+_VOICE_TOO_LONG_MSG = (
+    "🎤 የድምጽ መልዕክቱ በጣም ረጅም ነው። እባክዎ ከ2 ደቂቃ በታች ይላኩ።\n"
+    "That voice message is too long — please keep it under 2 minutes."
+)
+
+
+async def _maybe_transcribe_voice(envelope: MessageEnvelope, raw_token: str, bot: Bot) -> bool:
+    """Transcribe a voice/audio message into envelope.text.
+
+    Returns True when the pipeline should continue (transcript set), False when
+    a reply was already sent (too long / couldn't transcribe) and the caller
+    must stop. Never raises.
+    """
+    from app.services.transcription_service import transcription_service
+
+    msg = (envelope.raw or {}).get("message") or {}
+    media = msg.get("voice") or msg.get("audio") or {}
+    duration = int(media.get("duration") or 0)
+    if duration > settings.max_voice_seconds:
+        await telegram_service.send_message(raw_token, envelope.customer_id, _VOICE_TOO_LONG_MSG)
+        return False
+
+    try:
+        download_url = await telegram_service.get_file_download_url(
+            raw_token, envelope.media_file_id)
+        import httpx
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(download_url)
+        audio_bytes = resp.content if resp.status_code == 200 else b""
+    except Exception as exc:
+        logger.warning("Voice download failed", bot_id=str(bot.id),
+                       error=f"{type(exc).__name__}: {exc}")
+        audio_bytes = b""
+
+    mime = media.get("mime_type") or "audio/ogg"
+    transcript = await transcription_service.transcribe(audio_bytes, mime) if audio_bytes else None
+    if not transcript:
+        await telegram_service.send_message(raw_token, envelope.customer_id, _VOICE_FAIL_MSG)
+        return False
+
+    # The caption (audio files can carry one) stays; the transcript becomes the
+    # message text so intent routing and the agents see what was actually said.
+    caption = (envelope.text or "").strip()
+    envelope.text = f"{caption}\n{transcript}".strip() if caption else transcript
+    logger.info("Voice note transcribed", bot_id=str(bot.id),
+                duration=duration, chars=len(transcript))
+    return True
+
+
+async def _load_child_data(
+    business_id: str, agent_type: str, db: AsyncSession, bot_id=None,
+) -> dict | None:
+    """
+    Return the business's active ChildAgent config for ``agent_type``, enriched
+    with the decrypted father system prompt under ``_father_prompt``.
+
+    This is what makes specialists business-specific: the Concierge gets the
+    owner's real services/hours/timezone (and calendar config), the Accountant
+    gets its business context, etc. Returns None when the business has no
+    matching deployed agent — the agent then uses its generic behaviour.
+
+    Per-bot binding: a child with ``assigned_to_bot_id`` set only runs on that
+    bot; a child with it NULL runs on every bot. When both exist for the same
+    agent type, the bot-specific one wins. Ordering is otherwise by created_at
+    so which child answers is deterministic.
+    """
+    from uuid import UUID
+    bid = business_id if isinstance(business_id, UUID) else UUID(str(business_id))
+    result = await db.execute(
+        select(ChildAgent, Agent)
+        .join(Agent, ChildAgent.agent_id == Agent.id)
+        .where(ChildAgent.business_id == bid, ChildAgent.is_active.is_(True))
+        .order_by(ChildAgent.created_at)
+    )
+    candidates = []
+    for child, father in result.all():
+        if _agent_type_for(father) != agent_type:
+            continue
+        if child.assigned_to_bot_id is not None and (
+            bot_id is None or str(child.assigned_to_bot_id) != str(bot_id)
+        ):
+            continue                     # bound to a different bot → skip
+        candidates.append((child, father))
+    # Bot-specific children outrank business-wide ones.
+    candidates.sort(key=lambda cf: cf[0].assigned_to_bot_id is None)
+    for child, father in candidates[:1]:
+        # Plain config (rendered into the prompt). Keys are owner-controlled, so
+        # strip any "_"-prefixed keys to avoid clobbering reserved slots.
+        data = {k: v for k, v in (child.child_data or {}).items() if not k.startswith("_")}
+        try:
+            data["_father_prompt"] = decrypt_agent_prompt(
+                father.encrypted_system_prompt, father.encryption_key_ref
+            )
+        except Exception as exc:
+            logger.warning("Failed to decrypt father prompt",
+                           agent_id=str(father.id), error=str(exc))
+        # Sensitive config (credentials/API keys): decrypted only here and placed
+        # under "_secrets" — a "_"-prefixed key, so build_system_prompt never
+        # renders it into the model prompt. Agent code reads it directly.
+        if child.child_secrets:
+            try:
+                data["_secrets"] = decrypt_child_secrets(child.child_secrets)
+            except Exception as exc:
+                logger.error("Failed to decrypt child_secrets",
+                             child_agent_id=str(child.id), error=str(exc))
+        # The father agent's admin-set model (Agent.preferred_model_id) — read
+        # fresh per message, so an admin change takes effect on the next reply.
+        data["_father_model_id"] = father.preferred_model_id
+        return data
+    return None
+
+
+async def _maybe_handle_booking(
+    envelope: MessageEnvelope,
+    bot: Bot,
+    raw_token: str,
+    conversation: Conversation,
+    db: AsyncSession,
+    redis,
+    body: dict,
+) -> bool:
+    """
+    Handle the Concierge booking sub-flow. Returns True if it produced the reply
+    (and the caller should stop), False to fall through to the normal agent path.
+
+    - callback_query "book_slot:<key>:<idx>" → confirm via real calendar.
+    - booking intent + a Concierge configured with calendar credentials →
+      fetch REAL availability and present slot buttons.
+    """
+    from app.agents.router import Intent, intent_router
+    from app.services import booking_service
+
+    cb = body.get("callback_query")
+
+    # A. A tapped slot → confirm the booking.
+    if cb and str(cb.get("data", "")).startswith("book_slot:"):
+        await _confirm_booking_callback(envelope, bot, raw_token, conversation, db, redis, cb)
+        return True
+    # A2. A tapped service → present slots sized to that service's duration.
+    if cb and str(cb.get("data", "")).startswith("booksvc:"):
+        await _present_service_slots_callback(envelope, bot, raw_token, conversation, db, redis, cb)
+        return True
+    if cb:
+        return False  # some other callback — let the normal flow deal with it
+
+    # B. Booking intent → present native availability, if a Concierge is deployed.
+    #    No Google Calendar required: slots come from the business's hours minus
+    #    the appointments already in our DB.
+    if intent_router.classify(envelope) != Intent.BOOKING:
+        return False
+    child_data = await _load_child_data(
+        str(conversation.business_id), "ConciergeAgent", db, bot_id=bot.id)
+    if not child_data:
+        return False  # no booking agent deployed → fall through to LLM guidance
+
+    # If the catalog lists services, let the customer pick one first — each has
+    # its own duration, so slots are sized correctly (salon Cut 30m vs Colour 2h).
+    services = await booking_service.load_bookable_services(db, conversation.business_id)
+    if services:
+        session_key = _secrets.token_hex(6)
+        await redis.set(f"booksvc:{bot.id}:{session_key}", json.dumps(services), ex=3600)
+        buttons = [
+            [{"text": s["name"] + (f" · {s['price']}" if s.get("price") else ""),
+              "callback_data": f"booksvc:{session_key}:{i}"}]
+            for i, s in enumerate(services)
+        ]
+        await telegram_service.send_message_with_buttons(
+            raw_token, envelope.customer_id, "What would you like to book?", buttons)
+        logger.info("Presented booking services", bot_id=str(bot.id), services=len(services))
+        return True
+
+    # No catalog services → a single default-duration availability list.
+    now = datetime.now(timezone.utc)
+    return await _present_slots(
+        db, bot, raw_token, envelope.customer_id, redis,
+        conversation.business_id, child_data, None, now)
+
+
+async def _present_slots(
+    db, bot, raw_token, customer_id, redis, business_id, child_data, service, now,
+) -> bool:
+    """Compute and present available slots (sized to ``service`` when given),
+    stashing the slots + chosen service under a one-hour session key."""
+    from app.agents.concierge import concierge_agent
+    from app.services import booking_service
+
+    target_day = now + timedelta(days=1)
+    duration = service.get("duration_min") if service else None
+    slots = await booking_service.available_slots(
+        db, business_id, child_data, target_day, now=now, duration_minutes=duration)
+    if not slots:
+        await telegram_service.send_message(
+            raw_token, customer_id,
+            "I don't see any open times right now. Please try again later or contact us directly.")
+        return True
+
+    session_key = _secrets.token_hex(6)
+    await redis.set(f"book:{bot.id}:{session_key}",
+                    json.dumps({"slots": slots, "service": service}), ex=3600)
+    buttons = concierge_agent.format_slots_as_buttons(slots, session_key)
+    header = (f"Available times for {service['name']} — tap one to book:"
+              if service else "Here are the next available times — tap one to book:")
+    await telegram_service.send_message_with_buttons(raw_token, customer_id, header, buttons)
+    logger.info("Presented booking slots", bot_id=str(bot.id), slots=len(slots),
+                service=(service or {}).get("name"))
+    return True
+
+
+async def _present_service_slots_callback(
+    envelope, bot, raw_token, conversation, db, redis, cb,
+) -> None:
+    """A tapped service button → present slots sized to that service."""
+    try:
+        await telegram_service.answer_callback_query(raw_token, cb.get("id"))
+    except Exception:
+        pass
+
+    parts = str(cb.get("data", "")).split(":")
+    if len(parts) != 3:
+        return
+    _, session_key, idx_s = parts
+    raw = await redis.get(f"booksvc:{bot.id}:{session_key}")
+    if not raw:
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "⚠️ That option expired. Please ask to book again.")
+        return
+    try:
+        services = json.loads(raw)
+        service = services[int(idx_s)]
+    except (ValueError, IndexError, TypeError, json.JSONDecodeError):
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "⚠️ I couldn't read that service. Please ask to book again.")
+        return
+
+    child_data = await _load_child_data(
+        str(conversation.business_id), "ConciergeAgent", db, bot_id=bot.id)
+    now = datetime.now(timezone.utc)
+    await _present_slots(
+        db, bot, raw_token, envelope.customer_id, redis,
+        conversation.business_id, child_data, service, now)
+    await redis.delete(f"booksvc:{bot.id}:{session_key}")
+
+
+async def _confirm_booking_callback(
+    envelope: MessageEnvelope,
+    bot: Bot,
+    raw_token: str,
+    conversation: Conversation,
+    db: AsyncSession,
+    redis,
+    cb: dict,
+) -> None:
+    """Confirm a tapped slot against the real calendar and reply honestly."""
+    from app.agents.concierge import concierge_agent
+
+    # Always answer the callback so the client's spinner stops.
+    try:
+        await telegram_service.answer_callback_query(raw_token, cb.get("id"))
+    except Exception:
+        pass
+
+    parts = str(cb.get("data", "")).split(":")
+    if len(parts) != 3:
+        return
+    _, session_key, idx_s = parts
+
+    raw = await redis.get(f"book:{bot.id}:{session_key}")
+    if not raw:
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "⚠️ That booking option expired. Please ask for available times again.",
+        )
+        return
+    # Session payload is {"slots": [...], "service": {...}|null}; tolerate the
+    # legacy bare-list shape too.
+    try:
+        payload = json.loads(raw)
+        if isinstance(payload, dict):
+            slots, chosen_service = payload.get("slots") or [], payload.get("service")
+        else:
+            slots, chosen_service = payload, None
+        slot = slots[int(idx_s)]
+    except (ValueError, IndexError, TypeError, KeyError, json.JSONDecodeError):
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "⚠️ I couldn't read that slot. Please ask for available times again.",
+        )
+        return
+
+    # Parse the slot times (tz-aware; treat any naive value as UTC).
+    try:
+        start_dt = datetime.fromisoformat(slot["start"])
+        end_dt = datetime.fromisoformat(slot["end"])
+    except (KeyError, ValueError, TypeError):
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "⚠️ I couldn't read that slot. Please ask for available times again.")
+        return
+    if start_dt.tzinfo is None:
+        start_dt = start_dt.replace(tzinfo=timezone.utc)
+    if end_dt.tzinfo is None:
+        end_dt = end_dt.replace(tzinfo=timezone.utc)
+
+    from app.services import booking_service
+    child_data = await _load_child_data(
+        str(conversation.business_id), "ConciergeAgent", db, bot_id=bot.id)
+    if chosen_service and chosen_service.get("name"):
+        service_name = chosen_service["name"]
+        service_price = chosen_service.get("price")
+    else:
+        service_name = ((child_data or {}).get("services") if child_data else None) or "Appointment"
+        service_price = None
+
+    # Persist natively FIRST — our DB is the source of truth, no calendar needed.
+    booking, created = await booking_service.create_booking(
+        db,
+        business_id=conversation.business_id,
+        conversation_id=getattr(conversation, "id", None),
+        customer_platform_id=envelope.customer_id,
+        customer_name=envelope.customer_name or "Customer",
+        starts_at=start_dt, ends_at=end_dt, service_name=service_name,
+        price=service_price,
+    )
+    if not created:
+        # Someone grabbed this slot between offer and tap.
+        await telegram_service.send_message(
+            raw_token, envelope.customer_id,
+            "⚠️ Sorry, that time was just taken. Please ask for available times again.")
+        await redis.delete(f"book:{bot.id}:{session_key}")
+        logger.info("Booking slot already taken", bot_id=str(bot.id))
+        return
+
+    # Best-effort mirror to Google Calendar when the business has wired it. A
+    # mirror failure must NOT fail the booking — we already own the record.
+    if child_data and (child_data.get("_secrets") or {}).get("credentials_json"):
+        try:
+            result = await concierge_agent.confirm_booking(
+                child_data=child_data, slot_start=slot["start"], slot_end=slot["end"],
+                customer_name=envelope.customer_name or "Customer",
+                service_name=service_name)
+            if result.get("id"):
+                booking.calendar_event_id = result["id"]
+                await db.flush()
+        except Exception as exc:
+            logger.warning("Calendar mirror failed (booking still confirmed)",
+                           bot_id=str(bot.id), error=str(exc))
+
+    # Tell the owner, then confirm to the customer, then consume the slot.
+    await _notify_owner_new_booking(db, conversation.business_id, booking, slot.get("label"))
+    await telegram_service.send_message(
+        raw_token, envelope.customer_id,
+        concierge_agent.booking_reply_text(
+            {"id": str(booking.id), "status": "confirmed"}, slot_label=slot.get("label")))
+    await redis.delete(f"book:{bot.id}:{session_key}")
+    logger.info("Booking confirmed (native)", bot_id=str(bot.id),
+                booking_id=str(booking.id), calendar_event_id=booking.calendar_event_id)
+
+
+async def _notify_owner_new_booking(db, business_id, booking, slot_label=None) -> None:
+    """Queue a dashboard + Telegram notification to the owner for a new booking.
+    Best-effort: a failure here must never break the customer's confirmation."""
+    try:
+        from app.db.models import Notification
+        owner_id = await db.scalar(select(Business.owner_id).where(Business.id == business_id))
+        if not owner_id:
+            return
+        when = slot_label or booking.starts_at.strftime("%a %d %b, %I:%M %p")
+        db.add(Notification(
+            user_id=owner_id,
+            notification_type="booking",
+            title="📅 New booking",
+            body=(f"{booking.customer_name or 'A customer'} booked "
+                  f"{booking.service_name or 'an appointment'} — {when}."),
+            data={"booking_id": str(booking.id), "business_id": str(business_id)},
+            sent_via=[], is_read=False,
+        ))
+        await db.flush()
+    except Exception as exc:
+        logger.warning("Owner booking notification failed", error=str(exc))
+
+
 async def _process_message(
     envelope: MessageEnvelope,
     conversation: Conversation,
     brain_config: BusinessBrainConfig | None,
     db: AsyncSession,
+    raw_token: str | None = None,
+    group_child_data: dict | None = None,
 ) -> tuple[str, dict, str]:
     """
-    Route message through AI. Uses BaseAgent when agents layer exists;
-    falls back to a direct model call via model_router for now.
+    Classify the message intent, route it to the right agent, and run it.
+
+    The selected agent (Accountant for receipts, Concierge for bookings, or the
+    base Q&A agent for everything else) handles RAG + model failover internally.
+    If agent processing raises for any reason, fall back to a direct model call
+    so the bot never goes silent.
     """
+    from app.agents.router import intent_router
     from app.services.model_router import model_router
 
-    persona = brain_config.persona_name if brain_config else "Assistant"
-    tone = brain_config.persona_tone if brain_config else "friendly"
     fallback = brain_config.fallback_message if brain_config else "I'm here to help!"
-
     text = envelope.text or ""
-    if not text.strip():
+    has_media = envelope.media_type in ("photo", "document")
+
+    # Nothing to act on (no text and no media) → cheap fallback, no model call.
+    if not text.strip() and not has_media:
+        logger.info("Empty message — returning fallback without model call",
+                    business_id=envelope.business_id)
         return fallback, {"input_tokens": 0, "output_tokens": 0}, "none"
 
+    # Agents that download media (Accountant OCR) need the raw bot token; it is
+    # passed out-of-band on the envelope's raw payload.
+    if raw_token:
+        envelope.raw["_bot_token"] = raw_token
+
+    if group_child_data is not None:
+        # Group message → the deployed Community Assistant (cheap/free model).
+        from app.agents.router import group_agent
+        intent = "group"
+        agent = group_agent
+        child_data = group_child_data
+    else:
+        # 1. Classify intent → 2. select the agent instance for it.
+        intent = intent_router.classify(envelope)
+        agent = intent_router.select_agent(intent)
+
+        # 2b. Load the business's deployed config for this agent type (ChildAgent),
+        # so specialists answer with the owner's real services/hours/timezone and
+        # the father agent's prompt instead of generic defaults.
+        #
+        # Deployment-aware: a specialist only runs when the business actually
+        # deployed a matching agent. "Book me in" at a business with no Booking
+        # Concierge gets the general Q&A agent (which answers from the Business
+        # Brain), not a specialist running blind with no config.
+        child_data = None
+        if conversation is not None and db is not None:
+            bot_id = getattr(conversation, "bot_id", None)
+            child_data = await _load_child_data(
+                str(conversation.business_id), type(agent).__name__, db, bot_id=bot_id
+            )
+            if child_data is None and type(agent).__name__ != "BaseAgent":
+                logger.info("Specialist not deployed — using BaseAgent",
+                            intent=intent, specialist=type(agent).__name__,
+                            business_id=envelope.business_id)
+                agent = intent_router.select_agent(intent, available_agents=[])
+                child_data = await _load_child_data(
+                    str(conversation.business_id), "BaseAgent", db, bot_id=bot_id
+                )
+
+    logger.info("Routing message to agent", intent=intent, agent=agent.agent_name,
+                business_id=envelope.business_id, child_data=bool(child_data))
+
+    # 3. Run the agent (RAG + model failover happen inside process()). The
+    # father agent's admin-set model (if any) is applied here.
+    agent_model_id = (child_data or {}).get("_father_model_id")
+    try:
+        result = await agent.process(
+            envelope=envelope,
+            conversation=conversation,
+            brain_config=brain_config,
+            child_data=child_data,
+            db=db,
+            agent_model_id=agent_model_id,
+        )
+        logger.info("Agent returned reply", business_id=envelope.business_id,
+                    agent=agent.agent_name, model_id=result.model_id,
+                    response_chars=len(result.text or ""))
+        tokens = {
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+        }
+        return result.text, tokens, result.model_id
+    except Exception as exc:
+        logger.error("Agent processing failed — falling back to direct model call",
+                     agent=agent.agent_name, business_id=envelope.business_id,
+                     error=f"{type(exc).__name__}: {exc}", exc_info=True)
+
+    # 4. Fallback path: a plain model call so the bot never goes silent.
+    persona = brain_config.persona_name if brain_config else "Assistant"
+    tone = brain_config.persona_tone if brain_config else "friendly"
     system_prompt = (
         f"You are {persona}, a {tone} AI assistant for this business. "
         f"Answer customer questions helpfully and concisely. "
         f"If you don't know the answer, say so politely."
     )
-
-    messages = [{"role": "user", "content": text}]
-
     try:
         response_text, tokens, model_id = await model_router.execute_with_fallback(
-            messages=messages,
+            messages=[{"role": "user", "content": text}],
             system_prompt=system_prompt,
             business_id=envelope.business_id,
+            language=getattr(conversation, "detected_language", None),
         )
         return response_text, tokens, model_id
     except Exception as exc:
-        logger.error("All models failed", error=str(exc), business_id=envelope.business_id)
+        logger.error("All models failed — returning fallback text",
+                     error=str(exc), business_id=envelope.business_id, exc_info=True)
         return fallback, {"input_tokens": 0, "output_tokens": 0}, "none"
 
 
@@ -322,67 +1269,125 @@ async def _save_messages(
     db.add(assistant_msg)
 
 
+def _apply_monthly_reset(conversation, now) -> None:
+    """Roll the per-user free-tier counter at the start of each calendar month."""
+    r = conversation.monthly_reset_at
+    if r is None or (r.year, r.month) != (now.year, now.month):
+        conversation.monthly_etg_used = 0
+        conversation.monthly_reset_at = now
+
+
+def _decide_payer(business, conversation) -> tuple[str, "str | None"]:
+    """Return (payer, block_reason). payer ∈ {business,user,both}. A non-None
+    block_reason ('recharge' | 'limit') means the message must not be processed."""
+    policy = business.billing_policy
+    price = business.service_price or 0
+    bal = conversation.etg_balance or 0
+
+    if policy == "user_pays":
+        return ("user", None) if bal >= price else ("user", "recharge")
+    if policy == "both":
+        return ("both", None) if bal >= price else ("both", "recharge")
+
+    # business_pays — enforce the optional free-tier monthly cap per user.
+    limit = business.per_user_monthly_limit
+    used = conversation.monthly_etg_used or 0
+    if limit is not None and used >= limit:
+        if business.per_user_limit_action == "user_pays":     # switch this user to user-pays
+            return ("user", None) if bal >= price else ("user", "recharge")
+        return ("business", "limit")                          # block
+    return ("business", None)
+
+
+def _balance_message(business, conversation) -> str:
+    """Customer-facing balance summary (for /balance)."""
+    if business.billing_policy not in ("user_pays", "both"):
+        return "Good news — this business covers the cost of your messages. No balance needed. 🎉"
+    bal = conversation.etg_balance or 0
+    price = business.service_price or 0
+    line = f"Your balance: {bal} ETG."
+    if price:
+        line += f" Each reply costs {price} ETG."
+    return line + " To top up, contact this business and they'll add credit to your balance."
+
+
+def _recharge_message(business, conversation) -> str:
+    bal = conversation.etg_balance or 0
+    price = business.service_price or 0
+    return (f"You're out of balance for this service (you have {bal} ETG"
+            + (f", each reply costs {price} ETG" if price else "")
+            + "). Please contact this business to top up, then send your message again. "
+              "Type /balance any time to check.")
+
+
 async def _charge_etg(
-    business_id: str,
+    business,
+    conversation,
     bot_id: str,
-    conversation_id: str,
     model_id: str,
     tokens: dict,
-    current_balance: int,
+    payer: str,
     redis,
     db: AsyncSession,
 ) -> int:
-    """Deduct ETG from wallet and write immutable usage records."""
+    """Meter ETG per the billing policy and write immutable usage records.
+    Returns the platform cost (for stats). Business pays the cost; when the user
+    pays, their per-business balance is debited the service price and the
+    business wallet is credited the markup."""
+    if business is None:
+        return 0
     input_t = tokens.get("input_tokens", 0)
     output_t = tokens.get("output_tokens", 0)
-    etg = max(1, (input_t // 1000) + (output_t // 1000) * 2 + _ETG_COST_BASE_REPLY)
+    # Grounded in the model's real per-1k price (':free' models stay zero-rated —
+    # this is what makes a busy group free).
+    cost = await _reply_cost(db, redis, model_id, input_t, output_t)
+    business_id = str(business.id)
+    conversation_id = str(conversation.id)
 
-    result = await db.execute(
-        select(TokenWallet).where(TokenWallet.business_id == business_id)
-    )
-    wallet = result.scalar_one_or_none()
-    if wallet is None:
-        return 0
+    wallet = (await db.execute(
+        select(TokenWallet).where(TokenWallet.business_id == business.id)
+    )).scalar_one_or_none()
 
-    balance_before = wallet.balance
-    wallet.balance = max(0, wallet.balance - etg)
-    wallet.lifetime_spent += etg
-    wallet.current_month_spend += etg
+    # Free-tier counter: only business-subsidised usage counts toward the cap.
+    if payer in ("business", "both"):
+        conversation.monthly_etg_used = (conversation.monthly_etg_used or 0) + cost
 
-    tx = EtgTransaction(
-        wallet_id=wallet.id,
-        amount=-etg,
-        balance_before=balance_before,
-        balance_after=wallet.balance,
-        transaction_type="usage",
-        description=f"AI reply ({model_id})",
-        reference_type="conversation",
-        reference_id=conversation_id,
-    )
-    db.add(tx)
+    # Business pays the platform cost.
+    if payer in ("business", "both") and wallet is not None:
+        before = wallet.balance
+        wallet.balance = max(0, wallet.balance - cost)
+        wallet.lifetime_spent += cost
+        wallet.current_month_spend += cost
+        db.add(EtgTransaction(
+            wallet_id=wallet.id, amount=-cost, balance_before=before, balance_after=wallet.balance,
+            transaction_type="usage", description=f"AI reply ({model_id})",
+            reference_type="conversation", reference_id=conversation_id,
+        ))
 
-    usage = UsageEvent(
-        business_id=business_id,
-        bot_id=bot_id,
-        conversation_id=conversation_id,
-        action_type="ai_reply",
-        model_id=model_id,
-        input_tokens=input_t,
-        output_tokens=output_t,
-        etg_charged=etg,
-    )
-    db.add(usage)
+    # User pays the service price; the business earns the markup as profit.
+    if payer in ("user", "both"):
+        conversation.etg_balance = (conversation.etg_balance or 0) - (business.service_price or 0)
+        if wallet is not None and business.business_markup:
+            before = wallet.balance
+            wallet.balance += business.business_markup
+            db.add(EtgTransaction(
+                wallet_id=wallet.id, amount=business.business_markup,
+                balance_before=before, balance_after=wallet.balance,
+                transaction_type="markup", description="User-paid message markup",
+                reference_type="conversation", reference_id=conversation_id,
+            ))
 
-    # Bust cache
-    await redis.setex(f"wallet:balance:{business_id}", 60, wallet.balance)
+    db.add(UsageEvent(
+        business_id=business.id, bot_id=uuid.UUID(bot_id), conversation_id=conversation.id,
+        action_type="ai_reply", model_id=model_id,
+        input_tokens=input_t, output_tokens=output_t, etg_charged=cost, payer=payer,
+    ))
 
-    logger.etg_charged(
-        amount=etg,
-        action_type="ai_reply",
-        business_id=business_id,
-        balance_after=wallet.balance,
-    )
-    return etg
+    if wallet is not None:
+        await redis.setex(f"wallet:balance:{business_id}", 60, wallet.balance)
+    logger.etg_charged(amount=cost, action_type="ai_reply", business_id=business_id,
+                       balance_after=(wallet.balance if wallet else 0))
+    return cost
 
 
 async def _check_wallet_alerts(

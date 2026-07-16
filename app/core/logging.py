@@ -46,9 +46,33 @@ class EthiogramLogger:
     def __init__(self, logger: logging.Logger):
         self._logger = logger
 
+    # These kwargs are reserved by Python's logging module and cannot be
+    # passed via extra= without triggering a KeyError at runtime.
+    _RESERVED_LOG_KWARGS = frozenset({
+        "exc_info", "stack_info", "stackLevel", "extra",
+    })
+
+    # Built-in LogRecord attribute names. A structured field with one of these
+    # names would collide in logging.makeRecord ("Attempt to overwrite 'X' in
+    # LogRecord"), so we suffix it with "_" instead of crashing.
+    _RESERVED_LOGRECORD_ATTRS = frozenset({
+        "name", "msg", "args", "levelname", "levelno", "pathname", "filename",
+        "module", "exc_info", "exc_text", "stack_info", "lineno", "funcName",
+        "created", "msecs", "relativeCreated", "thread", "threadName",
+        "processName", "process", "taskName", "message", "asctime",
+    })
+
     def _log(self, level: int, message: str, **kwargs: Any) -> None:
-        extra = {k: str(v) if hasattr(v, '__str__') else v for k, v in kwargs.items()}
-        self._logger.log(level, message, extra=extra)
+        # Separate reserved logging kwargs from our structured-log extra fields
+        log_kwargs: dict[str, Any] = {}
+        extra: dict[str, Any] = {}
+        for k, v in kwargs.items():
+            if k in self._RESERVED_LOG_KWARGS:
+                log_kwargs[k] = v
+            else:
+                key = f"{k}_" if k in self._RESERVED_LOGRECORD_ATTRS else k
+                extra[key] = str(v) if hasattr(v, '__str__') else v
+        self._logger.log(level, message, extra=extra if extra else None, **log_kwargs)
 
     def debug(self, message: str, **kwargs): self._log(logging.DEBUG, message, **kwargs)
     def info(self, message: str, **kwargs): self._log(logging.INFO, message, **kwargs)

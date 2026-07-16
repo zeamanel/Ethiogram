@@ -104,7 +104,7 @@ async def _process_document(doc: KnowledgeDocument, db) -> None:
     chunk_count = await rag_service.ingest_document(
         document_id=doc.id,
         business_id=doc.business_id,
-        text=extracted_text,
+        document_text=extracted_text,
         db=db,
     )
 

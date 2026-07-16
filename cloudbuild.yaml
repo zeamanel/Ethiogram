@@ -6,6 +6,10 @@ substitutions:
   _REPO: ethiogram
   _SERVICE: ethiogram-api
   _SQL_INSTANCE: ""   # e.g. project:region:ethiogram-pg — set in trigger
+  _VPC_CONNECTOR: ethiogram-vpc   # required to reach Memorystore's private IP
+  # Telegram IDs that are platform admins (JSON list). The master-bot owner is
+  # auto-granted the admin dashboard on login — no DB flag needed.
+  _ADMIN_TELEGRAM_IDS: "[959519454]"
 
 steps:
   # ── Build production image ─────────────────────────────────────────────
@@ -42,54 +46,154 @@ steps:
       - --concurrency=80
       - --timeout=300
       - --add-cloudsql-instances=${_SQL_INSTANCE}
-      - --set-env-vars=ENVIRONMENT=production
+      # Route only RFC1918 (Memorystore 10.x) through the connector; public
+      # traffic (Telegram/OpenRouter) stays direct — cheapest + fastest.
+      - --vpc-connector=${_VPC_CONNECTOR}
+      - --vpc-egress=private-ranges-only
+      - --set-env-vars=ENVIRONMENT=production,GCP_PROJECT_ID=$PROJECT_ID,VERTEX_AI_LOCATION=us-central1,BASE_URL=https://ethiogram-api-760742977917.us-central1.run.app,OPENAI_BASE_URL=https://openrouter.ai/api/v1,DEFAULT_MODEL_ID=openai/gpt-4o-mini,FALLBACK_MODEL_ID=anthropic/claude-3.5-haiku,EMERGENCY_MODEL_ID=meta-llama/llama-3.1-8b-instruct,ADMIN_TELEGRAM_IDS=${_ADMIN_TELEGRAM_IDS}
       - --set-secrets=SECRET_KEY=ethiogram-secret-key:latest,ENCRYPTION_KEY=ethiogram-encryption-key:latest,DATABASE_URL=ethiogram-database-url:latest,REDIS_URL=ethiogram-redis-url:latest,MASTER_BOT_TOKEN=ethiogram-master-bot-token:latest,OPENAI_API_KEY=ethiogram-openai-key:latest,ANTHROPIC_API_KEY=ethiogram-anthropic-key:latest,CHAPA_SECRET_KEY=ethiogram-chapa-key:latest,WEBHOOK_SECRET_SALT=ethiogram-webhook-salt:latest,ADMIN_SECRET_HEADER=ethiogram-admin-header:latest
 
-  # ── Deploy embedding worker (same image, worker command) ──────────────
+  # ── Deploy workers as Cloud Run JOBS (run-to-completion, no HTTP) ───────
+  # Jobs do ONE pass and exit; Cloud Scheduler invokes them on a cron (set up
+  # once, manually — see scripts/setup_scheduler.sh). They have no $PORT/HTTP
+  # health check, which is why the old Service deploys failed.
+
   - id: deploy-embedding-worker
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud
     args:
       - run
+      - jobs
       - deploy
       - ethiogram-embedding-worker
       - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
       - --region=${_REGION}
-      - --platform=managed
-      - --no-allow-unauthenticated
-      - --min-instances=1
-      - --max-instances=2
+      - --command=python
+      - --args=-m,workers.embedding_worker,once
       - --cpu=1
       - --memory=1Gi
-      - --no-cpu-throttling
-      - --command=python
-      - --args=-m,workers.embedding_worker,continuous
-      - --add-cloudsql-instances=${_SQL_INSTANCE}
-      - --set-env-vars=ENVIRONMENT=production
+      - --task-timeout=600
+      - --max-retries=1
+      - --set-cloudsql-instances=${_SQL_INSTANCE}
+      - --vpc-connector=${_VPC_CONNECTOR}
+      - --vpc-egress=private-ranges-only
+      - --set-env-vars=ENVIRONMENT=production,GCP_PROJECT_ID=$PROJECT_ID,VERTEX_AI_LOCATION=us-central1,OPENAI_BASE_URL=https://openrouter.ai/api/v1
       - --set-secrets=SECRET_KEY=ethiogram-secret-key:latest,ENCRYPTION_KEY=ethiogram-encryption-key:latest,DATABASE_URL=ethiogram-database-url:latest,REDIS_URL=ethiogram-redis-url:latest
 
-  # ── Deploy notification worker ─────────────────────────────────────────
   - id: deploy-notification-worker
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud
     args:
       - run
+      - jobs
       - deploy
       - ethiogram-notification-worker
       - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
       - --region=${_REGION}
-      - --platform=managed
-      - --no-allow-unauthenticated
-      - --min-instances=1
-      - --max-instances=2
+      - --command=python
+      - --args=-m,workers.notification_worker,once
       - --cpu=1
       - --memory=512Mi
-      - --no-cpu-throttling
+      - --task-timeout=300
+      - --max-retries=1
+      - --set-cloudsql-instances=${_SQL_INSTANCE}
+      - --vpc-connector=${_VPC_CONNECTOR}
+      - --vpc-egress=private-ranges-only
+      - --set-env-vars=ENVIRONMENT=production,OPENAI_BASE_URL=https://openrouter.ai/api/v1
+      - --set-secrets=SECRET_KEY=ethiogram-secret-key:latest,ENCRYPTION_KEY=ethiogram-encryption-key:latest,DATABASE_URL=ethiogram-database-url:latest,REDIS_URL=ethiogram-redis-url:latest,MASTER_BOT_TOKEN=ethiogram-master-bot-token:latest
+
+  - id: deploy-trial-monitor
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - deploy
+      - ethiogram-trial-monitor
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
       - --command=python
-      - --args=-m,workers.notification_worker,continuous
-      - --add-cloudsql-instances=${_SQL_INSTANCE}
+      - --args=-m,workers.trial_monitor
+      - --cpu=1
+      - --memory=512Mi
+      - --task-timeout=600
+      - --max-retries=1
+      - --set-cloudsql-instances=${_SQL_INSTANCE}
+      - --vpc-connector=${_VPC_CONNECTOR}
+      - --vpc-egress=private-ranges-only
+      - --set-env-vars=ENVIRONMENT=production
+      - --set-secrets=SECRET_KEY=ethiogram-secret-key:latest,ENCRYPTION_KEY=ethiogram-encryption-key:latest,DATABASE_URL=ethiogram-database-url:latest,REDIS_URL=ethiogram-redis-url:latest
+
+  # Appointment reminders — message customers 24h + 1h before their booking.
+  # Schedule on Cloud Scheduler every ~15 min (see scripts/setup_scheduler.sh).
+  - id: deploy-booking-reminders
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - deploy
+      - ethiogram-booking-reminders
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --command=python
+      - --args=-m,workers.booking_reminders
+      - --cpu=1
+      - --memory=512Mi
+      - --task-timeout=300
+      - --max-retries=1
+      - --set-cloudsql-instances=${_SQL_INSTANCE}
+      - --vpc-connector=${_VPC_CONNECTOR}
+      - --vpc-egress=private-ranges-only
       - --set-env-vars=ENVIRONMENT=production
       - --set-secrets=SECRET_KEY=ethiogram-secret-key:latest,ENCRYPTION_KEY=ethiogram-encryption-key:latest,DATABASE_URL=ethiogram-database-url:latest,REDIS_URL=ethiogram-redis-url:latest,MASTER_BOT_TOKEN=ethiogram-master-bot-token:latest
+
+  - id: deploy-escrow-release
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - deploy
+      - ethiogram-escrow-release
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --command=python
+      - --args=-m,workers.escrow_release
+      - --cpu=1
+      - --memory=512Mi
+      - --task-timeout=600
+      - --max-retries=1
+      - --set-cloudsql-instances=${_SQL_INSTANCE}
+      - --vpc-connector=${_VPC_CONNECTOR}
+      - --vpc-egress=private-ranges-only
+      - --set-env-vars=ENVIRONMENT=production
+      - --set-secrets=SECRET_KEY=ethiogram-secret-key:latest,ENCRYPTION_KEY=ethiogram-encryption-key:latest,DATABASE_URL=ethiogram-database-url:latest,REDIS_URL=ethiogram-redis-url:latest
+
+  # One-off seeder for the first-party marketplace agents. Not scheduled — run
+  # on demand after a deploy:  gcloud run jobs execute seed-agents --region <r>
+  # Idempotent (upsert by name), so re-running is safe.
+  - id: deploy-seed-agents
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - jobs
+      - deploy
+      - seed-agents
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --command=python
+      - --args=-m,workers.seed_agents
+      - --cpu=1
+      - --memory=512Mi
+      - --task-timeout=300
+      - --max-retries=1
+      - --set-cloudsql-instances=${_SQL_INSTANCE}
+      - --vpc-connector=${_VPC_CONNECTOR}
+      - --vpc-egress=private-ranges-only
+      - --set-env-vars=ENVIRONMENT=production
+      - --set-secrets=SECRET_KEY=ethiogram-secret-key:latest,ENCRYPTION_KEY=ethiogram-encryption-key:latest,DATABASE_URL=ethiogram-database-url:latest,REDIS_URL=ethiogram-redis-url:latest
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA

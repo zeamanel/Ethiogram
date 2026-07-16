@@ -80,34 +80,57 @@ class ModelRouter:
         business_preferred_model_id: Optional[str] = None,
         max_tokens: int = 1024,
         temperature: float = 0.7,
+        language: Optional[str] = None,
     ) -> tuple[str, dict, str]:
         """
         Resolve model, call provider, auto-failover on error.
         Returns (response_text, token_counts, model_id_used).
+
+        ``language`` lets us route by speaker: an Amharic ("am") message is
+        served by the configured Gemini models first (best at Ge'ez).
         """
         redis = await get_redis()
         chain = await self._build_failover_chain(
-            business_id, agent_model_id, business_preferred_model_id, redis
+            business_id, agent_model_id, business_preferred_model_id, redis, language
+        )
+        logger.info(
+            "Failover chain resolved",
+            chain=chain,
+            business_id=str(business_id) if business_id else None,
         )
 
         last_error: Exception | None = None
         for model_id in chain:
             try:
+                logger.info("Attempting model", model_id=model_id)
                 text, tokens = await self._call_provider(
                     model_id, messages, system_prompt, max_tokens, temperature
                 )
                 await self._record_success(model_id, redis)
+                logger.info(
+                    "Model call succeeded",
+                    model_id=model_id,
+                    input_tokens=tokens.get("input_tokens", 0),
+                    output_tokens=tokens.get("output_tokens", 0),
+                    response_chars=len(text or ""),
+                )
                 return text, tokens, model_id
             except Exception as exc:
                 last_error = exc
                 logger.warning(
                     f"Model {model_id} failed, trying next in chain",
                     model_id=model_id,
-                    error=str(exc),
+                    error=f"{type(exc).__name__}: {exc}",
                     business_id=str(business_id) if business_id else None,
                 )
                 await self._record_failure(model_id, redis)
 
+        logger.error(
+            "All models in chain failed",
+            chain=chain,
+            last_error=f"{type(last_error).__name__}: {last_error}" if last_error else None,
+            business_id=str(business_id) if business_id else None,
+        )
         raise AllModelsFailedError() from last_error
 
     # ------------------------------------------------------------------
@@ -179,6 +202,7 @@ class ModelRouter:
         agent_model_id,
         business_preferred_model_id,
         redis,
+        language: Optional[str] = None,
     ) -> list[str]:
         primary = await self.resolve(business_id, agent_model_id, business_preferred_model_id)
 
@@ -192,7 +216,15 @@ class ModelRouter:
                 settings.emergency_model_id,
             ]
 
-        chain = [primary]
+        chain: list[str] = []
+        # Amharic speakers → the configured Gemini models first (Pro, then Flash),
+        # skipping any that are disabled/down. Then the normal chain as fallback.
+        if (language or "").lower() in ("am", "amh", "amharic"):
+            for m in (settings.amharic_primary_model_id, settings.amharic_secondary_model_id):
+                if m and m not in chain and await self._is_available(m, redis):
+                    chain.append(m)
+        if primary not in chain:
+            chain.append(primary)
         for m in custom_chain:
             if m not in chain:
                 chain.append(m)
@@ -223,24 +255,48 @@ class ModelRouter:
         max_tokens: int,
         temperature: float,
     ) -> tuple[str, dict]:
-        """Dispatch to the correct AI provider SDK based on model_id prefix."""
-        if model_id.startswith("gemini"):
-            from app.services.vertex_ai_service import vertex_ai_service
-            return await vertex_ai_service.complete(
-                model_id, messages, system_prompt, max_tokens, temperature
-            )
-        elif model_id.startswith("gpt") or model_id.startswith("o1") or model_id.startswith("o3"):
+        """Dispatch to the correct AI provider SDK based on model_id prefix.
+
+        Supports both native model IDs (e.g. 'gpt-4o-mini', 'gemini-2.0-flash-001')
+        and OpenRouter-style prefixed IDs (e.g. 'openai/gpt-4o-mini',
+        'anthropic/claude-3-haiku', 'meta-llama/llama-3.1-8b-instruct').
+        """
+        # Single-gateway mode: when an OpenAI-compatible base URL is configured
+        # (e.g. OpenRouter), route EVERY model through it regardless of prefix.
+        if settings.openai_base_url:
+            logger.info("Dispatching via OpenAI-compatible gateway",
+                        model_id=model_id, base_url=settings.openai_base_url)
             from app.services.openai_service import openai_service
             return await openai_service.complete(
                 model_id, messages, system_prompt, max_tokens, temperature
             )
-        elif model_id.startswith("claude"):
+
+        # Detect provider from prefix (handles both 'provider/model' and bare 'model')
+        mid = model_id.lower()
+        if mid.startswith("openai/") or mid.startswith("gpt") or mid.startswith("o1") or mid.startswith("o3"):
+            provider = "openai"
+        elif mid.startswith("anthropic/") or mid.startswith("claude"):
+            provider = "anthropic"
+        elif mid.startswith("google/") or mid.startswith("gemini"):
+            provider = "vertex"
+        else:
+            # Everything else (llama, mistral, etc.) goes through OpenAI-compatible endpoint
+            provider = "openai-compatible"
+
+        logger.info("Dispatching to provider", model_id=model_id, provider=provider)
+
+        if provider == "vertex":
+            from app.services.vertex_ai_service import vertex_ai_service
+            return await vertex_ai_service.complete(
+                model_id, messages, system_prompt, max_tokens, temperature
+            )
+        elif provider == "anthropic":
             from app.services.anthropic_service import anthropic_service
             return await anthropic_service.complete(
                 model_id, messages, system_prompt, max_tokens, temperature
             )
         else:
-            # Fallback: try OpenAI-compatible endpoint (covers Mistral, Llama via Together/Groq)
+            # openai or openai-compatible (OpenRouter, Together, Groq, etc.)
             from app.services.openai_service import openai_service
             return await openai_service.complete(
                 model_id, messages, system_prompt, max_tokens, temperature

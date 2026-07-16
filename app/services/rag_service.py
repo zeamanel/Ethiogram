@@ -60,11 +60,11 @@ class RagService:
                 content,
                 chunk_index,
                 document_id,
-                1 - (embedding <=> :query_vec::vector) AS similarity
+                1 - (embedding <=> CAST(:query_vec AS vector)) AS similarity
             FROM knowledge_chunks
             WHERE business_id = :business_id
-              AND 1 - (embedding <=> :query_vec::vector) >= :threshold
-            ORDER BY embedding <=> :query_vec::vector
+              AND 1 - (embedding <=> CAST(:query_vec AS vector)) >= :threshold
+            ORDER BY embedding <=> CAST(:query_vec AS vector)
             LIMIT :top_k
         """)
 
@@ -130,7 +130,7 @@ class RagService:
         self,
         document_id: uuid.UUID,
         business_id: uuid.UUID,
-        text: str,
+        document_text: str,
         db: AsyncSession,
         chunk_size: int = 500,
         overlap: int = 50,
@@ -152,7 +152,7 @@ class RagService:
         await db.flush()
 
         try:
-            raw_chunks = embedding_service.chunk_text(text, chunk_size, overlap)
+            raw_chunks = embedding_service.chunk_text(document_text, chunk_size, overlap)
             if not raw_chunks:
                 doc.status = DocumentStatus.failed
                 doc.error_message = "No text content extracted"
@@ -173,7 +173,7 @@ class RagService:
                         VALUES
                             (gen_random_uuid(), :business_id, :document_id, :content,
                              :token_count, :chunk_index, :model,
-                             :embedding::vector, NOW(), NOW())
+                             CAST(:embedding AS vector), NOW(), NOW())
                     """),
                     {
                         "business_id": str(business_id),

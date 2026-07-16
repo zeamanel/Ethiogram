@@ -12,11 +12,21 @@ from app.api.deps import CurrentUser
 from app.core.exceptions import NotFoundError
 from app.core.logging import get_logger
 from app.db.models import (
+    Agent,
+    AgentTrial,
+    AgentUnlock,
+    BOOKING_STATUSES,
+    Booking,
     Bot,
     BotStatus,
     Business,
+    BusinessBrainConfig,
+    ChildAgent,
     Conversation,
+    DocumentStatus,
+    KnowledgeChunk,
     KnowledgeDocument,
+    KnowledgeItem,
     Order,
     OrderStatus,
     TokenWallet,
@@ -62,6 +72,23 @@ class UsageBreakdown(BaseModel):
     etg: int
 
 
+class ActiveAgentSummary(BaseModel):
+    id: str
+    agent_id: str                # marketplace (father) agent id — lets the UI mark it deployed
+    display_name: Optional[str]
+    category: str
+    is_active: bool
+    status: str                  # "unlocked" | "trial"
+    days_left: Optional[int] = None   # remaining trial days (trials only)
+
+
+class BrainSummary(BaseModel):
+    persona_name: Optional[str]
+    total_chunks: int
+    docs_by_status: dict          # {"embedded": N, "processing": N, "failed": N}
+    total_items: int
+
+
 class DashboardOverview(BaseModel):
     business: BusinessSummary
     bots: list[BotStats]
@@ -73,6 +100,8 @@ class DashboardOverview(BaseModel):
     pending_orders: int
     knowledge_documents: int
     conversations_today: int
+    active_agents: list[ActiveAgentSummary]
+    brain_summary: BrainSummary
 
 
 class ConversationSummary(BaseModel):
@@ -145,7 +174,7 @@ async def get_dashboard_overview(
             func.sum(UsageEvent.etg_charged).label("etg"),
         )
         .where(
-            UsageEvent.business_id == str(business_id),
+            UsageEvent.business_id == business_id,
             UsageEvent.created_at >= since_7d,
         )
         .group_by(UsageEvent.action_type)
@@ -205,6 +234,10 @@ async def get_dashboard_overview(
         )
     ) or 0
 
+    # Deployed agents + brain summary (gap-fill: keeps the console to one call)
+    active_agents = await _load_active_agents(business_id, now, db)
+    brain_summary = await _load_brain_summary(business_id, db)
+
     return DashboardOverview(
         business=BusinessSummary(
             id=str(business.id),
@@ -226,6 +259,89 @@ async def get_dashboard_overview(
         pending_orders=pending_orders,
         knowledge_documents=knowledge_docs,
         conversations_today=conversations_today,
+        active_agents=active_agents,
+        brain_summary=brain_summary,
+    )
+
+
+async def _load_active_agents(
+    business_id: uuid.UUID, now: datetime, db: AsyncSession
+) -> list[ActiveAgentSummary]:
+    """Deployed ChildAgents for the business, each tagged unlocked/trial."""
+    rows = (await db.execute(
+        select(ChildAgent, Agent)
+        .join(Agent, ChildAgent.agent_id == Agent.id)
+        .where(ChildAgent.business_id == business_id)
+    )).all()
+
+    out: list[ActiveAgentSummary] = []
+    for child, father in rows:
+        unlocked = await db.scalar(
+            select(func.count(AgentUnlock.id)).where(
+                AgentUnlock.child_agent_id == child.id,
+                AgentUnlock.is_refunded.is_(False),
+            )
+        ) or 0
+        status = "unlocked" if unlocked else "trial"
+        days_left = None
+        if status == "trial":
+            trial = (await db.execute(
+                select(AgentTrial)
+                .where(AgentTrial.child_agent_id == child.id)
+                .order_by(AgentTrial.created_at.desc())
+                .limit(1)
+            )).scalar_one_or_none()
+            if trial and trial.expires_at:
+                exp = trial.expires_at
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=timezone.utc)
+                days_left = max(0, (exp - now).days)
+        out.append(ActiveAgentSummary(
+            id=str(child.id),
+            agent_id=str(child.agent_id),
+            display_name=child.display_name,
+            category=father.category,
+            is_active=child.is_active,
+            status=status,
+            days_left=days_left,
+        ))
+    return out
+
+
+async def _load_brain_summary(business_id: uuid.UUID, db: AsyncSession) -> BrainSummary:
+    """Persona + knowledge readiness for the business brain."""
+    brain = (await db.execute(
+        select(BusinessBrainConfig).where(BusinessBrainConfig.business_id == business_id)
+    )).scalar_one_or_none()
+
+    total_chunks = await db.scalar(
+        select(func.count(KnowledgeChunk.id)).where(KnowledgeChunk.business_id == business_id)
+    ) or 0
+
+    status_rows = (await db.execute(
+        select(KnowledgeDocument.status, func.count(KnowledgeDocument.id))
+        .where(KnowledgeDocument.business_id == business_id)
+        .group_by(KnowledgeDocument.status)
+    )).all()
+    counts: dict[str, int] = {}
+    for status_val, n in status_rows:
+        key = status_val.value if hasattr(status_val, "value") else str(status_val)
+        counts[key] = n
+    docs_by_status = {
+        "embedded": counts.get("completed", 0),   # completed == embedded & searchable
+        "processing": counts.get("processing", 0),
+        "failed": counts.get("failed", 0),
+    }
+
+    total_items = await db.scalar(
+        select(func.count(KnowledgeItem.id)).where(KnowledgeItem.business_id == business_id)
+    ) or 0
+
+    return BrainSummary(
+        persona_name=brain.persona_name if brain else None,
+        total_chunks=total_chunks,
+        docs_by_status=docs_by_status,
+        total_items=total_items,
     )
 
 
@@ -236,7 +352,9 @@ async def list_businesses(
 ) -> list[BusinessSummary]:
     result = await db.execute(
         select(Business)
-        .where(Business.owner_id == current_user.id)
+        .where(Business.owner_id == current_user.id,
+               Business.is_suspended.is_(False),    # suspended → hidden from owner
+               Business.deleted_at.is_(None))
         .order_by(Business.created_at.desc())
     )
     businesses = result.scalars().all()
@@ -353,16 +471,109 @@ async def list_orders(
 
 
 # ---------------------------------------------------------------------------
+# Appointments (native booking engine)
+# ---------------------------------------------------------------------------
+
+class AppointmentSummary(BaseModel):
+    id: str
+    customer_name: Optional[str]
+    customer_phone: Optional[str]
+    service_name: Optional[str]
+    starts_at: str
+    ends_at: str
+    status: str
+    price: Optional[str]
+    source: str
+    synced_to_calendar: bool
+
+
+class AppointmentStatusUpdate(BaseModel):
+    status: str
+
+
+def _appointment_summary(b: Booking) -> AppointmentSummary:
+    return AppointmentSummary(
+        id=str(b.id),
+        customer_name=b.customer_name,
+        customer_phone=b.customer_phone,
+        service_name=b.service_name,
+        starts_at=b.starts_at.isoformat(),
+        ends_at=b.ends_at.isoformat(),
+        status=b.status,
+        price=b.price,
+        source=b.source,
+        synced_to_calendar=bool(b.calendar_event_id),
+    )
+
+
+@router.get("/appointments/{business_id}", response_model=list[AppointmentSummary])
+async def list_appointments(
+    business_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    scope: str = Query("upcoming"),   # upcoming | past | all
+    limit: int = Query(100, le=500),
+    offset: int = Query(0, ge=0),
+) -> list[AppointmentSummary]:
+    """The owner's appointment book. ``upcoming`` (default) lists future
+    bookings soonest-first; ``past`` lists history newest-first; ``all`` lists
+    everything newest-first."""
+    await _get_owned_business(business_id, current_user.id, db)
+    now = datetime.now(timezone.utc)
+
+    stmt = select(Booking).where(Booking.business_id == business_id)
+    if scope == "upcoming":
+        stmt = stmt.where(Booking.starts_at >= now).order_by(Booking.starts_at.asc())
+    elif scope == "past":
+        stmt = stmt.where(Booking.starts_at < now).order_by(Booking.starts_at.desc())
+    else:
+        stmt = stmt.order_by(Booking.starts_at.desc())
+    stmt = stmt.limit(limit).offset(offset)
+
+    rows = (await db.execute(stmt)).scalars().all()
+    return [_appointment_summary(b) for b in rows]
+
+
+@router.patch("/appointments/{business_id}/{booking_id}", response_model=AppointmentSummary)
+async def update_appointment_status(
+    business_id: uuid.UUID,
+    booking_id: uuid.UUID,
+    body: AppointmentStatusUpdate,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> AppointmentSummary:
+    """Owner marks a booking cancelled / completed / no-show (or back to
+    confirmed). A cancelled slot frees up for re-booking."""
+    await _get_owned_business(business_id, current_user.id, db)
+    if body.status not in BOOKING_STATUSES:
+        raise NotFoundError("BookingStatus", body.status)
+
+    booking = (await db.execute(
+        select(Booking).where(Booking.id == booking_id, Booking.business_id == business_id)
+    )).scalar_one_or_none()
+    if booking is None:
+        raise NotFoundError("Booking", str(booking_id))
+
+    booking.status = body.status
+    await db.flush()
+    return _appointment_summary(booking)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 async def _get_owned_business(
     business_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession
 ) -> Business:
+    # Suspended / soft-deleted businesses are treated as not found for owners —
+    # this is what "suspension blocks API access" means at the owner endpoints.
     result = await db.execute(
         select(Business).where(
             Business.id == business_id,
             Business.owner_id == user_id,
+            Business.is_suspended.is_(False),
+            Business.deleted_at.is_(None),
         )
     )
     biz = result.scalar_one_or_none()
@@ -379,7 +590,7 @@ async def _get_bot_stats(
 ) -> dict:
     messages_24h = await db.scalar(
         select(func.count(UsageEvent.id)).where(
-            UsageEvent.bot_id == str(bot_id),
+            UsageEvent.bot_id == bot_id,
             UsageEvent.created_at >= since_24h,
             UsageEvent.action_type == "ai_reply",
         )
@@ -387,7 +598,7 @@ async def _get_bot_stats(
 
     messages_7d = await db.scalar(
         select(func.count(UsageEvent.id)).where(
-            UsageEvent.bot_id == str(bot_id),
+            UsageEvent.bot_id == bot_id,
             UsageEvent.created_at >= since_7d,
             UsageEvent.action_type == "ai_reply",
         )
@@ -402,7 +613,7 @@ async def _get_bot_stats(
 
     etg_spent_7d = await db.scalar(
         select(func.sum(UsageEvent.etg_charged)).where(
-            UsageEvent.bot_id == str(bot_id),
+            UsageEvent.bot_id == bot_id,
             UsageEvent.created_at >= since_7d,
         )
     ) or 0

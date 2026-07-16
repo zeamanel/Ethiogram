@@ -15,9 +15,15 @@ configure_logging()
 logger = get_logger(__name__)
 
 
+_BUILD_MARKER = "trace-v4-botlookup-print"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info(f"Starting {settings.app_name} v{settings.app_version}")
+    # Plain stdout banner so it's trivial to confirm WHICH code revision is
+    # actually serving traffic in Cloud Run (independent of the log config).
+    print(f"[BOOT] Ethiogram starting — marker={_BUILD_MARKER} env={settings.environment}", flush=True)
+    logger.info(f"Starting {settings.app_name} v{settings.app_version}", build_marker=_BUILD_MARKER)
     await connect_db()
     await connect_redis()
     logger.info("All services connected — platform ready")
@@ -65,17 +71,55 @@ async def generic_error_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"error": "INTERNAL_ERROR", "message": "Unexpected error"})
 
 
-from app.api import auth, bots, webhooks, admin, billing, agents, dashboard
+from app.api import auth, bots, webhooks, admin, billing, agents, dashboard, knowledge, businesses, miniapp, landing, domains, admin_panel, gallery, account, transfers
+from app.api.internal import router as internal_router
 
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(bots.router, prefix=settings.api_prefix)
 app.include_router(webhooks.router)
 app.include_router(admin.router, prefix=settings.api_prefix)
+app.include_router(admin_panel.router, prefix=settings.api_prefix)
 app.include_router(billing.router, prefix=settings.api_prefix)
 app.include_router(agents.router, prefix=settings.api_prefix)
 app.include_router(dashboard.router, prefix=settings.api_prefix)
+app.include_router(knowledge.router, prefix=settings.api_prefix)
+app.include_router(businesses.router, prefix=settings.api_prefix)
+app.include_router(domains.router, prefix=settings.api_prefix)
+app.include_router(miniapp.router, prefix=settings.api_prefix)
+app.include_router(gallery.router, prefix=settings.api_prefix)   # public bot directory
+app.include_router(account.router, prefix=settings.api_prefix)   # My Account (end-user profile)
+app.include_router(transfers.router, prefix=settings.api_prefix)  # business ownership transfer
+app.include_router(landing.router)   # public website: /biz/{slug}, /sitemap.xml, /robots.txt
+app.include_router(internal_router, prefix=settings.api_prefix)  # service-to-service (Odaflux)
+
+# Telegram Mini Apps (static, same-origin). Owner console at /app/owner/.
+import os as _os
+from fastapi.staticfiles import StaticFiles
+
+_static_dir = _os.path.join(_os.path.dirname(__file__), "static")
+app.mount("/app", StaticFiles(directory=_static_dir, html=True), name="miniapp")
+
+
+@app.middleware("http")
+async def _miniapp_no_cache(request, call_next):
+    # Telegram WebViews cache Mini App assets aggressively; force revalidation so
+    # a redeploy is picked up on the next open instead of serving a stale build.
+    response = await call_next(request)
+    if request.url.path.startswith("/app"):
+        response.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return response
 
 
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "version": settings.app_version}
+
+
+if __name__ == "__main__":
+    import os
+
+    import uvicorn
+
+    # Cloud Run injects PORT (default 8080) and does not allow overriding it.
+    port = int(os.getenv("PORT", "8000"))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port)

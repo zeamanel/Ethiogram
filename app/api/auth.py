@@ -26,7 +26,9 @@ from app.core.security import (
     decode_token,
     generate_referral_code,
     hash_password,
+    is_super_admin_telegram_id,
     verify_password,
+    verify_webapp_init_data,
 )
 from app.db.models import User, UserRole, UserSession
 from app.db.session import get_db
@@ -68,6 +70,10 @@ class TelegramAuthRequest(BaseModel):
     hash: str
 
 
+class MiniAppAuthRequest(BaseModel):
+    init_data: str   # raw Telegram.WebApp.initData query string
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 
@@ -78,6 +84,10 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user_id: str
     role: str
+    is_admin: bool = False
+    # Referral program context for the owner console's "Invite & earn" card.
+    referral_link: Optional[str] = None
+    referral_bonus: int = 0
 
 
 class UserResponse(BaseModel):
@@ -240,6 +250,89 @@ async def telegram_login(
         refresh_token=refresh_token,
         user_id=str(user.id),
         role=user.role.value,
+    )
+
+
+@router.post("/miniapp", response_model=TokenResponse)
+async def miniapp_login(
+    body: MiniAppAuthRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    """
+    Telegram Mini App auth (OWNER console on the master bot).
+    Validates initData against the MASTER bot token, upserts the user, and
+    returns the platform's normal JWTs. Customer storefront auth is a SEPARATE
+    path that validates against the BUSINESS bot token — never this endpoint.
+    """
+    if not settings.master_bot_token:
+        raise AuthError("Master bot not configured")
+
+    data = verify_webapp_init_data(body.init_data, settings.master_bot_token)
+    tg = data.get("user") if data else None
+    if not tg or not isinstance(tg, dict) or tg.get("id") is None:
+        raise AuthError("Invalid Telegram Mini App data")
+
+    tg_id = tg["id"]
+    result = await db.execute(select(User).where(User.telegram_id == tg_id))
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        first = tg.get("first_name", "")
+        last = tg.get("last_name", "")
+        user = User(
+            telegram_id=tg_id,
+            username=tg.get("username"),
+            full_name=f"{first} {last}".strip() or None,
+            avatar_url=tg.get("photo_url"),
+            language_code=tg.get("language_code") or "en",
+            role=UserRole.owner,
+            referral_code=generate_referral_code(),
+            is_verified=True,
+        )
+        db.add(user)
+        await db.flush()
+        logger.info("New Mini App user registered", telegram_id=tg_id)
+    else:
+        user.username = tg.get("username") or user.username
+        if tg.get("photo_url"):
+            user.avatar_url = tg.get("photo_url")
+
+    if not user.is_active:
+        raise AuthError("Account suspended")
+
+    # Platform/master-bot owner: telegram IDs in the admin allowlist are admins
+    # automatically (no manual DB flag needed). Self-heals the stored flag.
+    if is_super_admin_telegram_id(user.telegram_id) and not user.is_admin:
+        user.is_admin = True
+        if user.role != UserRole.admin:
+            user.role = UserRole.admin
+        logger.info("Granted admin via allowlist", telegram_id=user.telegram_id)
+
+    access_token = create_access_token(user.id, role=user.role.value)
+    refresh = create_refresh_token(user.id)
+    db.add(UserSession(
+        user_id=user.id,
+        refresh_token=refresh,
+        expires_at=_refresh_expires(),
+        ip_address=_client_ip(request),
+        user_agent=request.headers.get("user-agent"),
+        platform="telegram_miniapp",
+    ))
+
+    referral_link = None
+    if user.telegram_id and settings.master_bot_username:
+        referral_link = (f"https://t.me/{settings.master_bot_username}"
+                         f"?start=ref_{user.telegram_id}")
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh,
+        user_id=str(user.id),
+        role=user.role.value,
+        is_admin=bool(getattr(user, "is_admin", False) or user.role == UserRole.admin),
+        referral_link=referral_link,
+        referral_bonus=settings.etg_referral_bonus,
     )
 
 

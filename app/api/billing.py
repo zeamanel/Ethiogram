@@ -1,8 +1,12 @@
 # app/api/billing.py
+import hashlib
+import hmac
+import json
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+import httpx
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -270,7 +274,13 @@ async def initiate_recharge(
     db.add(order)
     await db.flush()
 
-    payment_url = await _get_payment_url(order, body.return_url)
+    payment_url = await _get_payment_url(
+        order,
+        body.return_url,
+        email=current_user.email,
+        first_name=current_user.full_name,
+        current_user=current_user,
+    )
 
     logger.info(
         "Recharge initiated",
@@ -293,15 +303,50 @@ async def initiate_recharge(
 
 @router.post("/webhook/chapa", include_in_schema=False)
 async def chapa_webhook(
-    request_data: dict,
+    request: Request,
+    request_data: dict = Body(...),
     db: AsyncSession = Depends(get_db),
     redis=Depends(get_redis),
 ) -> dict:
-    """Chapa payment confirmation webhook."""
-    tx_ref = request_data.get("trx_ref") or request_data.get("tx_ref")
-    status = request_data.get("status", "").lower()
+    """Chapa payment confirmation webhook.
 
-    if status != "success" or not tx_ref:
+    The callback body is NOT trusted — we re-verify the transaction directly with
+    Chapa before crediting, so a forged webhook can't top up a wallet. Idempotent:
+    a tx_ref whose order is already completed is a no-op.
+    
+    Validates webhook signature using HMAC-SHA256 if CHAPA_WEBHOOK_SECRET is configured.
+    """
+    # Get raw body bytes for signature verification
+    body_bytes = await request.body()
+    
+    # Validate webhook signature if secret is configured
+    if settings.chapa_webhook_secret:
+        signature_header = request.headers.get("X-Chapa-Signature", "")
+        if not signature_header:
+            logger.warning("Chapa webhook missing signature header")
+            raise HTTPException(status_code=401, detail="Missing signature")
+        
+        expected_signature = hmac.new(
+            settings.chapa_webhook_secret.encode(),
+            body_bytes,
+            hashlib.sha256
+        ).hexdigest()
+        
+        if not hmac.compare_digest(expected_signature, signature_header):
+            logger.warning("Chapa webhook invalid signature", provided=signature_header[:16])
+            raise HTTPException(status_code=401, detail="Invalid signature")
+        
+        logger.info("Chapa webhook signature validated")
+    
+    # Parse JSON body
+    try:
+        request_data = json.loads(body_bytes) if body_bytes else {}
+    except json.JSONDecodeError:
+        logger.warning("Chapa webhook malformed JSON")
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    
+    tx_ref = request_data.get("tx_ref") or request_data.get("trx_ref")
+    if not tx_ref:
         return {"ok": True}
 
     result = await db.execute(
@@ -309,7 +354,21 @@ async def chapa_webhook(
     )
     order = result.scalar_one_or_none()
     if order is None or order.status != PaymentStatus.pending:
+        return {"ok": True}   # unknown ref or already processed
+
+    # Confirm with Chapa server-to-server (don't trust the webhook body).
+    from app.services.chapa_service import chapa_service
+    verified = await chapa_service.verify(tx_ref)
+    if verified is None:
+        logger.warning("Chapa webhook unverified — not crediting", tx_ref=tx_ref)
         return {"ok": True}
+    try:
+        if float(verified.get("amount", 0)) + 0.01 < float(order.fiat_amount):
+            logger.error("Chapa amount mismatch — not crediting", tx_ref=tx_ref,
+                         paid=verified.get("amount"), expected=order.fiat_amount)
+            return {"ok": True}
+    except (TypeError, ValueError):
+        pass
 
     from datetime import datetime, timezone
     order.status = PaymentStatus.completed
@@ -326,6 +385,7 @@ async def chapa_webhook(
         reference_type="recharge",
         reference_id=str(order.id),
     )
+    await metering_service.reactivate_grace_bots(order.business_id, db)
     logger.info("Chapa recharge completed", order_id=str(order.id), etg=total_etg)
     return {"ok": True}
 
@@ -410,6 +470,38 @@ def _resolve_fiat(pkg: EtgPackage, provider: PaymentProvider) -> tuple[float, st
     return pkg.price_usd, "USD"
 
 
-async def _get_payment_url(order: RechargeOrder, return_url: Optional[str]) -> Optional[str]:
-    """Placeholder — real provider SDK calls go here in later phase."""
-    return None
+async def _get_payment_url(
+    order: RechargeOrder,
+    return_url: Optional[str],
+    *,
+    email: Optional[str] = None,
+    first_name: Optional[str] = None,
+    current_user,
+) -> Optional[str]:
+    if order.payment_provider != PaymentProvider.chapa:
+        return None
+
+    tx_ref = f"etg-{order.id}"
+    order.payment_reference = tx_ref
+
+    payload = {
+        "user_id": str(current_user.id),
+        "amount_etb": int(order.fiat_amount),
+        "phone_number": current_user.phone or "0912345678",
+        "callback_url": (settings.base_url.rstrip("/") + settings.api_prefix
+                         + "/billing/webhook/chapa"),
+        "meta": {
+            "platform": "ethiogram",
+            "business_id": str(order.business_id),
+        },
+    }
+
+    lulit_url = settings.lulit_internal_url.rstrip("/") + "/api/v1/chapa/initiate"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(lulit_url, json=payload)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get("checkout_url")
+
+        logger.error("Lulit initiate failed", status=resp.status_code, body=resp.text)
+        return None
