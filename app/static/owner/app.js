@@ -174,7 +174,7 @@
 
   // ---- onboarding wizard (step 1: business details) ----
   function setupWizard() {
-    const showOnly = (id) => ["onboarding", "wiz-business", "wiz-bot"].forEach(x => x === id ? show(x) : hide(x));
+    const showOnly = (id) => ["onboarding", "wiz-business", "wiz-brief", "wiz-bot"].forEach(x => x === id ? show(x) : hide(x));
     $("onb-start").onclick = () => { showOnly("wiz-business"); $("wb-name").focus(); };
 
     $("wb-continue").onclick = async () => {
@@ -185,8 +185,7 @@
       setBtn("wb-continue", true, "Creating…");
       try {
         const biz = await Eth.post("/businesses", { name, category: cat || null });
-        // step 2; skipping reloads into the new (bot-less) dashboard.
-        connectBotFlow(biz.id, () => location.reload());
+        briefFlow(biz.id);            // step 2: AI builds the business from a prompt
       } catch (e) {
         showErr("wb-err", e.detail || "Couldn't create your business. Try again.");
         setBtn("wb-continue", false, "Continue →");
@@ -194,9 +193,43 @@
     };
   }
 
+  // ---- step 2: one prompt → Brain + catalog + storefront + website ----
+  function briefFlow(businessId) {
+    ["onboarding", "wiz-business", "wiz-bot"].forEach(hide);
+    show("wiz-brief"); hide("wz-err"); $("wz-brief").focus();
+
+    const next = () => connectBotFlow(businessId, () => location.reload());
+    $("wz-skip").onclick = next;
+    $("wz-build").onclick = async () => {
+      const brief = $("wz-brief").value.trim();
+      hide("wz-err");
+      if (brief.length < 10)
+        return showErr("wz-err", "Tell us a bit more — a sentence or two about what you sell or do.");
+      setBtn("wz-build", true, "Building… (~20 seconds)");
+      try {
+        const res = await Eth.post(`/businesses/${businessId}/bootstrap`, { brief });
+        if (res.source === "ai") {
+          const parts = [];
+          if (res.products) parts.push(`${res.products} products`);
+          if (res.services) parts.push(`${res.services} services`);
+          if (res.faqs) parts.push(`${res.faqs} FAQs`);
+          notify(`✨ Done! Set up ${parts.join(", ") || "your pages"} — your store and website are live. Now connect your bot.`);
+          hide("wiz-brief");
+          next();
+        } else {
+          showErr("wz-err", "The AI couldn't build from that — try adding more detail, or skip for now.");
+          setBtn("wz-build", false, "✨ Build my business");
+        }
+      } catch (e) {
+        showErr("wz-err", e.detail || "Couldn't build — please try again or skip.");
+        setBtn("wz-build", false, "✨ Build my business");
+      }
+    };
+  }
+
   // ---- connect-a-bot flow (shared by onboarding step 2 AND the dashboard "My Bots") ----
   function connectBotFlow(businessId, onCancel) {
-    ["loading", "error", "onboarding", "wiz-business", "dashboard"].forEach(hide);
+    ["loading", "error", "onboarding", "wiz-business", "wiz-brief", "dashboard"].forEach(hide);
     $("wb-token").value = ""; hide("wt-err");
     setBtn("wt-connect", false, "Connect bot →");
     show("wiz-bot"); $("wb-token").focus();

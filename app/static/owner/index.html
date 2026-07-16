@@ -34,7 +34,7 @@
 
   <!-- WIZARD step 1: business details -->
   <div id="wiz-business" class="wiz hidden">
-    <div class="wiz-step-tag">Step 1 of 2</div>
+    <div class="wiz-step-tag">Step 1 of 3</div>
     <div class="wiz-title">Your business</div>
     <div class="wiz-sub">This is how your store appears to customers.</div>
     <div class="field">
@@ -51,9 +51,25 @@
     </div>
   </div>
 
-  <!-- WIZARD step 2: connect bot -->
+  <!-- WIZARD step 2: describe the business → AI builds everything -->
+  <div id="wiz-brief" class="wiz hidden">
+    <div class="wiz-step-tag">Step 2 of 3</div>
+    <div class="wiz-title">Describe your business</div>
+    <div class="wiz-sub">One message — the AI sets up your bot's knowledge, your store page and your website. You can edit everything later.</div>
+    <div class="field">
+      <label for="wz-brief">What do you do?</label>
+      <textarea id="wz-brief" rows="5" placeholder="e.g. I run a hair salon in Bole. Services: haircut 300 birr (30 min), hair colour 1500 birr (2 hours), beard trim 150 birr. Open Mon–Sat 9am–7pm. We take Telebirr."></textarea>
+    </div>
+    <div class="err-inline hidden" id="wz-err"></div>
+    <div class="wiz-actions">
+      <button class="onb-btn" id="wz-build">✨ Build my business</button>
+      <button class="onb-btn-ghost" id="wz-skip">Skip for now</button>
+    </div>
+  </div>
+
+  <!-- WIZARD step 3: connect bot -->
   <div id="wiz-bot" class="wiz hidden">
-    <div class="wiz-step-tag">Step 2 of 2</div>
+    <div class="wiz-step-tag">Step 3 of 3</div>
     <div class="wiz-title">Connect your bot</div>
     <div class="wiz-sub">Paste your Telegram bot token to go live. You get free ETG credit when your first bot connects.</div>
     <div class="steps-note">
