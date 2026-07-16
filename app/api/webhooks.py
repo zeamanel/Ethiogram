@@ -286,6 +286,14 @@ async def telegram_webhook(
     # 8. Get or create Conversation
     conversation = await _get_or_create_conversation(envelope, bot, db)
 
+    # 8b. Voice note → transcribe to text so the rest of the pipeline (language
+    # detection, booking intent, the agents) treats it like a typed message.
+    # Ethiopian customers speak far more than they type — this is first-class.
+    if envelope.media_type in ("voice", "audio") and envelope.media_file_id:
+        handled = await _maybe_transcribe_voice(envelope, raw_token, bot)
+        if handled is False:                 # couldn't transcribe → polite reply
+            return JSONResponse({"ok": True})
+
     # 9. Detect language (simple heuristic; full service in later phase)
     language = _detect_language(envelope.text or "")
     if language != conversation.detected_language:
@@ -724,6 +732,59 @@ async def _maybe_send_product_images(envelope, bot, raw_token, reply_text, db) -
     if sent:
         logger.info("Product images sent", bot_id=str(bot.id), count=sent)
     return sent
+
+
+_VOICE_FAIL_MSG = (
+    "🎤 ይቅርታ፣ የድምጽ መልዕክቱን መስማት አልቻልኩም። እባክዎ እንደገና ይሞክሩ ወይም በጽሁፍ ይላኩ።\n"
+    "Sorry, I couldn't hear that voice message. Please try again or type it."
+)
+_VOICE_TOO_LONG_MSG = (
+    "🎤 የድምጽ መልዕክቱ በጣም ረጅም ነው። እባክዎ ከ2 ደቂቃ በታች ይላኩ።\n"
+    "That voice message is too long — please keep it under 2 minutes."
+)
+
+
+async def _maybe_transcribe_voice(envelope: MessageEnvelope, raw_token: str, bot: Bot) -> bool:
+    """Transcribe a voice/audio message into envelope.text.
+
+    Returns True when the pipeline should continue (transcript set), False when
+    a reply was already sent (too long / couldn't transcribe) and the caller
+    must stop. Never raises.
+    """
+    from app.services.transcription_service import transcription_service
+
+    msg = (envelope.raw or {}).get("message") or {}
+    media = msg.get("voice") or msg.get("audio") or {}
+    duration = int(media.get("duration") or 0)
+    if duration > settings.max_voice_seconds:
+        await telegram_service.send_message(raw_token, envelope.customer_id, _VOICE_TOO_LONG_MSG)
+        return False
+
+    try:
+        download_url = await telegram_service.get_file_download_url(
+            raw_token, envelope.media_file_id)
+        import httpx
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(download_url)
+        audio_bytes = resp.content if resp.status_code == 200 else b""
+    except Exception as exc:
+        logger.warning("Voice download failed", bot_id=str(bot.id),
+                       error=f"{type(exc).__name__}: {exc}")
+        audio_bytes = b""
+
+    mime = media.get("mime_type") or "audio/ogg"
+    transcript = await transcription_service.transcribe(audio_bytes, mime) if audio_bytes else None
+    if not transcript:
+        await telegram_service.send_message(raw_token, envelope.customer_id, _VOICE_FAIL_MSG)
+        return False
+
+    # The caption (audio files can carry one) stays; the transcript becomes the
+    # message text so intent routing and the agents see what was actually said.
+    caption = (envelope.text or "").strip()
+    envelope.text = f"{caption}\n{transcript}".strip() if caption else transcript
+    logger.info("Voice note transcribed", bot_id=str(bot.id),
+                duration=duration, chars=len(transcript))
+    return True
 
 
 async def _load_child_data(
