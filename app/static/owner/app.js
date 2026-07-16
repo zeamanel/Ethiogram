@@ -37,6 +37,7 @@
     // Signal the UI that Chapa payments are available for authenticated owners.
     try { window.CHAPA_ENABLED = true; Eth.CHAPA_ENABLED = true; } catch (e) { /* no-op in restrictive env */ }
     IS_ADMIN = !!(auth && auth.is_admin);
+    REFERRAL = { link: auth && auth.referral_link, bonus: (auth && auth.referral_bonus) || 0 };
     let businesses;
     try {
       businesses = await Eth.get("/dashboard/businesses");
@@ -59,6 +60,7 @@
   // --- business switcher (only matters when the owner has >1 business) ---
   const BIZ_KEY = "eth_selected_biz";
   let ALL_BUSINESSES = [];
+  let REFERRAL = { link: null, bonus: 0 };
 
   function pickBusiness(businesses) {
     let saved = null;
@@ -1209,6 +1211,31 @@
       <span class="lchev">›</span></div>`;
     $("bl-row").onclick = () => openBilling(b.id);
     $("billing-customize").onclick = () => openBilling(b.id);
+
+    // invite & earn — share the referral link; both sides get ETG on activation
+    if (REFERRAL.link) {
+      show("invite-sec");
+      const shareUrl = "https://t.me/share/url?url=" + encodeURIComponent(REFERRAL.link)
+        + "&text=" + encodeURIComponent("Get an AI bot for your business on Ethiogram 🇪🇹");
+      $("invite-card").innerHTML = `<div class="litem">
+        <div class="lic ic-amber">🎁</div>
+        <div class="linfo"><div class="lname">Invite a business, you both get ${fmt(REFERRAL.bonus)} ETG</div>
+          <div class="lmeta">Paid when their first bot goes live.</div></div></div>
+        <div class="copy-row" style="padding:0 14px 12px">
+          <input id="ref-link" type="text" readonly value="${esc(REFERRAL.link)}">
+          <button class="copy-btn" id="ref-copy">Copy</button>
+          <button class="copy-btn" id="ref-share">Share</button>
+        </div>`;
+      $("ref-copy").onclick = async () => {
+        try { await navigator.clipboard.writeText(REFERRAL.link); $("ref-copy").textContent = "Copied ✓"; }
+        catch (e) { $("ref-link").select(); try { document.execCommand("copy"); $("ref-copy").textContent = "Copied ✓"; } catch (e2) {} }
+        setTimeout(() => { $("ref-copy").textContent = "Copy"; }, 1600);
+      };
+      $("ref-share").onclick = () => {
+        if (Eth.tg && Eth.tg.openTelegramLink) Eth.tg.openTelegramLink(shareUrl);
+        else window.open(shareUrl, "_blank");
+      };
+    }
 
     // active agents — each row opens the manage view (pause/rename/config)
     const agents = ov.active_agents || [];

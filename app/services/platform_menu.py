@@ -107,8 +107,17 @@ async def handle_platform_update(envelope, db: AsyncSession, redis) -> None:
     user = await _resolve_user(envelope, db)
     lang = (user.language_code if user and user.language_code else "en")
 
-    # /start, /lang → language screen
-    if low in ("/start", "/lang", "/language", "/menu"):
+    # /start [payload], /lang → language screen. A "ref_<telegram_id>" payload
+    # is a referral link — park it so both sides get ETG when this user's first
+    # bot goes live (referral_service.redeem, called from bot onboarding).
+    if low.startswith("/start") or low in ("/lang", "/language", "/menu"):
+        payload = text.split(maxsplit=1)[1].strip() if " " in text else ""
+        if payload.lower().startswith("ref_"):
+            from app.services import referral_service
+            try:
+                await referral_service.capture(redis, chat, payload[4:])
+            except Exception:
+                pass                     # referrals never break /start
         await telegram_service.send_message(
             token, chat, "🌍 Welcome! Choose your language:", reply_markup=_lang_keyboard())
         return
