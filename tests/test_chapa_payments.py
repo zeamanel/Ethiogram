@@ -109,20 +109,25 @@ async def test_initiate_recharge_returns_payment_url(client, db, sample_user_id,
     biz, pkg = await _setup(db, sample_user_id)
     seen = {}
 
-    async def _initialize(**kw):
-        seen.update(kw)
-        return "https://checkout.chapa.co/pay"
-    # patch the real _get_payment_url's dependency (chapa_service.initialize)
-    from app.services import chapa_service as svc
-    monkeypatch.setattr(svc.chapa_service, "initialize", _initialize)
+    class _Client:
+        def __init__(self, *a, **k): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): return False
+        async def post(self, url, **k):
+            seen["url"] = url
+            seen["json"] = k["json"]
+            return _Resp(200, {"checkout_url": "https://checkout.chapa.co/pay"})
+
+    monkeypatch.setattr(billing.httpx, "AsyncClient", _Client)
 
     r = await client.post(f"/api/v1/billing/recharge/{biz.id}",
                           json={"package_id": str(pkg.id), "payment_provider": "chapa"},
                           headers={"Authorization": f"Bearer {valid_access_token}"})
     assert r.status_code == 201, r.text
     assert r.json()["payment_url"] == "https://checkout.chapa.co/pay"
-    assert seen["currency"] == "ETB" and seen["tx_ref"].startswith("etg-")
-    assert seen["callback_url"].endswith("/billing/webhook/chapa")
+    assert seen["json"]["amount_etb"] == 300
+    assert seen["json"]["meta"]["platform"] == "ethiogram"
+    assert seen["url"].endswith("/api/v1/chapa/initiate")
     order = (await db.execute(select(RechargeOrder))).scalars().one()
     assert order.payment_reference == f"etg-{order.id}"   # tx_ref set for the webhook
 
