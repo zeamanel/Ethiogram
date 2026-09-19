@@ -85,6 +85,9 @@ class TokenResponse(BaseModel):
     user_id: str
     role: str
     is_admin: bool = False
+    # Referral program context for the owner console's "Invite & earn" card.
+    referral_link: Optional[str] = None
+    referral_bonus: int = 0
 
 
 class UserResponse(BaseModel):
@@ -317,12 +320,19 @@ async def miniapp_login(
         platform="telegram_miniapp",
     ))
 
+    referral_link = None
+    if user.telegram_id and settings.master_bot_username:
+        referral_link = (f"https://t.me/{settings.master_bot_username}"
+                         f"?start=ref_{user.telegram_id}")
+
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh,
         user_id=str(user.id),
         role=user.role.value,
         is_admin=bool(getattr(user, "is_admin", False) or user.role == UserRole.admin),
+        referral_link=referral_link,
+        referral_bonus=settings.etg_referral_bonus,
     )
 
 

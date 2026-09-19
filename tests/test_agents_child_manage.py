@@ -232,3 +232,55 @@ async def test_disconnect_secrets_requires_ownership(client, db, sample_user_id,
     resp = await client.delete(f"/api/v1/agents/child/{child.id}/secrets",
                                headers={"Authorization": f"Bearer {valid_access_token}"})
     assert resp.status_code == 404
+
+
+# ── per-bot binding via PATCH assigned_bot_id ────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_patch_assigned_bot_binds_and_clears(client, db, sample_user_id, valid_access_token):
+    from app.db.models import Bot, BotStatus
+    biz = uuid.uuid4()
+    _, child = await _seed(db, sample_user_id, biz, child_data={"services": "X"})
+    bot = Bot(id=uuid.uuid4(), business_id=biz, token_hash=f"th-{uuid.uuid4().hex}",
+              encrypted_token="enc", status=BotStatus.active)
+    db.add(bot)
+    await db.flush()
+    hdr = {"Authorization": f"Bearer {valid_access_token}"}
+
+    # bind to the bot
+    r = await client.patch(f"/api/v1/agents/child/{child.id}",
+                           json={"assigned_bot_id": str(bot.id)}, headers=hdr)
+    assert r.status_code == 204, r.text
+    got = (await client.get(f"/api/v1/agents/child/{child.id}", headers=hdr)).json()
+    assert got["assigned_bot_id"] == str(bot.id)
+
+    # "" clears the binding → runs on all bots again
+    r = await client.patch(f"/api/v1/agents/child/{child.id}",
+                           json={"assigned_bot_id": ""}, headers=hdr)
+    assert r.status_code == 204
+    got = (await client.get(f"/api/v1/agents/child/{child.id}", headers=hdr)).json()
+    assert got["assigned_bot_id"] is None
+
+
+@pytest.mark.asyncio
+async def test_patch_assigned_bot_rejects_foreign_bot(client, db, sample_user_id, valid_access_token):
+    from app.db.models import Bot, BotStatus
+    biz = uuid.uuid4()
+    _, child = await _seed(db, sample_user_id, biz, child_data={"services": "X"})
+    # a bot belonging to a DIFFERENT business
+    other_owner, other_biz = uuid.uuid4(), uuid.uuid4()
+    db.add(User(id=other_owner))
+    db.add(Business(id=other_biz, owner_id=other_owner, name="O", slug=f"o-{other_biz.hex[:8]}"))
+    foreign = Bot(id=uuid.uuid4(), business_id=other_biz, token_hash=f"th-{uuid.uuid4().hex}",
+                  encrypted_token="enc", status=BotStatus.active)
+    db.add(foreign)
+    await db.flush()
+    hdr = {"Authorization": f"Bearer {valid_access_token}"}
+
+    r = await client.patch(f"/api/v1/agents/child/{child.id}",
+                           json={"assigned_bot_id": str(foreign.id)}, headers=hdr)
+    assert r.status_code == 404          # not your bot → rejected
+
+    r = await client.patch(f"/api/v1/agents/child/{child.id}",
+                           json={"assigned_bot_id": "not-a-uuid"}, headers=hdr)
+    assert r.status_code in (400, 422)   # garbage id → validation error

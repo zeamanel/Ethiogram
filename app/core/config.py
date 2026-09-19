@@ -73,6 +73,13 @@ class Settings(BaseSettings):
     amharic_primary_model_id: str = "google/gemini-2.5-flash"
     amharic_secondary_model_id: str = "google/gemini-2.5-pro"
 
+    # VOICE NOTES — Gemini transcribes Telegram OGG voice messages directly.
+    # GEMINI_API_KEY enables the API-key backend; without it the Vertex AI ADC
+    # path is tried. max_voice_seconds bounds transcription cost per message.
+    gemini_api_key: Optional[str] = None
+    transcription_model_id: str = "gemini-2.5-flash"
+    max_voice_seconds: int = 120
+
     # VERTEX AI
     vertex_ai_location: str = "us-central1"
     vertex_ai_project: Optional[str] = None

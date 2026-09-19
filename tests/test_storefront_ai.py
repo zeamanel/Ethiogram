@@ -102,6 +102,77 @@ async def test_catalog_titles_feed_the_prompt(db, monkeypatch):
     assert "Beard Oil" in seen["user"] and "dark and moody" in seen["user"]
 
 
+# ── service: full page ("full" — prompt-driven builder) ─────────────────────
+
+@pytest.mark.asyncio
+async def test_generate_full_returns_theme_copy_and_sections(db, monkeypatch):
+    biz = await _biz(db)
+    _fake_llm(monkeypatch,
+        '{"theme":{"primary":"#2B4C3F","accent":"#E4B363","bg":"#FAF7F0",'
+        '"text":"#1D1B16","surface":"#F0EAD9","font_heading":"Fraunces","font_body":"Inter"},'
+        '"tagline":"Coffee like home.","about":"A cozy Ethiopian coffee house.",'
+        '"cta":"Order coffee","hours":"Daily 7 AM - 9 PM",'
+        '"sections":["hero","menu","hours","contact","chat"]}')
+    out = await sai.generate(db, biz, "full", vibe="cozy coffee house, menu first")
+    assert out["kind"] == "full" and out["source"] == "ai"
+    assert out["theme"]["primary"] == "#2b4c3f"
+    assert out["tagline"] == "Coffee like home."
+    assert out["cta"] == "Order coffee"
+    assert out["sections"] == ["hero", "menu", "hours", "contact", "chat"]
+
+
+@pytest.mark.asyncio
+async def test_generate_full_sections_sanitized(db, monkeypatch):
+    biz = await _biz(db)
+    # unknown types dropped, dupes removed, hero forced first even if omitted
+    _fake_llm(monkeypatch,
+        '{"theme":{"primary":"#101820","bg":"#ffffff","text":"#000000"},'
+        '"sections":["menu","carousel","menu","chat","testimonials"]}')
+    out = await sai.generate(db, biz, "full")
+    assert out["sections"] == ["hero", "menu", "chat"]
+
+
+@pytest.mark.asyncio
+async def test_generate_full_fallback_on_llm_error(db, monkeypatch):
+    biz = await _biz(db)
+    _fake_llm(monkeypatch, boom=True)
+    out = await sai.generate(db, biz, "full")
+    assert out["source"] == "fallback"
+    assert out["theme"] == sai._fallback_theme()
+    assert "sections" not in out            # keep the owner's current layout
+
+
+def test_sanitize_sections_rejects_garbage():
+    assert sai._sanitize_sections(None) == []
+    assert sai._sanitize_sections("hero,menu") == []
+    assert sai._sanitize_sections([1, {"x": "y"}, "bogus"]) == []
+    assert sai._sanitize_sections([{"type": "menu"}, "HERO "]) == ["hero", "menu"]
+
+
+@pytest.mark.asyncio
+async def test_generate_full_endpoint_shapes_sections(client, db, sample_user_id, valid_access_token, monkeypatch):
+    db.add(User(id=sample_user_id))
+    biz = Business(id=uuid.uuid4(), owner_id=sample_user_id, name="Cafe Abol",
+                   slug=f"c-{uuid.uuid4().hex[:6]}")
+    db.add(biz)
+    await db.flush()
+    _fake_llm(monkeypatch,
+        '{"theme":{"primary":"#101820","bg":"#ffffff","text":"#000000"},'
+        '"tagline":"x","sections":["hero","menu","chat"]}')
+    resp = await client.post(
+        f"/api/v1/businesses/{biz.id}/storefront/generate",
+        json={"kind": "full", "vibe": "coffee house"},
+        headers={"Authorization": f"Bearer {valid_access_token}"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    secs = body["sections"]
+    # visible ones first in AI order, every known type present exactly once
+    assert [s["type"] for s in secs if s["visible"]] == ["hero", "menu", "chat"]
+    types = [s["type"] for s in secs]
+    assert len(types) == len(set(types)) == 8
+    assert all(("label" in s and "order" in s) for s in secs)
+
+
 # ── endpoint ─────────────────────────────────────────────────────────────────
 
 # ── SEO generation ───────────────────────────────────────────────────────────

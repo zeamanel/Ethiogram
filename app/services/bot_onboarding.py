@@ -170,6 +170,10 @@ async def onboard_bot(
         if biz and biz.owner:
             owner_tg_id = biz.owner.telegram_id
             if owner_tg_id:
+                # First bot went live = the referral activation moment. Credits
+                # both sides if this owner arrived through a referral link.
+                from app.services import referral_service
+                await referral_service.redeem(db, redis, business_id, owner_tg_id)
                 await _send_welcome_message(token, owner_tg_id, bot_display_name, business_id)
     except Exception as exc:
         logger.warning("Welcome message failed (non-blocking)", error=str(exc))

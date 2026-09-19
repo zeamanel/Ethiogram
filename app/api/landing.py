@@ -159,6 +159,9 @@ async def _build_context(slug: str, db: AsyncSession, *,
         "page_url": page_url,
         "store_url": f"{site_base}/app/store/?s={slug}",
         "bot_url": (f"https://t.me/{business['bot_username']}" if business.get("bot_username") else None),
+        # Acquisition: every landing page links back to the onboarding bot, with
+        # the source slug in the /start payload so signups are attributable.
+        "ethiogram_url": f"https://t.me/{settings.master_bot_username}?start=web_{slug}",
         "json_ld": _json_ld(business, content, page_url),
     }
 
@@ -372,7 +375,7 @@ footer{padding:26px 0 34px;color:var(--muted);font-size:13px;border-top:1px soli
   {% endif %}
 
   <footer>
-    <div>© {{ business.name }} · Powered by Ethiogram</div>
+    <div>© {{ business.name }} · <a href="{{ ethiogram_url }}" rel="noopener">⚡ Powered by Ethiogram — get a bot like this</a></div>
     <div class="foot-links">
       {% if content.products %}<a href="#products">Products</a>{% endif %}
       {% if content.services %}<a href="#services">Services</a>{% endif %}
@@ -530,7 +533,60 @@ async def sitemap(db: AsyncSession = Depends(get_db)) -> Response:
         .where(Business.deleted_at.is_(None), LandingPage.is_published.is_(True))
     )).scalars().all()
     base = _base_url()
-    urls = "".join(f"<url><loc>{base}/biz/{html.escape(s)}</loc></url>" for s in rows)
+    urls = f"<url><loc>{base}/directory</loc></url>" + "".join(
+        f"<url><loc>{base}/biz/{html.escape(s)}</loc></url>" for s in rows)
     xml = (f'<?xml version="1.0" encoding="UTF-8"?>'
            f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>')
     return Response(xml, media_type="application/xml")
+
+
+# ── public business directory — a crawlable index page that links every
+# published business site, grouped by category. Compounds SEO: one internal
+# hub page passing link equity to every member business (and to Ethiogram).
+_DIRECTORY_HTML = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Business Directory — Ethiopian businesses on Ethiogram</title>
+<meta name="description" content="Discover Ethiopian businesses — shops, salons, restaurants, clinics — with AI assistants on Telegram. Browse by category.">
+<link rel="canonical" href="{base}/directory">
+<style>
+body{{font-family:system-ui,sans-serif;margin:0;background:#faf8f4;color:#1c1917}}
+.wrap{{max-width:760px;margin:0 auto;padding:28px 18px 60px}}
+h1{{font-size:26px;margin:0 0 6px}} .sub{{color:#78716c;margin:0 0 26px}}
+h2{{font-size:15px;color:#a16207;text-transform:uppercase;letter-spacing:.06em;margin:26px 0 10px}}
+a.biz{{display:block;background:#fff;border:1px solid #e7e5e4;border-radius:12px;
+padding:13px 15px;margin-bottom:8px;text-decoration:none;color:inherit}}
+a.biz b{{display:block}} a.biz span{{font-size:13px;color:#78716c}}
+footer{{margin-top:40px;font-size:13px;color:#78716c}}
+footer a{{color:#a16207;text-decoration:none;font-weight:600}}
+</style></head><body><div class="wrap">
+<h1>Business Directory</h1>
+<p class="sub">Ethiopian businesses serving customers with AI on Telegram.</p>
+{groups}
+<footer><a href="{cta}" rel="noopener">⚡ Get an AI bot for your business — free to start</a></footer>
+</div></body></html>"""
+
+
+@router.get("/directory", response_class=HTMLResponse)
+async def directory(db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+    rows = (await db.execute(
+        select(Business.slug, Business.name, Business.category, Business.description)
+        .join(LandingPage, LandingPage.business_id == Business.id)
+        .where(Business.deleted_at.is_(None), LandingPage.is_published.is_(True))
+        .order_by(Business.category, Business.name)
+    )).all()
+
+    by_cat: dict[str, list] = {}
+    for slug, name, category, desc in rows:
+        by_cat.setdefault((category or "Other").strip().title(), []).append((slug, name, desc))
+
+    groups = "".join(
+        f"<h2>{html.escape(cat)}</h2>" + "".join(
+            f'<a class="biz" href="/biz/{html.escape(slug)}"><b>{html.escape(name)}</b>'
+            + (f"<span>{html.escape(desc[:110])}</span>" if desc else "") + "</a>"
+            for slug, name, desc in items)
+        for cat, items in sorted(by_cat.items())
+    ) or "<p>No businesses listed yet — be the first!</p>"
+
+    cta = f"https://t.me/{settings.master_bot_username}?start=directory"
+    return HTMLResponse(_DIRECTORY_HTML.format(base=_base_url(), groups=groups, cta=cta))

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -486,8 +486,8 @@ async def _charge_generation(db: AsyncSession, business_id: uuid.UUID, model_id,
 
 
 class StorefrontGenerateRequest(BaseModel):
-    kind: str = "page"            # "page" → theme, "content" → copy
-    vibe: Optional[str] = None    # overrides the stored store vibe for this run
+    kind: str = "page"            # "page" → theme, "content" → copy, "full" → whole page
+    vibe: Optional[str] = None    # the owner's brief — overrides the stored one for this run
 
 
 class StorefrontGenerateResponse(BaseModel):
@@ -499,6 +499,7 @@ class StorefrontGenerateResponse(BaseModel):
     about: Optional[str] = None
     cta: Optional[str] = None
     hours: Optional[str] = None
+    sections: Optional[list[dict]] = None   # "full" only — editor-shaped layout
 
 
 @router.post("/{business_id}/storefront/generate", response_model=StorefrontGenerateResponse)
@@ -525,10 +526,69 @@ async def generate_storefront(
     result = await generate_storefront_ai(db, business, body.kind, vibe)
     model_used = result.pop("model", None)
 
+    # "full" returns an ordered list of visible section types — expand it into
+    # the editor's shape ({type,label,visible,order}) with the rest hidden.
+    if isinstance(result.get("sections"), list):
+        visible = result["sections"]
+        shaped, order = [], 0
+        for t in visible:
+            shaped.append({"type": t, "label": _SECTION_LABELS[t],
+                           "visible": True, "order": order}); order += 1
+        for t in _SECTION_LABELS:
+            if t not in visible:
+                shaped.append({"type": t, "label": _SECTION_LABELS[t],
+                               "visible": False, "order": order}); order += 1
+        result["sections"] = shaped
+
     charged = 0
     if result.get("source") == "ai":   # only meter a real LLM run, not a fallback
         charged = await _charge_generation(db, business_id, model_used)
     return StorefrontGenerateResponse(charged=charged, **result)
+
+
+# ---------------------------------------------------------------------------
+# Instant activation — "describe your business, get a working bot"
+# ---------------------------------------------------------------------------
+
+class BootstrapRequest(BaseModel):
+    brief: str = Field(min_length=10, max_length=3000)
+
+
+class BootstrapResponse(BaseModel):
+    source: str                    # "ai" | "fallback"
+    charged: int = 0
+    products: int = 0
+    services: int = 0
+    faqs: int = 0
+
+
+@router.post("/{business_id}/bootstrap", response_model=BootstrapResponse)
+async def bootstrap_business(
+    business_id: uuid.UUID,
+    body: BootstrapRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+    redis=Depends(get_redis),
+) -> BootstrapResponse:
+    """One prompt seeds the whole business: Brain (FAQs), catalog (products/
+    services), storefront (theme + copy, published) and website SEO (published).
+    Idempotent-ish: existing catalog titles are never duplicated. Shares the
+    storefront generator's rate limit and ETG charge."""
+    business = await _get_owned_business(business_id, current_user.id, db)
+    await _enforce_generation_rate_limit(redis, business_id)
+
+    from app.services.business_bootstrap import bootstrap as bootstrap_ai
+    result = await bootstrap_ai(db, business, body.brief)
+    model_used = result.pop("model", None)
+
+    charged = 0
+    if result.get("source") == "ai":
+        charged = await _charge_generation(db, business_id, model_used,
+                                           action_type="business_bootstrap")
+
+    from app.api.miniapp import bust_storefront_cache
+    await bust_storefront_cache(business_id, db, redis)
+    return BootstrapResponse(charged=charged, **result)
 
 
 # ---------------------------------------------------------------------------

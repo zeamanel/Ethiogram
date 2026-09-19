@@ -37,6 +37,7 @@
     // Signal the UI that Chapa payments are available for authenticated owners.
     try { window.CHAPA_ENABLED = true; Eth.CHAPA_ENABLED = true; } catch (e) { /* no-op in restrictive env */ }
     IS_ADMIN = !!(auth && auth.is_admin);
+    REFERRAL = { link: auth && auth.referral_link, bonus: (auth && auth.referral_bonus) || 0 };
     let businesses;
     try {
       businesses = await Eth.get("/dashboard/businesses");
@@ -59,6 +60,7 @@
   // --- business switcher (only matters when the owner has >1 business) ---
   const BIZ_KEY = "eth_selected_biz";
   let ALL_BUSINESSES = [];
+  let REFERRAL = { link: null, bonus: 0 };
 
   function pickBusiness(businesses) {
     let saved = null;
@@ -172,7 +174,7 @@
 
   // ---- onboarding wizard (step 1: business details) ----
   function setupWizard() {
-    const showOnly = (id) => ["onboarding", "wiz-business", "wiz-bot"].forEach(x => x === id ? show(x) : hide(x));
+    const showOnly = (id) => ["onboarding", "wiz-business", "wiz-brief", "wiz-bot"].forEach(x => x === id ? show(x) : hide(x));
     $("onb-start").onclick = () => { showOnly("wiz-business"); $("wb-name").focus(); };
 
     $("wb-continue").onclick = async () => {
@@ -183,8 +185,7 @@
       setBtn("wb-continue", true, "Creating…");
       try {
         const biz = await Eth.post("/businesses", { name, category: cat || null });
-        // step 2; skipping reloads into the new (bot-less) dashboard.
-        connectBotFlow(biz.id, () => location.reload());
+        briefFlow(biz.id);            // step 2: AI builds the business from a prompt
       } catch (e) {
         showErr("wb-err", e.detail || "Couldn't create your business. Try again.");
         setBtn("wb-continue", false, "Continue →");
@@ -192,9 +193,43 @@
     };
   }
 
+  // ---- step 2: one prompt → Brain + catalog + storefront + website ----
+  function briefFlow(businessId) {
+    ["onboarding", "wiz-business", "wiz-bot"].forEach(hide);
+    show("wiz-brief"); hide("wz-err"); $("wz-brief").focus();
+
+    const next = () => connectBotFlow(businessId, () => location.reload());
+    $("wz-skip").onclick = next;
+    $("wz-build").onclick = async () => {
+      const brief = $("wz-brief").value.trim();
+      hide("wz-err");
+      if (brief.length < 10)
+        return showErr("wz-err", "Tell us a bit more — a sentence or two about what you sell or do.");
+      setBtn("wz-build", true, "Building… (~20 seconds)");
+      try {
+        const res = await Eth.post(`/businesses/${businessId}/bootstrap`, { brief });
+        if (res.source === "ai") {
+          const parts = [];
+          if (res.products) parts.push(`${res.products} products`);
+          if (res.services) parts.push(`${res.services} services`);
+          if (res.faqs) parts.push(`${res.faqs} FAQs`);
+          notify(`✨ Done! Set up ${parts.join(", ") || "your pages"} — your store and website are live. Now connect your bot.`);
+          hide("wiz-brief");
+          next();
+        } else {
+          showErr("wz-err", "The AI couldn't build from that — try adding more detail, or skip for now.");
+          setBtn("wz-build", false, "✨ Build my business");
+        }
+      } catch (e) {
+        showErr("wz-err", e.detail || "Couldn't build — please try again or skip.");
+        setBtn("wz-build", false, "✨ Build my business");
+      }
+    };
+  }
+
   // ---- connect-a-bot flow (shared by onboarding step 2 AND the dashboard "My Bots") ----
   function connectBotFlow(businessId, onCancel) {
-    ["loading", "error", "onboarding", "wiz-business", "dashboard"].forEach(hide);
+    ["loading", "error", "onboarding", "wiz-business", "wiz-brief", "dashboard"].forEach(hide);
     $("wb-token").value = ""; hide("wt-err");
     setBtn("wt-connect", false, "Connect bot →");
     show("wiz-bot"); $("wb-token").focus();
@@ -538,6 +573,19 @@
     $("ag-active").checked = !!a.is_active;
     $("ag-name").value = a.display_name || "";
 
+    // "Runs on" bot binding — only worth showing when there's a choice to make.
+    hide("ag-bot-row");
+    let botRowShown = false;
+    try {
+      const bots = await Eth.get(`/bots?business_id=${bizId}`);
+      if (bots && bots.length > 1) {
+        $("ag-bot").innerHTML = `<option value="">All bots</option>` + bots.map(bt =>
+          `<option value="${esc(bt.id)}">@${esc(bt.bot_username || bt.bot_display_name || "bot")}</option>`).join("");
+        $("ag-bot").value = a.assigned_bot_id || "";
+        show("ag-bot-row"); botRowShown = true;
+      }
+    } catch (e) { /* bots list is enrichment — manage still works without it */ }
+
     const data = a.child_data || {};
     const defs = agentFieldDefs(a.child_schema, data);
     renderSchemaFields("ag-fields", defs, data, "agf");
@@ -573,6 +621,7 @@
         display_name: $("ag-name").value.trim() || null,
         child_data,
       };
+      if (botRowShown) body.assigned_bot_id = $("ag-bot").value;   // "" = all bots
       if (sdefs.length) {
         const s = collectSecrets(sdefs, "ags");
         if (s.filled > 0 && s.filled < s.total)
@@ -743,7 +792,8 @@
       ? `${cfg.latitude}, ${cfg.longitude}` : "";
     $("se-vibe").value = cfg.ui_child_prompt || "";
 
-    // AI generation — "Generate page" (theme) / "Generate content" (copy).
+    // AI generation — "Create my page" (full: theme + copy + layout from the
+    // owner's brief), or "Only theme" / "Only text" for a partial refresh.
     // Applies suggestions to the editor fields; the owner reviews and Saves.
     async function runGenerate(kind, btnId) {
       const btn = $(btnId), note = $("se-ai-note"), label = btn.textContent;
@@ -760,6 +810,10 @@
         if (res.about) $("se-about").value = res.about;
         if (res.cta) $("se-cta").value = res.cta;
         if (res.hours) $("se-hours").value = res.hours;
+        if (res.sections && res.sections.length) {   // "full" also lays out the page
+          SF_SECTIONS = res.sections.map(s => ({ type: s.type, label: s.label, visible: s.visible }));
+          renderSfSections();
+        }
         const cost = res.charged ? ` (−${res.charged} ETG)` : "";
         note.textContent = res.source === "ai"
           ? `✨ Generated — review and tap Save to apply.${cost}`
@@ -770,6 +824,7 @@
         note.classList.remove("hidden");
       } finally { btn.disabled = false; btn.textContent = label; }
     }
+    $("se-gen-full").onclick = () => runGenerate("full", "se-gen-full");
     $("se-gen-page").onclick = () => runGenerate("page", "se-gen-page");
     $("se-gen-content").onclick = () => runGenerate("content", "se-gen-content");
 
@@ -870,7 +925,9 @@
       const btn = $("we-gen-seo"), note = $("we-ai-note"), label = btn.textContent;
       btn.disabled = true; btn.textContent = "Generating…"; note.classList.add("hidden");
       try {
-        const res = await Eth.post(`/businesses/${bizId}/website/generate`, {});
+        const brief = $("we-vibe").value.trim();
+        const res = await Eth.post(`/businesses/${bizId}/website/generate`,
+          brief ? { vibe: brief } : {});
         if (res.title) $("we-title").value = res.title;
         if (res.meta_description) $("we-meta").value = res.meta_description;
         if (res.hero_headline) $("we-headline").value = res.hero_headline;
@@ -1187,6 +1244,31 @@
       <span class="lchev">›</span></div>`;
     $("bl-row").onclick = () => openBilling(b.id);
     $("billing-customize").onclick = () => openBilling(b.id);
+
+    // invite & earn — share the referral link; both sides get ETG on activation
+    if (REFERRAL.link) {
+      show("invite-sec");
+      const shareUrl = "https://t.me/share/url?url=" + encodeURIComponent(REFERRAL.link)
+        + "&text=" + encodeURIComponent("Get an AI bot for your business on Ethiogram 🇪🇹");
+      $("invite-card").innerHTML = `<div class="litem">
+        <div class="lic ic-amber">🎁</div>
+        <div class="linfo"><div class="lname">Invite a business, you both get ${fmt(REFERRAL.bonus)} ETG</div>
+          <div class="lmeta">Paid when their first bot goes live.</div></div></div>
+        <div class="copy-row" style="padding:0 14px 12px">
+          <input id="ref-link" type="text" readonly value="${esc(REFERRAL.link)}">
+          <button class="copy-btn" id="ref-copy">Copy</button>
+          <button class="copy-btn" id="ref-share">Share</button>
+        </div>`;
+      $("ref-copy").onclick = async () => {
+        try { await navigator.clipboard.writeText(REFERRAL.link); $("ref-copy").textContent = "Copied ✓"; }
+        catch (e) { $("ref-link").select(); try { document.execCommand("copy"); $("ref-copy").textContent = "Copied ✓"; } catch (e2) {} }
+        setTimeout(() => { $("ref-copy").textContent = "Copy"; }, 1600);
+      };
+      $("ref-share").onclick = () => {
+        if (Eth.tg && Eth.tg.openTelegramLink) Eth.tg.openTelegramLink(shareUrl);
+        else window.open(shareUrl, "_blank");
+      };
+    }
 
     // active agents — each row opens the manage view (pause/rename/config)
     const agents = ov.active_agents || [];

@@ -113,6 +113,9 @@ class ChildAgentUpdateRequest(BaseModel):
     child_secrets: Optional[dict] = None   # credentials/API keys — encrypted at rest
     display_name: Optional[str] = None
     is_active: Optional[bool] = None
+    # Bind this agent to ONE of the business's bots ("" = run on all bots).
+    # None (omitted) = unchanged — standard partial-PATCH semantics.
+    assigned_bot_id: Optional[str] = None
 
 
 class ChildAgentDetailResponse(BaseModel):
@@ -130,6 +133,7 @@ class ChildAgentDetailResponse(BaseModel):
     child_schema: Optional[dict] = None   # author's field contract (for the UI)
     setup_guide: Optional[str] = None
     has_secrets: bool
+    assigned_bot_id: Optional[str] = None   # None = runs on all the business's bots
 
 
 class ReviewRequest(BaseModel):
@@ -289,6 +293,13 @@ async def start_trial(
         )
     )).scalar_one_or_none()
     if child is None:
+        # Enforce the per-business deployment cap (was dead config until now).
+        deployed = await db.scalar(select(func.count(ChildAgent.id)).where(
+            ChildAgent.business_id == body.business_id))
+        if (deployed or 0) >= settings.max_child_agents_per_bot:
+            raise ValidationError(
+                f"Agent limit reached ({settings.max_child_agents_per_bot}). "
+                "Remove an agent before deploying another.")
         child = ChildAgent(
             agent_id=agent_id,
             business_id=body.business_id,
@@ -447,6 +458,7 @@ async def get_child_agent(
         child_schema=father.child_schema if father else None,
         setup_guide=father.setup_guide if father else None,
         has_secrets=child.child_secrets is not None,
+        assigned_bot_id=str(child.assigned_to_bot_id) if child.assigned_to_bot_id else None,
     )
 
 
@@ -466,6 +478,20 @@ async def update_child_agent(
         child.display_name = body.display_name
     if body.is_active is not None:
         child.is_active = body.is_active
+    if body.assigned_bot_id is not None:
+        if body.assigned_bot_id == "":
+            child.assigned_to_bot_id = None          # back to "all bots"
+        else:
+            from app.db.models import Bot
+            try:
+                bot_uuid = uuid.UUID(body.assigned_bot_id)
+            except ValueError:
+                raise ValidationError("assigned_bot_id must be a bot UUID or empty")
+            bot_ok = await db.scalar(select(Bot.id).where(
+                Bot.id == bot_uuid, Bot.business_id == child.business_id))
+            if bot_ok is None:
+                raise NotFoundError("Bot", body.assigned_bot_id)
+            child.assigned_to_bot_id = bot_uuid
 
 
 @router.delete("/child/{child_agent_id}/secrets", status_code=204)

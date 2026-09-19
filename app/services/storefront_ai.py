@@ -24,6 +24,9 @@ logger = get_logger(__name__)
 
 # Fonts the storefront actually ships (must match the editor's <select> options).
 SUPPORTED_FONTS = ("Sora", "Inter", "Poppins", "DM Sans", "Fraunces", "Syne")
+# Every section type the storefront can render (must match businesses._SECTION_LABELS).
+SECTION_TYPES = ("hero", "categories", "products", "services", "menu",
+                 "hours", "contact", "chat")
 _HEX6 = re.compile(r"#[0-9A-Fa-f]{6}")
 _THEME_COLOR_KEYS = ("primary", "accent", "bg", "text", "surface")
 
@@ -44,6 +47,25 @@ _CONTENT_SYS = (
     "cta (the storefront button text, an action phrase <= 24 characters, "
     'e.g. "Book your visit", "Get a quote", "Shop now"), and '
     "hours (a short plausible opening-hours line, or empty string if unknown)."
+)
+_FULL_SYS = (
+    "You are a one-shot website builder for small businesses: brand designer, "
+    "copywriter and information architect in one. The owner has written a brief "
+    "describing the page they want — FOLLOW THE BRIEF CLOSELY; it outranks every "
+    "other signal. Design their complete storefront page. Respond with ONLY a "
+    "compact JSON object (no prose, no markdown) with keys:\n"
+    "theme: object with primary, accent, bg, text, surface (6-digit hex like "
+    '"#1A73E8", strong text/bg contrast), font_heading and font_body (each '
+    "EXACTLY one of: " + ", ".join(SUPPORTED_FONTS) + ");\n"
+    "tagline (<= 80 chars, punchy, in the business's own language);\n"
+    "about (1-2 warm sentences, <= 240 chars);\n"
+    "cta (action phrase <= 24 chars);\n"
+    "hours (short opening-hours line, or empty string if unknown);\n"
+    "sections: array of section types to SHOW, in display order, chosen only "
+    "from: " + ", ".join(SECTION_TYPES) + ". Pick what fits the business — e.g. "
+    'a restaurant shows "menu", a salon shows "services", a shop shows '
+    '"products"; always start with "hero"; include "chat" so customers can ask '
+    "questions; skip types with nothing to show."
 )
 
 
@@ -83,7 +105,7 @@ def _context(business, vibe, products, services) -> str:
     if services:
         parts.append("Services: " + ", ".join(services[:8]))
     if vibe:
-        parts.append(f"Desired vibe: {vibe}")
+        parts.append(f"Owner's brief (follow closely): {vibe}")
     return "\n".join(parts)
 
 
@@ -122,18 +144,43 @@ def _sanitize_content(raw: dict) -> dict:
     return out
 
 
-async def generate(db: AsyncSession, business, kind: str, vibe: str | None = None) -> dict:
-    """Generate a storefront theme ("page") or copy ("content").
+def _sanitize_sections(raw) -> list[str]:
+    """Filter the LLM's section list to known types, deduped, order preserved.
+    Hero is forced first — a storefront without a hero renders headless.
+    Returns [] when nothing valid came back (caller keeps current layout)."""
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for s in raw:
+        t = s.get("type") if isinstance(s, dict) else s
+        if isinstance(t, str) and t.strip().lower() in SECTION_TYPES:
+            t = t.strip().lower()
+            if t not in out:
+                out.append(t)
+    if not out:
+        return []
+    if "hero" in out:
+        out.remove("hero")
+    return ["hero"] + out
 
-    Returns ``{kind, source, theme?, tagline?, hours?}`` where source is "ai"
-    when the LLM produced usable output and "fallback" otherwise. Never raises.
+
+async def generate(db: AsyncSession, business, kind: str, vibe: str | None = None) -> dict:
+    """Generate a storefront theme ("page"), copy ("content"), or the whole
+    page at once ("full": theme + copy + section layout from the owner's brief).
+
+    Returns ``{kind, source, theme?, tagline?, hours?, sections?}`` where source
+    is "ai" when the LLM produced usable output and "fallback" otherwise.
+    Never raises.
     """
-    kind = "content" if kind == "content" else "page"
+    if kind not in ("content", "page", "full"):
+        kind = "page"
     products, services = await _catalog_snippet(db, business.id)
     ctx = _context(business, vibe, products, services)
-    system = _CONTENT_SYS if kind == "content" else _THEME_SYS
-    user = (f"{ctx}\n\nReturn the JSON now." if kind == "content"
-            else f"{ctx}\n\nDesign the theme. Return the JSON now.")
+    system = {"content": _CONTENT_SYS, "page": _THEME_SYS, "full": _FULL_SYS}[kind]
+    task = {"content": "Return the JSON now.",
+            "page": "Design the theme. Return the JSON now.",
+            "full": "Build the complete page. Return the JSON now."}[kind]
+    user = f"{ctx}\n\n{task}"
 
     raw: dict = {}
     source = "fallback"
@@ -143,7 +190,7 @@ async def generate(db: AsyncSession, business, kind: str, vibe: str | None = Non
             messages=[{"role": "user", "content": user}],
             system_prompt=system,
             business_id=business.id,
-            max_tokens=500,
+            max_tokens=900 if kind == "full" else 500,
             temperature=0.8,
         )
         raw = _extract_json(text)
@@ -154,19 +201,27 @@ async def generate(db: AsyncSession, business, kind: str, vibe: str | None = Non
                        business_id=str(business.id), error=f"{type(exc).__name__}: {exc}")
 
     result = {"kind": kind, "source": source, "model": model_used}
-    if kind == "content":
+    if kind in ("content", "full"):
         content = _sanitize_content(raw)
-        if not content:
+        if not content and kind == "content":
             content = {"tagline": f"{business.name} — quality you can trust.",
                        "cta": "Order on Telegram"}
             result["source"] = "fallback"
         result.update(content)
-    else:
-        theme = _sanitize_theme(raw)
+    if kind in ("page", "full"):
+        theme_raw = raw.get("theme") if kind == "full" else raw
+        theme = _sanitize_theme(theme_raw if isinstance(theme_raw, dict) else {})
         if not theme:
             theme = _fallback_theme()
-            result["source"] = "fallback"
+            if kind == "page":
+                result["source"] = "fallback"
         result["theme"] = theme
+    if kind == "full":
+        sections = _sanitize_sections(raw.get("sections"))
+        if sections:
+            result["sections"] = sections
+        if not raw:                       # nothing usable at all → true fallback
+            result["source"] = "fallback"
     return result
 
 
